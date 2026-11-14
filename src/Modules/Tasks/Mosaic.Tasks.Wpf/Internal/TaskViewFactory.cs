@@ -8,7 +8,7 @@ internal sealed class TaskViewFactory(TasksUiDependencies dependencies) : IViewF
     public ViewPage Create()
     {
         if (!dependencies.Dispatcher.CheckAccess()) throw new InvalidOperationException("Views must be created on the UI thread.");
-        var model = new TasksViewModel(dependencies.Api, dependencies.Dispatcher, dependencies.Dialogs, dependencies.Diagnostics);
+        var model = new TasksViewModel(dependencies.Api, dependencies.Dispatcher, dependencies.Dialogs, dependencies.Diagnostics, dependencies.Settings);
         return new(new TasksView { DataContext = model }, model);
     }
 }

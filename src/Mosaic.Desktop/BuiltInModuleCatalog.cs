@@ -1,5 +1,9 @@
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
+using Mosaic.Settings.Core;
+using Mosaic.Settings.Contracts;
+using Mosaic.Settings.Sqlite;
+using Mosaic.Settings.Wpf;
 using Mosaic.Storage.Sqlite;
 using Mosaic.Tasks.Core;
 using Mosaic.Tasks.Sqlite;
@@ -26,6 +30,9 @@ internal sealed class ModuleRuntimeContext(
     internal SqliteModule? Storage { get; set; }
     internal TasksSqliteModule? Repository { get; set; }
     internal TasksModule? Tasks { get; set; }
+    internal SettingsSqliteModule? SettingsRepository { get; set; }
+    internal SettingsModule? Settings { get; set; }
+    internal IHostSettingSource? HostSettings { get; init; }
 }
 
 internal static class BuiltInModuleCatalog
@@ -51,13 +58,38 @@ internal static class BuiltInModuleCatalog
                 context.Clock,
                 context.Ids,
                 new Mosaic.Kernel.ModuleExecutionGate(),
-                context.Diagnostics));
+                context.Diagnostics,
+                context.Settings?.Api));
             return context.Tasks;
         }),
         [TasksUiModule.Definition.Id] = new(TasksUiModule.Definition, context =>
         {
             return new TasksUiModule(new(
                 context.Tasks?.Api ?? throw new InvalidOperationException("Task API was not assembled before task UI."),
+                context.Dispatcher,
+                context.Dialogs,
+                context.Diagnostics,
+                context.Settings?.Api));
+        })
+        ,
+        [SettingsSqliteModule.Definition.Id] = new(SettingsSqliteModule.Definition, context =>
+        {
+            context.SettingsRepository = new(new(context.Storage?.Session ?? throw new InvalidOperationException("Storage was not assembled before settings repository.")));
+            return context.SettingsRepository;
+        }),
+        [SettingsModule.Definition.Id] = new(SettingsModule.Definition, context =>
+        {
+            context.Settings = new(new(
+                context.SettingsRepository?.Repository ?? throw new InvalidOperationException("Settings repository was not assembled before settings core."),
+                context.HostSettings,
+                new Mosaic.Kernel.ModuleExecutionGate(),
+                context.Diagnostics));
+            return context.Settings;
+        }),
+        [SettingsUiModule.Definition.Id] = new(SettingsUiModule.Definition, context =>
+        {
+            return new SettingsUiModule(new(
+                context.Settings?.Api ?? throw new InvalidOperationException("Settings API was not assembled before settings UI."),
                 context.Dispatcher,
                 context.Dialogs,
                 context.Diagnostics));

@@ -5,6 +5,12 @@
       "mosaic.contracts": {
         "type": "Project"
       },
+      "mosaic.settings.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "Mosaic.Contracts": "[0.1.0, )"
+        }
+      },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {

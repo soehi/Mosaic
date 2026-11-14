@@ -43,6 +43,7 @@ pwsh -File build/package.ps1 -NoPublish
 - [细节实现计划](docs/implementation-plan.md)：接口、数据结构、目录、开发顺序与验收条件。
 - [技术方案变更记录](docs/decisions/0001-csharp-wpf.md)：C# + WPF 的实施选择及其影响。
 - [实施与验证记录](docs/implementation-status.md)：实际交付、测试覆盖和待验收事项。
+- [设置功能规划](docs/settings-plan.md)：可参数化清单、普通/高级设置边界与模块化方案。
 - [Mosaic 0.1.0 发布说明](docs/releases/v0.1.0.md)：安装信息、校验值和验证结果。
 
 核心约束：每项职责只有一个归属模块；跨模块只允许通过公开协议提出调用申请，禁止访问内部实现和数据；缺少能力时先判断职责归属，再扩展公开接口或创建模块；宿主负责装配；导航和页面入口由已激活功能的贡献参数生成。

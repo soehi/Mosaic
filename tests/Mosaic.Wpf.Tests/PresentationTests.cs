@@ -38,6 +38,8 @@ public sealed class PresentationTests
         public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) => Task.FromResult(SaveError is null ? OperationResult<TaskItemDto>.Success(Item with { Title = request.Title, Revision = request.ExpectedRevision + 1 }) : OperationResult<TaskItemDto>.Failure(SaveError));
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult<TaskItemDto>.Success(Item with { IsCompleted = request.IsCompleted }));
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(OperationResult.Success()); }
+        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
     }
     private sealed class Diagnostics : IDiagnosticSink
     {
@@ -250,9 +252,10 @@ public sealed class PresentationTests
         await page.Controller.DisposeAsync();
     });
     [Fact]
-    public Task Editor_keeps_the_action_bar_outside_the_form_scroller_and_lets_notes_grow() => Sta.Run(() =>
+    public Task Editor_keeps_the_action_bar_outside_the_form_scroller_and_lets_notes_grow() => Sta.Run(async () =>
     {
-        var editor = new Mosaic.Tasks.Wpf.Views.TaskEditorView();
+        var page = await Page(new Api(), new Dialogs());
+        var editor = Assert.IsType<Mosaic.Tasks.Wpf.Views.TaskEditorView>(page.View.FindName("TaskEditorPane"));
         Arrange(editor, 520, 640);
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
@@ -264,8 +267,7 @@ public sealed class PresentationTests
         Assert.Equal(2, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
         Assert.True(notes.MinHeight >= 120);
-        Assert.True(notes.MaxHeight >= notes.MinHeight);
-        return Task.CompletedTask;
+        Assert.True(double.IsPositiveInfinity(notes.MaxHeight));
     });
     [Fact]
     public Task Muted_text_meets_readability_targets_and_all_system_palettes_load() => Sta.Run(() =>

@@ -175,6 +175,54 @@ public sealed class ResponsiveLayoutTests
         shell.Close();
     });
 
+    [Fact]
+    public Task Over_compressed_task_views_keep_actions_and_text_operable() => Sta.Run(async () =>
+    {
+        var api = new Api();
+        var page = await CreateTaskPage(api, new Dialogs());
+        var view = page.View;
+        view.Resources.MergedDictionaries.Add(LoadTheme());
+        await page.Controller.InitializeAsync();
+
+        var model = view.DataContext!;
+        var list = Assert.IsType<Grid>(view.FindName("TaskListPane"));
+        var editor = Assert.IsType<TaskEditorView>(view.FindName("TaskEditorPane"));
+        var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
+        var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
+        var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
+        var toggle = Assert.IsType<Button>(editor.FindName("ToggleButton"));
+        var reload = Assert.IsType<Button>(editor.FindName("ReloadButton"));
+        var delete = Assert.IsType<Button>(editor.FindName("DeleteButton"));
+
+        Arrange(view, 420, 480);
+        Assert.True(view.ActualWidth <= 420);
+        Assert.Equal(Visibility.Visible, list.Visibility);
+        Assert.Equal(Visibility.Collapsed, editor.Visibility);
+        var newTask = Assert.IsType<Button>(view.FindName("NewTaskButton"));
+        Assert.True(newTask.ActualWidth >= 96);
+        Assert.True(newTask.ActualHeight >= 40);
+
+        await Get<IAsyncRelayCommand<TaskItemDto>>(model, "SelectCommand").ExecuteAsync(api.Item);
+        Arrange(view, 560, 480);
+        Assert.Equal(Visibility.Visible, editor.Visibility);
+        Assert.True(toggle.ActualWidth >= 96);
+        Assert.True(toggle.ActualHeight >= 40);
+        Assert.True(reload.ActualWidth >= 96);
+        Assert.True(reload.ActualHeight >= 40);
+        Assert.Equal(1, Grid.GetRow(delete));
+        Assert.True(delete.ActualHeight >= 40);
+        Assert.True(notes.ActualHeight >= 128);
+        Assert.True(form.ExtentHeight >= form.ViewportHeight);
+        Assert.True(actionBar.TranslatePoint(new Point(0, actionBar.ActualHeight), editor).Y <= editor.ActualHeight + 0.5);
+
+        Arrange(view, 480, 480);
+        Assert.Equal(Visibility.Visible, editor.Visibility);
+        Assert.True(toggle.ActualWidth >= 96);
+        Assert.True(delete.ActualHeight >= 40);
+
+        await page.Controller.DisposeAsync();
+    });
+
     private static async Task<ViewPage> CreateTaskPage(ITasksApi api, IUserDialogService dialogs)
     {
         var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
@@ -271,5 +319,8 @@ public sealed class ResponsiveLayoutTests
 
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+
+        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
     }
 }

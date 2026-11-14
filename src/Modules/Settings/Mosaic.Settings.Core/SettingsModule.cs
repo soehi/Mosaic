@@ -1,0 +1,47 @@
+using Mosaic.Contracts;
+using Mosaic.Settings.Contracts;
+using Mosaic.Settings.Core.Internal;
+
+namespace Mosaic.Settings.Core;
+
+public sealed record SettingsDependencies(ISettingRepository Repository, IHostSettingSource? HostSource = null, IModuleExecutionGate? Gate = null, IDiagnosticSink? Diagnostics = null);
+
+public interface ISettingRepository
+{
+    Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default);
+    Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
+}
+
+public sealed class SettingsModule : IModuleActivation
+{
+    private readonly IModuleExecutionGate? _gate;
+    private readonly SettingsService _service;
+
+    public SettingsModule(SettingsDependencies dependencies)
+        : this(dependencies, new(dependencies.Repository, dependencies.HostSource)) { }
+
+    internal SettingsModule(SettingsDependencies dependencies, SettingsService service)
+    {
+        _gate = dependencies.Gate;
+        _service = service;
+        Api = new GuardedSettingsApi(service, dependencies.Gate, dependencies.Diagnostics);
+    }
+
+    public static ModuleManifest Definition { get; } = new(
+        "settings-core",
+        [new("settings.api", 1)],
+        [new("settings.repository", 1), new("sqlite.session", 1)],
+        "Owns setting definitions, validation and persistence routing.");
+    public ModuleManifest Manifest => Definition;
+    public ISettingsCore Api { get; }
+    internal SettingsService Service => _service;
+    public Task ActivateAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _gate?.Activate();
+        return Task.CompletedTask;
+    }
+    public Task StopAsync() => _gate?.StopAsync() ?? Task.CompletedTask;
+    public async ValueTask DisposeAsync() { if (_gate is not null) await _gate.StopAsync().ConfigureAwait(false); }
+}

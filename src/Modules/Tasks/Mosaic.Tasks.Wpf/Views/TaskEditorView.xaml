@@ -65,6 +65,8 @@
                     <TextBlock Text="{Binding Editor.Metadata}"
                                Margin="0,7,0,18"
                                FontSize="11"
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
 
                     <Border Margin="0,0,0,16"
@@ -122,7 +124,8 @@
                                    Visibility="{Binding Editor.HasTitleError, Converter={StaticResource BoolVisibility}}"/>
                         <TextBlock Text="{Binding Editor.TitleCountLabel}"
                                    HorizontalAlignment="Right"
-                                   FontSize="10">
+                                   FontSize="10"
+                                   Visibility="{Binding ShowCharacterCount, Converter={StaticResource BoolVisibility}}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
@@ -153,8 +156,7 @@
                     <TextBox x:Name="NotesTextBox"
                              Text="{Binding Editor.Notes, UpdateSourceTrigger=PropertyChanged}"
                              IsEnabled="{Binding CanEdit}"
-                             MinHeight="128"
-                             MaxHeight="260"
+                             MinHeight="{Binding NotesMinHeight}"
                              TextWrapping="Wrap"
                              AcceptsReturn="True"
                              VerticalContentAlignment="Top"
@@ -168,7 +170,8 @@
                                    Visibility="{Binding Editor.HasNotesError, Converter={StaticResource BoolVisibility}}"/>
                         <TextBlock Text="{Binding Editor.NotesCountLabel}"
                                    HorizontalAlignment="Right"
-                                   FontSize="10">
+                                   FontSize="10"
+                                   Visibility="{Binding ShowCharacterCount, Converter={StaticResource BoolVisibility}}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
@@ -237,6 +240,8 @@
 
                     <Button Content="保存任务"
                             Command="{Binding SaveCommand}"
+                            MinWidth="{Binding TaskButtonMinWidth}"
+                            MinHeight="{Binding TaskButtonMinHeight}"
                             Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
                             ToolTip="填写或修改内容后即可保存"
                             AutomationProperties.AutomationId="SaveTask"/>
@@ -263,21 +268,24 @@
                         <Button x:Name="ToggleButton"
                                 Content="{Binding Editor.ToggleLabel}"
                                 Command="{Binding ToggleCommand}"
-                                MinHeight="40"
+                                MinWidth="{Binding TaskButtonMinWidth}"
+                                MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ToggleTask"/>
                         <Button x:Name="ReloadButton"
+                                MinWidth="{Binding TaskButtonMinWidth}"
                                 Grid.Column="2"
                                 Content="重新加载"
                                 Command="{Binding ReloadCommand}"
-                                MinHeight="40"
+                                MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ReloadTask"/>
                         <Button x:Name="DeleteButton"
                                 Grid.Column="4"
                                 Content="删除"
                                 Command="{Binding DeleteCommand}"
-                                MinHeight="40"
+                                MinWidth="{Binding TaskButtonMinWidth}"
+                                MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
                                 AutomationProperties.AutomationId="DeleteTask"/>
                     </Grid>

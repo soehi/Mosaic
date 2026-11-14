@@ -9,6 +9,9 @@ using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
 using Mosaic.Shell.Wpf;
+using Mosaic.Settings.Contracts;
+using Mosaic.Settings.Core;
+using Mosaic.Settings.Wpf;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf;
 
@@ -27,9 +30,14 @@ public sealed class PreviewCaptureTests
 
         await CaptureShell(output, 1220, 780, "shell-wide.png");
         await CaptureShell(output, 760, 620, "shell-760-rail.png");
+        await CaptureShell(output, 760, 620, "shell-rail-dot-only.png");
         await CaptureTasksOnly(output, 760, 620, "tasks-detail-760.png", selectTask: true);
         await CaptureTasksOnly(output, 920, 780, "tasks-detail-920.png", selectTask: true);
+        await CaptureTasksOnly(output, 560, 480, "tasks-detail-560.png", selectTask: true);
+        await CaptureTasksOnly(output, 480, 480, "tasks-list-480.png", selectTask: false);
         await CaptureTasksOnly(output, 460, 640, "tasks-list-narrow.png", selectTask: false);
+        await CaptureSettings(output, 1220, 780, "settings-wide.png");
+        await CaptureSettings(output, 760, 620, "settings-760.png");
     });
 
     private static async Task CaptureShell(string output, double width, double height, string fileName)
@@ -78,6 +86,20 @@ public sealed class PreviewCaptureTests
                 page.View.DataContext.GetType().GetProperty("SelectCommand")!.GetValue(page.View.DataContext));
             await select.ExecuteAsync(Api.First);
         }
+        var resources = LoadTheme();
+        var host = new Grid { Resources = resources };
+        host.Children.Add(page.View);
+        Arrange(host, width, height);
+        Render(host, width, height, Path.Combine(output, fileName));
+        await page.Controller.DisposeAsync();
+    }
+
+    private static async Task CaptureSettings(string output, double width, double height, string fileName)
+    {
+        var module = new SettingsUiModule(new(new SettingsApi(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var page = Assert.Single(module.Views).Factory.Create();
+        await page.Controller.InitializeAsync();
         var resources = LoadTheme();
         var host = new Grid { Resources = resources };
         host.Children.Add(page.View);
@@ -135,6 +157,20 @@ public sealed class PreviewCaptureTests
         public void Report(string correlationId, Exception exception) { }
     }
 
+    private sealed class SettingsApi : ISettingsApi
+    {
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(SettingCatalog.Definitions));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
+                SettingCatalog.Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+    }
+
     private sealed class Api : ITasksApi
     {
         public static TaskItemDto First { get; } = new(
@@ -165,5 +201,7 @@ public sealed class PreviewCaptureTests
             Task.FromResult(OperationResult<TaskItemDto>.Success((request.Id == First.Id ? First : Second) with { IsCompleted = request.IsCompleted }));
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
     }
 }

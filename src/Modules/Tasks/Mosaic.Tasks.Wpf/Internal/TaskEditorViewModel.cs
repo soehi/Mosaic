@@ -12,6 +12,12 @@ internal sealed class TaskEditorViewModel : ObservableObject
     private string _titleError = "";
     private string _notesError = "";
     private TaskItemDto? _current;
+    private TaskConstraintsDto _constraints = new(
+        TaskConstraints.TitleMaxCharacters,
+        TaskConstraints.NotesMaxCharacters,
+        TitleRequired: true,
+        DefaultCompleted: false,
+        RevisionStart: 1);
 
     public TaskItemDto? Current => _current;
     public string Title
@@ -48,12 +54,27 @@ internal sealed class TaskEditorViewModel : ObservableObject
     public string StateLabel => _current?.IsCompleted == true ? "已完成" : "未完成";
     public string ToggleLabel => _current?.IsCompleted == true ? "恢复未完成" : "标记完成";
     public string Metadata => _current is null ? "记录一个想法，开始下一步。" : $"创建于 {_current.CreatedAtUtc.ToLocalTime():MM月dd日 HH:mm}  ·  版本 {_current.Revision}";
-    public string TitleHelpText => $"必填 · 最多 {TaskConstraints.TitleMaxCharacters:N0} 个字符";
-    public string NotesHelpText => $"可选 · 最多 {TaskConstraints.NotesMaxCharacters:N0} 个字符";
-    public string TitleCountLabel => $"{CountCharacters(Title):N0} / {TaskConstraints.TitleMaxCharacters:N0}";
-    public string NotesCountLabel => $"{CountCharacters(Notes):N0} / {TaskConstraints.NotesMaxCharacters:N0}";
-    public bool TitleExceedsLimit => CountCharacters(Title) > TaskConstraints.TitleMaxCharacters;
-    public bool NotesExceedsLimit => CountCharacters(Notes) > TaskConstraints.NotesMaxCharacters;
+    public string TitleHelpText => $"{(_constraints.TitleRequired ? "必填" : "可选")} · 最多 {_constraints.TitleMaxCharacters:N0} 个字符";
+    public string NotesHelpText => $"可选 · 最多 {_constraints.NotesMaxCharacters:N0} 个字符";
+    public string TitleCountLabel => $"{CountCharacters(Title):N0} / {_constraints.TitleMaxCharacters:N0}";
+    public string NotesCountLabel => $"{CountCharacters(Notes):N0} / {_constraints.NotesMaxCharacters:N0}";
+    public bool TitleExceedsLimit => CountCharacters(Title) > _constraints.TitleMaxCharacters;
+    public bool NotesExceedsLimit => CountCharacters(Notes) > _constraints.NotesMaxCharacters;
+
+    internal void ApplyConstraints(TaskConstraintsDto constraints)
+    {
+        _constraints = constraints;
+        foreach (var name in new[]
+        {
+            nameof(TitleHelpText),
+            nameof(NotesHelpText),
+            nameof(TitleCountLabel),
+            nameof(NotesCountLabel),
+            nameof(TitleExceedsLimit),
+            nameof(NotesExceedsLimit)
+        })
+            OnPropertyChanged(name);
+    }
 
     internal void Load(TaskItemDto? task)
     {
@@ -77,13 +98,13 @@ internal sealed class TaskEditorViewModel : ObservableObject
 
     internal bool Validate()
     {
-        TitleError = CountCharacters(Title.Trim()) == 0
+        TitleError = _constraints.TitleRequired && CountCharacters(Title.Trim()) == 0
             ? "请输入任务标题。"
             : TitleExceedsLimit
-                ? $"标题最多 {TaskConstraints.TitleMaxCharacters:N0} 个字符。"
+                ? $"标题最多 {_constraints.TitleMaxCharacters:N0} 个字符。"
                 : "";
         NotesError = NotesExceedsLimit
-            ? $"备注最多 {TaskConstraints.NotesMaxCharacters:N0} 个字符。"
+            ? $"备注最多 {_constraints.NotesMaxCharacters:N0} 个字符。"
             : "";
         return !HasTitleError && !HasNotesError;
     }

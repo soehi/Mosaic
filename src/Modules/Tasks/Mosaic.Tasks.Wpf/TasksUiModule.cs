@@ -5,7 +5,12 @@ using Mosaic.Tasks.Wpf.Internal;
 
 namespace Mosaic.Tasks.Wpf;
 
-public sealed record TasksUiDependencies(ITasksApi Api, IUiDispatcher Dispatcher, IUserDialogService Dialogs, IDiagnosticSink Diagnostics);
+public sealed record TasksUiDependencies(
+    ITasksApi Api,
+    IUiDispatcher Dispatcher,
+    IUserDialogService Dialogs,
+    IDiagnosticSink Diagnostics,
+    Mosaic.Settings.Contracts.ISettingsCore? Settings = null);
 
 public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleActivation, IUiModule
 {

@@ -6,4 +6,6 @@ TestResults/
 *.user
 *.suo
 *.sqlite*
+!tests/Mosaic.Settings.Sqlite.Tests/
+!tests/Mosaic.Settings.Sqlite.Tests/SettingsRepositoryTests.cs
 *.log

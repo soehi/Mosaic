@@ -69,14 +69,16 @@
                             BorderThickness="1"
                             CornerRadius="9"
                             Padding="12,10"
-                            ToolTip="本机工作空间 · 离线可用 · 数据保存在此电脑"
-                            AutomationProperties.Name="本机工作空间，离线可用，数据保存在此电脑">
+                            ToolTip="本机工作空间 · 离线可用"
+                            AutomationProperties.Name="本机工作空间，离线可用">
                         <DockPanel>
                             <Ellipse x:Name="WorkspaceStatusDot"
                                      Width="7"
                                      Height="7"
                                      Margin="0,0,8,0"
                                      VerticalAlignment="Center"
+                                     ToolTip="本机工作空间 · 离线可用"
+                                     AutomationProperties.Name="本机工作空间，离线可用"
                                      Fill="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
                             <TextBlock x:Name="StatusText"
                                        Text="本机工作空间"
@@ -173,10 +175,23 @@
                     BorderThickness="0,0,0,1"
                     Padding="32,0">
                 <DockPanel VerticalAlignment="Center">
-                    <TextBlock Text="MOSAIC / 工作空间"
+                    <TextBlock x:Name="WorkspaceBreadcrumb"
+                               Text="MOSAIC / 工作空间"
                                DockPanel.Dock="Right"
                                FontSize="10"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                 Value="True">
+                                        <Setter Property="Text" Value="MOSAIC"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding PageTitle}"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>

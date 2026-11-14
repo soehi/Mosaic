@@ -1,17 +1,19 @@
 using System.Windows.Controls;
 using System.Windows;
+using System.ComponentModel;
+using Mosaic.Tasks.Wpf.Internal;
 
 namespace Mosaic.Tasks.Wpf.Views;
 
 public partial class TaskEditorView : UserControl
 {
-    private const double CompactActionsWidth = 480;
-    private const double CompactActionsHeight = 680;
     private bool? _compactActions;
+    private TasksViewModel? _model;
 
     public TaskEditorView()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
         SizeChanged += OnSizeChanged;
     }
@@ -25,11 +27,44 @@ public partial class TaskEditorView : UserControl
     private void OnSizeChanged(object sender, SizeChangedEventArgs e) =>
         UpdateResponsiveActions(e.NewSize.Width, e.NewSize.Height);
 
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is INotifyPropertyChanged previous) previous.PropertyChanged -= OnModelPropertyChanged;
+        _model = e.NewValue as TasksViewModel;
+        if (_model is not null) _model.PropertyChanged += OnModelPropertyChanged;
+        ApplyModelSettings();
+        _compactActions = null;
+        UpdateResponsiveActions(ActualWidth, ActualHeight);
+    }
+
+    private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(TasksViewModel.CompactActionsWidth) or nameof(TasksViewModel.CompactActionsHeight) or
+            nameof(TasksViewModel.NotesMinHeight) or nameof(TasksViewModel.TaskButtonMinWidth) or nameof(TasksViewModel.TaskButtonMinHeight))
+        {
+            ApplyModelSettings();
+            _compactActions = null;
+            UpdateResponsiveActions(ActualWidth, ActualHeight);
+        }
+    }
+
+    private void ApplyModelSettings()
+    {
+        NotesTextBox.MinHeight = _model?.NotesMinHeight ?? 128;
+        var minimumWidth = _model?.TaskButtonMinWidth ?? 96;
+        var minimumHeight = _model?.TaskButtonMinHeight ?? 40;
+        foreach (var button in new[] { ToggleButton, ReloadButton, DeleteButton })
+        {
+            button.MinWidth = minimumWidth;
+            button.MinHeight = minimumHeight;
+        }
+    }
+
     private void UpdateResponsiveActions(double width, double height)
     {
         if (width <= 0 || height <= 0) return;
 
-        var useCompactActions = width < CompactActionsWidth || height < CompactActionsHeight;
+        var useCompactActions = width < (_model?.CompactActionsWidth ?? 480) || height < (_model?.CompactActionsHeight ?? 680);
         if (_compactActions == useCompactActions) return;
         _compactActions = useCompactActions;
 

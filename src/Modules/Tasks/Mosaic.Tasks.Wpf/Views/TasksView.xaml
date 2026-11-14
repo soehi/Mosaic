@@ -39,6 +39,8 @@
                            Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
             </StackPanel>
             <Button x:Name="NewTaskButton"
+                    MinWidth="{Binding TaskButtonMinWidth}"
+                    MinHeight="{Binding TaskButtonMinHeight}"
                     Grid.Column="1"
                     Content="＋  新建任务"
                     Command="{Binding NewCommand}"
@@ -133,6 +135,7 @@
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="Padding" Value="0"/>
                                 <Setter Property="Margin" Value="0,0,6,10"/>
+                                <Setter Property="MinHeight" Value="60"/>
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
                                 <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
@@ -202,6 +205,7 @@
                                         <TextBlock Text="{Binding CreatedLabel}"
                                                    Margin="0,7,0,0"
                                                    FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                                     </StackPanel>
                                 </Grid>

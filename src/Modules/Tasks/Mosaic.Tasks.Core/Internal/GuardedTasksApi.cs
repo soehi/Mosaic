@@ -26,7 +26,7 @@ internal sealed class GuardedTasksApi(TaskService service, IModuleExecutionGate 
         Invoke(request is { Title: not null, Notes: not null }, () => service.CreateAsync(request, cancellationToken), cancellationToken);
     public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default) => Invoke(id != Guid.Empty, () => service.GetAsync(id, cancellationToken), cancellationToken);
     public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default) =>
-        Invoke(query is not null && Enum.IsDefined(query.Filter), () => service.ListAsync(query!, cancellationToken), cancellationToken);
+        Invoke(query is not null && Enum.IsDefined(query.Filter) && Enum.IsDefined(query.SortOrder), () => service.ListAsync(query!, cancellationToken), cancellationToken);
     public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) =>
         Invoke(request is { Title: not null, Notes: not null } && Valid(request.Id, request.ExpectedRevision), () => service.UpdateAsync(request!, cancellationToken), cancellationToken);
     public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) =>
@@ -40,4 +40,6 @@ internal sealed class GuardedTasksApi(TaskService service, IModuleExecutionGate 
         }, cancellationToken).ConfigureAwait(false);
         return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
     }
+    public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
+        Invoke(true, () => service.GetConstraintsAsync(cancellationToken), cancellationToken);
 }

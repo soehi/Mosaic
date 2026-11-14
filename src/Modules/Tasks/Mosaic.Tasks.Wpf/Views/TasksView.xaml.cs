@@ -7,7 +7,6 @@ namespace Mosaic.Tasks.Wpf.Views;
 
 public partial class TasksView : UserControl
 {
-    private const double CompactBreakpoint = 920;
     private bool? _isCompact;
     private TasksViewModel? _model;
 
@@ -39,13 +38,23 @@ public partial class TasksView : UserControl
     {
         if (e.PropertyName == nameof(TasksViewModel.IsEditorOpen))
             UpdatePaneVisibility();
+        else if (e.PropertyName == nameof(TasksViewModel.CompactBreakpoint))
+        {
+            _isCompact = null;
+            UpdateResponsiveLayout(ActualWidth);
+        }
+        else if (e.PropertyName == nameof(TasksViewModel.ListMinColumnWidth))
+        {
+            if (_isCompact == false) TaskListColumn.MinWidth = _model?.ListMinColumnWidth ?? 300;
+        }
     }
 
     private void UpdateResponsiveLayout(double width)
     {
         if (width <= 0) return;
 
-        var useCompactLayout = width < CompactBreakpoint;
+        var breakpoint = _model?.CompactBreakpoint ?? 920;
+        var useCompactLayout = width < breakpoint;
         if (_isCompact == useCompactLayout) return;
 
         _isCompact = useCompactLayout;
@@ -69,7 +78,7 @@ public partial class TasksView : UserControl
         NewTaskButton.Margin = new Thickness(24, 0, 0, 0);
 
         TaskListColumn.Width = new GridLength(5, GridUnitType.Star);
-        TaskListColumn.MinWidth = 300;
+        TaskListColumn.MinWidth = _model?.ListMinColumnWidth ?? 300;
         ContentGapColumn.Width = new GridLength(24);
         TaskEditorColumn.Width = new GridLength(3, GridUnitType.Star);
         TaskListRow.Height = new GridLength(1, GridUnitType.Star);

@@ -2,11 +2,11 @@ using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Tasks.Wpf.Internal;
 
-internal sealed class TaskListItemViewModel(TaskItemDto item)
+internal sealed class TaskListItemViewModel(TaskItemDto item, string untitledTitle)
 {
     public TaskItemDto Item { get; } = item;
     public Guid Id => Item.Id;
-    public string Title => Item.Title;
+    public string Title => string.IsNullOrWhiteSpace(Item.Title) ? untitledTitle : Item.Title;
     public bool IsCompleted => Item.IsCompleted;
     public string CompletionGlyph => IsCompleted ? "✓" : "○";
     public string CreatedLabel => $"创建于 {Item.CreatedAtUtc.LocalDateTime:MM-dd HH:mm}";

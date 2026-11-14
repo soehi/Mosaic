@@ -24,7 +24,15 @@ internal sealed class MemoryTaskRepository : ITaskRepository
         {
             if (Failure is not null) return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Failure(Failure));
             var matches = _items.Values.Where(t => query.Filter == TaskFilter.All || t.IsCompleted == (query.Filter == TaskFilter.Completed));
-            var ordered = Ordering is null ? matches.OrderByDescending(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal) : Ordering(matches);
+            var ordered = Ordering is not null
+                ? Ordering(matches)
+                : query.SortOrder switch
+                {
+                    TaskSortOrder.CreatedAsc => matches.OrderBy(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
+                    TaskSortOrder.TitleAsc => matches.OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
+                    TaskSortOrder.TitleDesc => matches.OrderByDescending(t => t.Title, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
+                    _ => matches.OrderByDescending(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal)
+                };
             return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(Array.AsReadOnly(ordered.ToArray())));
         }
     }

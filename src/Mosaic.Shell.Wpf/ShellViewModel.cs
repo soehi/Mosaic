@@ -14,11 +14,13 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private FrameworkElement? _content;
     private string _pageTitle = "工作空间";
     private string? _currentNavigationId;
-    internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs)
+    private IDisposable? _settingsRegistration;
+    internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsCore? settings)
     {
         _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs; Navigation = registry.Navigation;
         NavigateCommand = new AsyncRelayCommand<NavigationItem>(NavigateAsync);
         registry.Changed += OnContributionsChanged;
+        _settingsRegistration = settings?.Register(new ShellSettingSource());
     }
     public IReadOnlyList<NavigationItem> Navigation { get; }
     public FrameworkElement? Content { get => _content; private set => SetProperty(ref _content, value); }
@@ -66,7 +68,15 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _registry.Changed -= OnContributionsChanged;
+        _settingsRegistration?.Dispose();
         await _removePage;
         await _navigation.DisposeAsync();
+    }
+
+    private sealed class ShellSettingSource : Mosaic.Settings.Contracts.ISettingSource
+    {
+        public string ModuleId => "shell";
+        public IReadOnlyList<Mosaic.Settings.Contracts.SettingDefinition> Definitions => Mosaic.Settings.Core.SettingCatalog.ForModule(ModuleId);
+        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

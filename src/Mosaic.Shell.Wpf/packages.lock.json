@@ -19,6 +19,19 @@
       },
       "mosaic.presentation.wpf": {
         "type": "Project"
+      },
+      "mosaic.settings.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "Mosaic.Contracts": "[0.1.0, )"
+        }
+      },
+      "mosaic.settings.core": {
+        "type": "Project",
+        "dependencies": {
+          "Mosaic.Contracts": "[0.1.0, )",
+          "Mosaic.Settings.Contracts": "[0.1.0, )"
+        }
       }
     }
   }

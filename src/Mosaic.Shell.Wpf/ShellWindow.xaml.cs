@@ -24,9 +24,9 @@ public partial class ShellWindow : Window, IAsyncDisposable
     private ShellSidebarMode _sidebarMode = ShellSidebarMode.Expanded;
     private bool _sidebarLayoutInitialized;
 
-    public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs)
+    public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsCore? settings = null)
     {
-        InitializeComponent(); _model = new(contributions, dialogs); DataContext = _model;
+        InitializeComponent(); _model = new(contributions, dialogs, settings); DataContext = _model;
     }
 
     public bool IsSidebarCompact
@@ -77,9 +77,18 @@ public partial class ShellWindow : Window, IAsyncDisposable
         StatusText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         StatusDetail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceStatusDot.Margin = compact ? new Thickness(0) : new Thickness(0, 0, 8, 0);
-        WorkspaceStatusCard.Width = compact ? 44 : double.NaN;
-        WorkspaceStatusCard.Height = compact ? 44 : double.NaN;
+        WorkspaceStatusDot.Width = compact ? 9 : 7;
+        WorkspaceStatusDot.Height = compact ? 9 : 7;
+        WorkspaceStatusCard.Width = double.NaN;
+        WorkspaceStatusCard.Height = double.NaN;
         WorkspaceStatusCard.Padding = compact ? new Thickness(0) : new Thickness(12, 10, 12, 10);
+        WorkspaceStatusCard.Background = compact
+            ? System.Windows.Media.Brushes.Transparent
+            : (System.Windows.Media.Brush?)TryFindResource(Mosaic.Presentation.Wpf.MosaicTheme.SurfaceMutedBrushKey) ?? System.Windows.Media.Brushes.Transparent;
+        WorkspaceStatusCard.BorderBrush = compact
+            ? System.Windows.Media.Brushes.Transparent
+            : (System.Windows.Media.Brush?)TryFindResource(Mosaic.Presentation.Wpf.MosaicTheme.BorderBrushKey) ?? System.Windows.Media.Brushes.Transparent;
+        WorkspaceStatusCard.BorderThickness = compact ? new Thickness(0) : new Thickness(1);
         TopBar.Padding = compact ? new Thickness(20, 0, 20, 0) : new Thickness(32, 0, 32, 0);
     }
 }

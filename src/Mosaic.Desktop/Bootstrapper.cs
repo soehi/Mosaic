@@ -23,6 +23,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
     internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs)
     {
         var configuration = AppConfiguration.Load(paths);
+        var hostSettings = new HostSettingSource(paths);
         IReadOnlyList<ModuleManifest> ordered;
         try { ordered = ModuleGraph.Resolve(configuration.Modules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(), configuration.Providers); }
         catch (InvalidOperationException ex) { throw new ConfigurationException("模块依赖校验失败：" + ex.Message); }
@@ -40,11 +41,14 @@ internal sealed class Bootstrapper : IAsyncDisposable
             _host.Services.GetRequiredService<IIdGenerator>(),
             diagnostics,
             dispatcher,
-            dialogs);
+            dialogs)
+        {
+            HostSettings = hostSettings
+        };
         try
         {
             await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest));
-            return new ShellWindow(_contributions, dialogs);
+            return new ShellWindow(_contributions, dialogs, context.Settings?.Api);
         }
         catch (Exception)
         {

@@ -4,8 +4,10 @@ namespace Mosaic.Tasks.Contracts;
 
 public sealed record TaskItemDto(Guid Id, string Title, string Notes, bool IsCompleted, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, long Revision);
 public enum TaskFilter { All, Open, Completed }
-public sealed record TaskQuery(TaskFilter Filter = TaskFilter.All);
-public sealed record CreateTaskRequest(string Title, string Notes);
+public enum TaskSortOrder { CreatedDesc, CreatedAsc, TitleAsc, TitleDesc }
+public sealed record TaskQuery(TaskFilter Filter = TaskFilter.All, TaskSortOrder SortOrder = TaskSortOrder.CreatedDesc);
+public sealed record TaskConstraintsDto(int TitleMaxCharacters, int NotesMaxCharacters, bool TitleRequired, bool DefaultCompleted, long RevisionStart);
+public sealed record CreateTaskRequest(string Title, string Notes, bool IsCompleted = false);
 public sealed record UpdateTaskRequest(Guid Id, string Title, string Notes, long ExpectedRevision);
 public sealed record SetTaskCompletedRequest(Guid Id, bool IsCompleted, long ExpectedRevision);
 public sealed record DeleteTaskRequest(Guid Id, long ExpectedRevision);
@@ -18,4 +20,5 @@ public interface ITasksApi
     Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default);
     Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default);
+    Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default);
 }
