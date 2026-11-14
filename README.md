@@ -6,7 +6,7 @@
 
 当前版本：0.1.0。已实现模块化 WPF 应用、SQLite 持久化、任务增删改、完成/恢复、筛选、冲突反馈及未保存编辑确认。
 
-本机交付文件：`artifacts/win-x64/Mosaic.Desktop.exe`（请保留整个文件夹）；每用户安装包：`artifacts/installer/Mosaic-0.1.0-win-x64.msi`。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.1.0](https://github.com/soehi/Mosaic/releases/download/v0.1.0/Mosaic-0.1.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 
@@ -31,6 +31,8 @@ dotnet run --project src/Mosaic.Desktop
 pwsh -File build/package.ps1 -NoPublish
 ```
 
+本机构建产物位于 `artifacts/win-x64` 和 `artifacts/installer`。
+
 安装到 `%LOCALAPPDATA%\Programs\Mosaic`，开始菜单提供 Mosaic 入口。数据、配置、日志分别位于 `%LOCALAPPDATA%\Mosaic\Data`、`Config`、`Logs`。首次复制默认配置，后续无效配置保留原文件并显示诊断；模块配置修改后重启生效。`modules: []` 不打开数据库。卸载保留用户数据。
 
 可使用 `Mosaic.Desktop.exe --data-root D:\Some\Absolute\Folder` 运行独立工作空间；参数路径必须为绝对路径。数据库备份为同目录中的 `mosaic.sqlite.backup-*.sqlite`，升级前自动生成；恢复时先完全退出程序，再保留当前数据库副本并用所选备份替换。
@@ -41,5 +43,6 @@ pwsh -File build/package.ps1 -NoPublish
 - [细节实现计划](docs/implementation-plan.md)：接口、数据结构、目录、开发顺序与验收条件。
 - [技术方案变更记录](docs/decisions/0001-csharp-wpf.md)：C# + WPF 的实施选择及其影响。
 - [实施与验证记录](docs/implementation-status.md)：实际交付、测试覆盖和待验收事项。
+- [Mosaic 0.1.0 发布说明](docs/releases/v0.1.0.md)：安装信息、校验值和验证结果。
 
 核心约束：每项职责只有一个归属模块；跨模块只允许通过公开协议提出调用申请，禁止访问内部实现和数据；缺少能力时先判断职责归属，再扩展公开接口或创建模块；宿主负责装配；导航和页面入口由已激活功能的贡献参数生成。
