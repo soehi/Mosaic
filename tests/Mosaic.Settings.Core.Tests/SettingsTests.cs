@@ -56,8 +56,8 @@ public sealed class SettingsTests
     [Fact]
     public async Task Catalog_has_planned_definitions_and_unique_ids()
     {
-        Assert.Equal(54, SettingCatalog.Definitions.Count);
-        Assert.Equal(54, SettingCatalog.Definitions.Select(item => item.Id).Distinct().Count());
+        Assert.Equal(55, SettingCatalog.Definitions.Count);
+        Assert.Equal(55, SettingCatalog.Definitions.Select(item => item.Id).Distinct().Count());
         Assert.Contains(SettingCatalog.Definitions, item => item.Id == "appearance.theme");
         Assert.Contains(SettingCatalog.Definitions, item => item.Id == "diagnostics.singleInstanceRetryMilliseconds");
         Assert.Contains(SettingCatalog.Definitions, item => item.Id == "ui.text.restoredSuccess");

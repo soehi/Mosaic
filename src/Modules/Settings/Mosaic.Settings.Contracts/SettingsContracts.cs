@@ -22,6 +22,8 @@ public sealed record SettingDefinition(
     SettingPersistence Persistence,
     string? Warning = null);
 
+public sealed record SettingOption(string Value, string DisplayNameKey);
+
 public interface ISettingSource
 {
     string ModuleId { get; }

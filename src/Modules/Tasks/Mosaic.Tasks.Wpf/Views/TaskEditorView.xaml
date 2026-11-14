@@ -29,12 +29,12 @@
                     BorderThickness="0,0,0,1"
                     Visibility="Collapsed">
                 <Button x:Name="BackToTaskListButton"
-                        Content="‹  返回任务列表"
+                        Content="{DynamicResource Tasks.BackToList}"
                         Command="{Binding BackToListCommand}"
                         HorizontalAlignment="Left"
                         Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                         AutomationProperties.AutomationId="BackToTaskList"
-                        AutomationProperties.Name="返回任务列表"/>
+                        AutomationProperties.Name="{DynamicResource Tasks.BackToList}"/>
             </Border>
 
             <ScrollViewer x:Name="FormScrollViewer"
@@ -53,7 +53,7 @@
                                 Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
                                 CornerRadius="10"
                                 Visibility="{Binding Editor.IsDirty, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="尚未保存"
+                            <TextBlock Text="{DynamicResource Tasks.NotSaved}"
                                        FontSize="10"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                         </Border>
@@ -78,7 +78,7 @@
                             Visibility="{Binding HasConflict, Converter={StaticResource BoolVisibility}}"
                             AutomationProperties.AutomationId="TaskConflict">
                         <StackPanel>
-                            <TextBlock Text="这项任务已在别处更新"
+                            <TextBlock Text="{DynamicResource Tasks.ConflictTitle}"
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.DangerBrushKey}}"/>
                             <TextBlock Text="{Binding Error}"
@@ -86,12 +86,12 @@
                                        FontSize="11"
                                        TextWrapping="Wrap"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-                            <TextBlock Text="当前输入会保留。重新加载最新版本后再修改。"
+                            <TextBlock Text="{DynamicResource Tasks.ConflictDescription}"
                                        Margin="0,4,0,9"
                                        FontSize="11"
                                        TextWrapping="Wrap"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                            <Button Content="重新加载最新版本"
+                            <Button Content="{DynamicResource Tasks.ReloadLatest}"
                                     Command="{Binding ReloadCommand}"
                                     HorizontalAlignment="Left"
                                     Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
@@ -104,7 +104,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="任务标题"
+                            <TextBlock Text="{DynamicResource Tasks.TitleLabel}"
                                    FontSize="12"
                                    FontWeight="SemiBold"/>
                         <TextBlock Grid.Column="1"
@@ -145,7 +145,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="备注"
+                            <TextBlock Text="{DynamicResource Tasks.NotesLabel}"
                                    FontSize="12"
                                    FontWeight="SemiBold"/>
                         <TextBlock Grid.Column="1"
@@ -238,14 +238,14 @@
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                     </Border>
 
-                    <Button Content="保存任务"
+                    <Button Content="{DynamicResource Tasks.Save}"
                             Command="{Binding SaveCommand}"
                             MinWidth="{Binding TaskButtonMinWidth}"
                             MinHeight="{Binding TaskButtonMinHeight}"
                             Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                            ToolTip="填写或修改内容后即可保存"
+                            ToolTip="{DynamicResource Tasks.SaveHint}"
                             AutomationProperties.AutomationId="SaveTask"/>
-                    <TextBlock Text="填写或修改内容后即可保存"
+                    <TextBlock Text="{DynamicResource Tasks.SaveHint}"
                                Margin="0,5,0,0"
                                HorizontalAlignment="Center"
                                FontSize="10"
@@ -275,14 +275,14 @@
                         <Button x:Name="ReloadButton"
                                 MinWidth="{Binding TaskButtonMinWidth}"
                                 Grid.Column="2"
-                                Content="重新加载"
+                                Content="{DynamicResource Tasks.Reload}"
                                 Command="{Binding ReloadCommand}"
                                 MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ReloadTask"/>
                         <Button x:Name="DeleteButton"
                                 Grid.Column="4"
-                                Content="删除"
+                                Content="{DynamicResource Tasks.Delete}"
                                 Command="{Binding DeleteCommand}"
                                 MinWidth="{Binding TaskButtonMinWidth}"
                                 MinHeight="{Binding TaskButtonMinHeight}"

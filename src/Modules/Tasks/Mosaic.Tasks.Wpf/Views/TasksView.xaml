@@ -31,9 +31,9 @@
                 <RowDefinition x:Name="HeaderActionRow" Height="0"/>
             </Grid.RowDefinitions>
             <StackPanel x:Name="HeaderText" MaxWidth="620" HorizontalAlignment="Left">
-                <TextBlock Text="今天，先完成一件事"
+                <TextBlock Text="{DynamicResource Tasks.Header}"
                            Style="{DynamicResource {x:Static theme:MosaicTheme.HeaderTextKey}}"/>
-                <TextBlock Text="收好杂念，把下一步放在眼前。"
+                <TextBlock Text="{DynamicResource Tasks.Subheader}"
                            Margin="0,8,0,0"
                            TextWrapping="Wrap"
                            Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
@@ -42,7 +42,7 @@
                     MinWidth="{Binding TaskButtonMinWidth}"
                     MinHeight="{Binding TaskButtonMinHeight}"
                     Grid.Column="1"
-                    Content="＋  新建任务"
+                    Content="{DynamicResource Tasks.NewTask}"
                     Command="{Binding NewCommand}"
                     Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
                     HorizontalAlignment="Right"
@@ -77,7 +77,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="任务清单"
+                        <TextBlock Text="{DynamicResource Tasks.ListTitle}"
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
                         <TextBlock Text="{Binding CountLabel}"
@@ -90,12 +90,12 @@
                               IsEnabled="{Binding CanEdit}"
                               SelectedIndex="{Binding FilterIndex}"
                               AutomationProperties.AutomationId="TaskFilter">
-                        <ComboBoxItem Content="全部任务"/>
-                        <ComboBoxItem Content="未完成"/>
-                        <ComboBoxItem Content="已完成"/>
+                        <ComboBoxItem Content="{DynamicResource Tasks.FilterAll}"/>
+                        <ComboBoxItem Content="{DynamicResource Tasks.FilterOpen}"/>
+                        <ComboBoxItem Content="{DynamicResource Tasks.FilterCompleted}"/>
                     </ComboBox>
                     <Button Grid.Column="2"
-                            Content="刷新"
+                            Content="{DynamicResource Tasks.Refresh}"
                             Command="{Binding LoadCommand}"
                             IsEnabled="{Binding CanRefresh}"
                             Margin="8,0,0,0"
@@ -125,7 +125,7 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              AutomationProperties.AutomationId="TaskList"
-                             AutomationProperties.Name="任务列表">
+                             AutomationProperties.Name="{DynamicResource Tasks.ListTitle}">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <VirtualizingStackPanel/>
@@ -258,7 +258,7 @@
                             IsHitTestVisible="False"
                             Visibility="{Binding IsLoading, Converter={StaticResource BoolVisibility}}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <TextBlock Text="正在读取任务…"
+                            <TextBlock Text="{DynamicResource Tasks.Loading}"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         </StackPanel>
                     </Border>
@@ -274,7 +274,7 @@
                                     Margin="24"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center">
-                            <TextBlock Text="任务列表加载失败"
+                            <TextBlock Text="{DynamicResource Tasks.LoadError}"
                                        HorizontalAlignment="Center"
                                        FontSize="17"
                                        FontWeight="SemiBold"/>
@@ -283,7 +283,7 @@
                                        TextWrapping="Wrap"
                                        TextAlignment="Center"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.DangerBrushKey}}"/>
-                            <Button Content="重试"
+                            <Button Content="{DynamicResource Tasks.Retry}"
                                     Command="{Binding LoadCommand}"
                                     IsEnabled="{Binding CanRetry}"
                                     HorizontalAlignment="Center"

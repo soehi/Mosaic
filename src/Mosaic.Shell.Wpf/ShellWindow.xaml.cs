@@ -26,6 +26,10 @@ public partial class ShellWindow : Window, IAsyncDisposable
 
     public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsCore? settings = null)
     {
+        Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("pack://application:,,,/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Absolute)
+        });
         InitializeComponent(); _model = new(contributions, dialogs, settings); DataContext = _model;
     }
 

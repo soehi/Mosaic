@@ -15,6 +15,7 @@ public sealed record TasksUiDependencies(
 public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleActivation, IUiModule
 {
     private bool _active;
+    private IDisposable? _localizationRegistration;
     public static ModuleManifest Definition { get; } = new(
         "tasks-ui",
         [],
@@ -23,7 +24,27 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
     public ModuleManifest Manifest => Definition;
     public IReadOnlyList<NavigationItem> Navigation => _active ? [new("tasks.navigation", "任务", "check-square", "tasks.list", 100)] : [];
     public IReadOnlyList<ViewContribution> Views => _active ? [new("tasks.list", new TaskViewFactory(dependencies))] : [];
-    public Task ActivateAsync(CancellationToken cancellationToken = default) { cancellationToken.ThrowIfCancellationRequested(); _active = true; return Task.CompletedTask; }
-    public Task StopAsync() { _active = false; return Task.CompletedTask; }
-    public ValueTask DisposeAsync() { _active = false; return ValueTask.CompletedTask; }
+    public Task ActivateAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _localizationRegistration ??= Mosaic.Presentation.Wpf.MosaicLocalizationManager.Register(
+            "tasks-ui",
+            language => Mosaic.Tasks.Wpf.Internal.TaskLocalization.Dictionary(language == Mosaic.Presentation.Wpf.MosaicLanguage.English));
+        _active = true;
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync()
+    {
+        _active = false;
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _active = false;
+        _localizationRegistration?.Dispose();
+        _localizationRegistration = null;
+        await ValueTask.CompletedTask;
+    }
 }

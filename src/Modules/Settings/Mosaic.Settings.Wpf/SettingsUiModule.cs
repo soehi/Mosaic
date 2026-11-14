@@ -15,6 +15,7 @@ public sealed record SettingsUiDependencies(
 public sealed class SettingsUiModule(SettingsUiDependencies dependencies) : IModuleActivation, IUiModule
 {
     private bool _active;
+    private IDisposable? _localizationRegistration;
 
     public static ModuleManifest Definition { get; } = new(
         "settings-ui",
@@ -31,6 +32,9 @@ public sealed class SettingsUiModule(SettingsUiDependencies dependencies) : IMod
     public Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _localizationRegistration ??= Mosaic.Presentation.Wpf.MosaicLocalizationManager.Register(
+            "settings-ui",
+            language => Mosaic.Settings.Wpf.Internal.SettingsLocalizationDictionaries.Dictionary(language == Mosaic.Presentation.Wpf.MosaicLanguage.English));
         _active = true;
         return Task.CompletedTask;
     }
@@ -42,6 +46,8 @@ public sealed class SettingsUiModule(SettingsUiDependencies dependencies) : IMod
     public ValueTask DisposeAsync()
     {
         _active = false;
+        _localizationRegistration?.Dispose();
+        _localizationRegistration = null;
         return ValueTask.CompletedTask;
     }
 }

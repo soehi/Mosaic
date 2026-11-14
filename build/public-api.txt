@@ -24,6 +24,8 @@ Mosaic.Presentation.Contracts.UnsavedChoice
 Mosaic.Presentation.Contracts.ViewContribution
 Mosaic.Presentation.Contracts.ViewPage
 Mosaic.Presentation.Wpf.MosaicTheme
+Mosaic.Presentation.Wpf.MosaicLanguage
+Mosaic.Presentation.Wpf.MosaicLocalizationManager
 Mosaic.Presentation.Wpf.MosaicThemeManager
 Mosaic.Presentation.Wpf.MosaicThemeVariant
 Mosaic.Shell.Wpf.ContributionRegistry
@@ -33,6 +35,7 @@ Mosaic.Shell.Wpf.UserDialogService
 Mosaic.Settings.Contracts.SettingApplyMode
 Mosaic.Settings.Contracts.SettingCategory
 Mosaic.Settings.Contracts.SettingDefinition
+Mosaic.Settings.Contracts.SettingOption
 Mosaic.Settings.Contracts.SettingPersistence
 Mosaic.Settings.Contracts.SettingValueKind
 Mosaic.Settings.Contracts.IHostSettingSource

@@ -310,6 +310,7 @@ public sealed class PresentationTests
 
         var registration = registry.Register(module.Navigation, module.Views);
         var shell = new ShellWindow(registry, new Dialogs());
+        shell.Resources.MergedDictionaries.Add(LoadTheme());
         await shell.InitializeAsync();
         shell.ShowInTaskbar = false;
         shell.WindowStyle = WindowStyle.None;

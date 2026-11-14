@@ -56,7 +56,7 @@
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
                     </StackPanel>
                     <TextBlock x:Name="BrandTagline"
-                               Text="让每一件事，有迹可循"
+                               Text="{DynamicResource Shell.Tagline}"
                                Margin="1,10,0,0"
                                FontSize="11"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
@@ -69,25 +69,25 @@
                             BorderThickness="1"
                             CornerRadius="9"
                             Padding="12,10"
-                            ToolTip="本机工作空间 · 离线可用"
-                            AutomationProperties.Name="本机工作空间，离线可用">
+                            ToolTip="{DynamicResource Shell.WorkspaceStatusDetail}"
+                            AutomationProperties.Name="{DynamicResource Shell.WorkspaceStatusAccessibility}">
                         <DockPanel>
                             <Ellipse x:Name="WorkspaceStatusDot"
                                      Width="7"
                                      Height="7"
                                      Margin="0,0,8,0"
                                      VerticalAlignment="Center"
-                                     ToolTip="本机工作空间 · 离线可用"
-                                     AutomationProperties.Name="本机工作空间，离线可用"
+                                     ToolTip="{DynamicResource Shell.WorkspaceStatusDetail}"
+                                     AutomationProperties.Name="{DynamicResource Shell.WorkspaceStatusAccessibility}"
                                      Fill="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
                             <TextBlock x:Name="StatusText"
-                                       Text="本机工作空间"
+                                       Text="{DynamicResource Shell.WorkspaceStatus}"
                                        FontSize="12"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         </DockPanel>
                     </Border>
                     <TextBlock x:Name="StatusDetail"
-                               Text="离线可用 · 数据保存在此电脑"
+                               Text="{DynamicResource Shell.WorkspaceStatusDetail}"
                                Margin="4,10,0,0"
                                FontSize="10"
                                TextWrapping="Wrap"
@@ -176,7 +176,7 @@
                     Padding="32,0">
                 <DockPanel VerticalAlignment="Center">
                     <TextBlock x:Name="WorkspaceBreadcrumb"
-                               Text="MOSAIC / 工作空间"
+                               Text="{DynamicResource Shell.WorkspaceBreadcrumb}"
                                DockPanel.Dock="Right"
                                FontSize="10"
                                TextTrimming="CharacterEllipsis"
@@ -223,11 +223,11 @@
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
                         </Border>
-                        <TextBlock Text="工作空间已就绪"
+                        <TextBlock Text="{DynamicResource Shell.EmptyTitle}"
                                    Margin="0,20,0,0"
                                    FontSize="24"
                                    FontWeight="SemiBold"/>
-                        <TextBlock Text="当前没有启用的功能。修改模块配置并重启后即可使用。"
+                        <TextBlock Text="{DynamicResource Shell.EmptyDescription}"
                                    Margin="0,10,0,0"
                                    TextWrapping="Wrap"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>

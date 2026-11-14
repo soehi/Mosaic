@@ -11,6 +11,49 @@ public static class SettingCatalog
     public static IReadOnlyList<SettingDefinition> ForModule(string moduleId) =>
         Definitions.Where(item => item.ModuleId == moduleId).ToArray();
 
+    public static IReadOnlyList<SettingOption> OptionsFor(string settingId) => settingId switch
+    {
+        "appearance.theme" => Options("Setting.Value.FollowSystem", "Setting.Value.Light", "Setting.Value.Dark", "Setting.Value.HighContrast"),
+        "ui.language" => Options("Setting.Value.FollowSystemLanguage", "Setting.Value.Chinese", "Setting.Value.English"),
+        "tasks.defaultFilter" => Options("Setting.Value.All", "Setting.Value.Open", "Setting.Value.Completed"),
+        "tasks.sortOrder" => Options("Setting.Value.CreatedDesc", "Setting.Value.CreatedAsc", "Setting.Value.TitleAsc", "Setting.Value.TitleDesc"),
+        "storage.journalMode" => Options("Setting.Value.Delete", "Setting.Value.Wal"),
+        "storage.connectionMode" => Options("Setting.Value.ReusedSingle", "Setting.Value.PooledPerOperation"),
+        "logging.level" => Options("Setting.Value.Debug", "Setting.Value.Information", "Setting.Value.Warning", "Setting.Value.Error", "Setting.Value.None"),
+        _ => []
+    };
+
+    private static IReadOnlyList<SettingOption> Options(params string[] displayNameKeys) => displayNameKeys
+        .Select((displayNameKey, index) => new SettingOption(ValuesFor(displayNameKey)[index], displayNameKey))
+        .ToArray();
+
+    private static string[] ValuesFor(string displayNameKey) => displayNameKey switch
+    {
+        "Setting.Value.FollowSystem" => ["FollowSystem"],
+        "Setting.Value.Light" => ["Light"],
+        "Setting.Value.Dark" => ["Dark"],
+        "Setting.Value.HighContrast" => ["HighContrast"],
+        "Setting.Value.FollowSystemLanguage" => ["FollowSystem"],
+        "Setting.Value.Chinese" => ["Chinese"],
+        "Setting.Value.English" => ["English"],
+        "Setting.Value.All" => ["All"],
+        "Setting.Value.Open" => ["Open"],
+        "Setting.Value.Completed" => ["Completed"],
+        "Setting.Value.CreatedDesc" => ["CreatedDesc"],
+        "Setting.Value.CreatedAsc" => ["CreatedAsc"],
+        "Setting.Value.TitleAsc" => ["TitleAsc"],
+        "Setting.Value.TitleDesc" => ["TitleDesc"],
+        "Setting.Value.Delete" => ["Delete"],
+        "Setting.Value.Wal" => ["Wal"],
+        "Setting.Value.ReusedSingle" => ["ReusedSingle"],
+        "Setting.Value.PooledPerOperation" => ["PooledPerOperation"],
+        "Setting.Value.Debug" => ["Debug"],
+        "Setting.Value.Information" => ["Information"],
+        "Setting.Value.Warning" => ["Warning"],
+        "Setting.Value.Error" => ["Error"],
+        _ => ["None"]
+    };
+
     private static IReadOnlyList<SettingDefinition> Create()
     {
         const string shell = "shell";
@@ -23,6 +66,7 @@ public static class SettingCatalog
         return
         [
             Definition("appearance.theme", shell, "主题", "界面配色跟随系统或固定主题", SettingValueKind.Enum, "FollowSystem", null, null, ["FollowSystem", "Light", "Dark", "HighContrast"], SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
+            Definition("ui.language", shell, "界面语言", "选择中文或英文界面", SettingValueKind.Enum, "FollowSystem", null, null, ["FollowSystem", "Chinese", "English"], SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
             Definition("tasks.confirmDelete", tasksUi, "删除前确认", "删除任务前显示确认框", SettingValueKind.Boolean, true, null, null, null, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
             Definition("tasks.confirmUnsaved", tasksUi, "未保存离开确认", "离开编辑器前确认未保存内容", SettingValueKind.Boolean, true, null, null, null, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
             Definition("tasks.defaultFilter", tasksUi, "默认筛选", "打开任务页时使用的筛选", SettingValueKind.Enum, "All", null, null, ["All", "Open", "Completed"], SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
