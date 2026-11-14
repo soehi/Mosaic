@@ -23,6 +23,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private bool _disposed;
     private int _filter;
     private TaskListItemViewModel? _selectedItem;
+    private bool _editorOpen;
     private string _listError = "";
     private string _message = "";
     private string _error = "";
@@ -37,6 +38,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
+        BackToListCommand = new AsyncRelayCommand(BackToListAsync, () => !IsBusy && IsEditorOpen);
         SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty);
         ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => !IsBusy && Editor.HasTask);
         DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => !IsBusy && Editor.HasTask);
@@ -50,6 +52,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }
+    public IAsyncRelayCommand BackToListCommand { get; }
     public IAsyncRelayCommand SaveCommand { get; }
     public IAsyncRelayCommand ToggleCommand { get; }
     public IAsyncRelayCommand DeleteCommand { get; }
@@ -67,6 +70,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
                 return;
             }
             _ = SelectFromListAsync(value);
+        }
+    }
+
+    public bool IsEditorOpen
+    {
+        get => _editorOpen;
+        private set
+        {
+            if (!SetProperty(ref _editorOpen, value)) return;
+            OnPropertyChanged(nameof(ShowListMessage));
+            BackToListCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -112,6 +126,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool CanRetry => HasListError && CanRefresh;
     public bool HasGeneralError => !string.IsNullOrEmpty(Error) && !HasConflict;
     public bool HasMessage => !string.IsNullOrEmpty(Message);
+    public bool ShowListMessage => HasMessage && !IsEditorOpen;
     public string CountLabel => FilterIndex switch
     {
         1 => $"{Items.Count} 项未完成",
@@ -144,7 +159,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         get => _message;
         private set
         {
-            if (SetProperty(ref _message, value)) OnPropertyChanged(nameof(HasMessage));
+            if (!SetProperty(ref _message, value)) return;
+            OnPropertyChanged(nameof(HasMessage));
+            OnPropertyChanged(nameof(ShowListMessage));
         }
     }
     public string Error
@@ -215,13 +232,19 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (FilterIndex != 0) SetFilter(0, load: false);
         Editor.Load(null);
         SetSelectedItem(null);
+        IsEditorOpen = true;
         ClearFeedback();
         await LoadAsync();
     }
 
     private async Task SelectFromCommandAsync(TaskItemDto? task)
     {
-        if (task is null || task.Id == Editor.Current?.Id) return;
+        if (task is null) return;
+        if (task.Id == Editor.Current?.Id)
+        {
+            IsEditorOpen = true;
+            return;
+        }
         var previous = SelectedItem;
         var requested = Items.FirstOrDefault(item => item.Id == task.Id);
         if (requested is not null) SetSelectedItem(requested);
@@ -232,7 +255,11 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         var previous = SelectedItem;
         SetSelectedItem(requested);
-        if (requested.Id == Editor.Current?.Id) return;
+        if (requested.Id == Editor.Current?.Id)
+        {
+            IsEditorOpen = true;
+            return;
+        }
         if (!await SelectAsync(requested.Item)) SetSelectedItem(previous);
     }
 
@@ -247,6 +274,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 Editor.Load(result.Value);
                 SetSelectedItem(Items.FirstOrDefault(item => item.Id == result.Value.Id));
+                IsEditorOpen = true;
                 ClearFeedback();
                 return true;
             }
@@ -354,6 +382,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 Editor.Load(null);
                 SetSelectedItem(null);
+                IsEditorOpen = false;
                 ShowMessage("任务已删除");
                 await LoadAsync();
             }
@@ -396,6 +425,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             else if (result.Error!.Code == ErrorCodes.NotFound)
             {
                 Editor.Load(null);
+                IsEditorOpen = false;
                 ShowError(result.Error);
             }
             else
@@ -415,6 +445,26 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             ExitBusy();
         }
+    }
+
+    private async Task BackToListAsync()
+    {
+        if (IsBusy) await _idle.Task;
+        if (Editor.IsDirty)
+        {
+            switch (await _dialogs.AskUnsavedChangesAsync())
+            {
+                case UnsavedChoice.Cancel:
+                    return;
+                case UnsavedChoice.Save when !await SaveAsync():
+                    return;
+                case UnsavedChoice.Discard:
+                    Editor.Load(Editor.Current);
+                    break;
+            }
+        }
+        SetSelectedItem(null);
+        IsEditorOpen = false;
     }
 
     public async Task<bool> CanLeaveAsync()
@@ -443,6 +493,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             Editor.Load(null);
             SetSelectedItem(null);
+            IsEditorOpen = false;
             ClearFeedback();
         }
         OnPropertyChanged(nameof(CountLabel));
@@ -527,6 +578,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         NewCommand.NotifyCanExecuteChanged();
         SelectCommand.NotifyCanExecuteChanged();
+        BackToListCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         ToggleCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();

@@ -16,12 +16,29 @@
             ClipToBounds="True">
         <Grid>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
+            <Border x:Name="CompactNavigationBar"
+                    Grid.Row="0"
+                    Padding="10,8"
+                    Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                    BorderThickness="0,0,0,1"
+                    Visibility="Collapsed">
+                <Button x:Name="BackToTaskListButton"
+                        Content="‹  返回任务列表"
+                        Command="{Binding BackToListCommand}"
+                        HorizontalAlignment="Left"
+                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                        AutomationProperties.AutomationId="BackToTaskList"
+                        AutomationProperties.Name="返回任务列表"/>
+            </Border>
+
             <ScrollViewer x:Name="FormScrollViewer"
-                          Grid.Row="0"
+                          Grid.Row="1"
                           Padding="22,20,14,12"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
@@ -200,7 +217,7 @@
             </ScrollViewer>
 
             <Border x:Name="EditorActionBar"
-                    Grid.Row="1"
+                    Grid.Row="2"
                     Padding="14,12"
                     Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
                     BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
@@ -229,7 +246,8 @@
                                FontSize="10"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
 
-                    <Grid Margin="0,9,0,0"
+                    <Grid x:Name="EditorActionGrid"
+                          Margin="0,9,0,0"
                           Visibility="{Binding Editor.HasTask, Converter={StaticResource BoolVisibility}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -238,18 +256,28 @@
                             <ColumnDefinition Width="7"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Content="{Binding Editor.ToggleLabel}"
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition x:Name="EditorActionSecondRow" Height="0"/>
+                        </Grid.RowDefinitions>
+                        <Button x:Name="ToggleButton"
+                                Content="{Binding Editor.ToggleLabel}"
                                 Command="{Binding ToggleCommand}"
+                                MinHeight="40"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ToggleTask"/>
-                        <Button Grid.Column="2"
+                        <Button x:Name="ReloadButton"
+                                Grid.Column="2"
                                 Content="重新加载"
                                 Command="{Binding ReloadCommand}"
+                                MinHeight="40"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ReloadTask"/>
-                        <Button Grid.Column="4"
+                        <Button x:Name="DeleteButton"
+                                Grid.Column="4"
                                 Content="删除"
                                 Command="{Binding DeleteCommand}"
+                                MinHeight="40"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
                                 AutomationProperties.AutomationId="DeleteTask"/>
                     </Grid>

@@ -3,18 +3,23 @@ using System.Windows.Data;
 
 namespace Mosaic.Shell.Wpf;
 
-internal sealed class NavigationIconConverter : IValueConverter
+internal sealed class NavigationIconConverter : IMultiValueConverter
 {
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is string iconKey
-            ? iconKey switch
-            {
-                "check-square" => "✓",
-                _ => "•"
-            }
-            : "•";
+    public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var iconKey = values.ElementAtOrDefault(0) as string;
+        var label = values.ElementAtOrDefault(1) as string;
+        return iconKey switch
+        {
+            "check-square" => "✓",
+            "folder" => "▰",
+            "calendar" => "◷",
+            "settings" => "⚙",
+            _ => string.IsNullOrWhiteSpace(label) ? "•" : StringInfo.GetNextTextElement(label)
+        };
+    }
 
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
 

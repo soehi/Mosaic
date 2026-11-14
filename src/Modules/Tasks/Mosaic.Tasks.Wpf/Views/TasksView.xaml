@@ -64,6 +64,7 @@
             <Grid x:Name="TaskListPane" MinWidth="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
@@ -99,7 +100,19 @@
                             Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"/>
                 </Grid>
 
-                <Grid Grid.Row="1">
+                <Border Grid.Row="1"
+                        Margin="0,0,6,12"
+                        Padding="11,9"
+                        Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
+                        CornerRadius="8"
+                        Visibility="{Binding ShowListMessage, Converter={StaticResource BoolVisibility}}">
+                    <TextBlock Text="{Binding Message}"
+                               HorizontalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
+                </Border>
+
+                <Grid Grid.Row="2">
                     <ListBox x:Name="TaskListBox"
                              ItemsSource="{Binding Items}"
                              SelectedItem="{Binding SelectedItem, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"

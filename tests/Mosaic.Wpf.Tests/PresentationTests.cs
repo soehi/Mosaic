@@ -257,9 +257,11 @@ public sealed class PresentationTests
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
+        var navigationBar = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
-        Assert.Equal(0, Grid.GetRow(form));
-        Assert.Equal(1, Grid.GetRow(actionBar));
+        Assert.Equal(0, Grid.GetRow(navigationBar));
+        Assert.Equal(1, Grid.GetRow(form));
+        Assert.Equal(2, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
         Assert.True(notes.MinHeight >= 120);
         Assert.True(notes.MaxHeight >= notes.MinHeight);
