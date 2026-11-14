@@ -97,6 +97,8 @@ Release 构建：0 警告、0 错误。格式检查通过。锁定依赖还原�
 
 本轮更新后 Release 构建为 0 警告、0 错误，49 项非桌面自动化测试通过（架构 3、内核 5、存储 8、任务契约 2、任务核心 8、WPF 23）。响应式测试覆盖 760、839、920、1039、1040、1059、1060、1220 DIP 及 620、780 DIP 高度；`artifacts/ui-preview/` 包含 `shell-760-rail.png`、`tasks-detail-760.png`、`tasks-detail-920.png` 等计划要求的预览。
 
+响应式更新后已重新生成 `artifacts/win-x64-ui` 发布目录与 `artifacts/installer/Mosaic-0.1.0-win-x64.msi`，安装包 SHA-256 为 `BFF667C8869D8F8F40F51D460B78F2CB0FD4292B972644D3974A47031D951D5C`。
+
 ### 发布与安装
 
 - 发布目录：`artifacts/win-x64`，含可执行文件、.NET/WPF 运行时及 x64 SQLite 原生库。
