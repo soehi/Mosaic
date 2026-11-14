@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
+<ItemGroup>
+<Compile Include="../Shared/MemoryTaskRepository.cs" Link="MemoryTaskRepository.cs" />
+<ProjectReference Include="..\..\src\Mosaic.Contracts\Mosaic.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Storage\Mosaic.Storage.Contracts\Mosaic.Storage.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Storage\Mosaic.Storage.Sqlite\Mosaic.Storage.Sqlite.csproj" />
+<ProjectReference Include="..\..\src\Modules\Tasks\Mosaic.Tasks.Contracts\Mosaic.Tasks.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Tasks\Mosaic.Tasks.Persistence.Contracts\Mosaic.Tasks.Persistence.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Storage\Mosaic.Tasks.Sqlite\Mosaic.Tasks.Sqlite.csproj" />
+<ProjectReference Include="..\..\src\Modules\Tasks\Mosaic.Tasks.Core\Mosaic.Tasks.Core.csproj" />
+<PackageReference Include="xunit.v3" />
+<PackageReference Include="xunit.runner.visualstudio" />
+<PackageReference Include="Microsoft.NET.Test.Sdk" />
+<Using Include="Xunit" />
+</ItemGroup>
+</Project>

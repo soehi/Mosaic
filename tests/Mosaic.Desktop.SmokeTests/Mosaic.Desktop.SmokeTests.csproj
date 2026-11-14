@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF></PropertyGroup>
+<ItemGroup>
+<ProjectReference Include="..\..\src\Mosaic.Desktop\Mosaic.Desktop.csproj" />
+<PackageReference Include="xunit.v3" />
+<PackageReference Include="xunit.runner.visualstudio" />
+<PackageReference Include="Microsoft.NET.Test.Sdk" />
+<Using Include="Xunit" />
+</ItemGroup>
+</Project>

@@ -1,0 +1,559 @@
+# Mosaic：细节实现计划（C# + WPF）
+
+状态：已按本计划实施第一版源码、测试、自包含发布和每用户 MSI。阶段 0–5 已完成本机验证；阶段 6 已完成本机安装验证，干净 Windows 环境及 DPI/输入法矩阵仍待独立验收。详见 [实施与验证记录](implementation-status.md)。
+
+用户已指定采用 C# + WPF。架构依据见 [整体架构思想](architecture-principles.md)，本次选型记录见 [技术方案变更](decisions/0001-csharp-wpf.md)。
+
+## 1. 第一版目标与范围
+
+交付 Windows 桌面任务记录软件，离线运行、本机存储，验证完整流程：
+
+```text
+配置选择模块 → 校验依赖并激活 → 提供导航和页面参数
+→ ViewModel 提出业务请求 → 业务提出仓储请求
+→ 数据库后台执行 → 返回结果 → UI 更新 → 重启后仍可读取
+```
+
+包括任务创建、查看、编辑、删除、标记完成、恢复未完成，以及全部/未完成/已完成筛选。需要加载、空列表、保存失败、未保存编辑和版本冲突的明确反馈。
+
+截止时间、优先级、子任务、分组、回收站、提醒、云同步、第三方插件和运行中热卸载不进入第一版。后续先判断职责归属，再扩展公开接口或创建模块。
+
+## 2. 技术实施基线
+
+| 部分 | 实施选择 |
+| --- | --- |
+| 语言与运行时 | C#、.NET 10 LTS；SDK 在实施时锁定具体受支持补丁版本 |
+| 桌面界面 | WPF + XAML，使用 MVVM |
+| MVVM 基础能力 | CommunityToolkit.Mvvm，使用 ObservableObject、AsyncRelayCommand 等现成能力 |
+| 装配与应用设施 | Microsoft.Extensions.Hosting、DependencyInjection、Configuration、Logging；容器仅由宿主访问 |
+| 本机数据库 | SQLite，使用 Microsoft.Data.Sqlite；第一版使用显式 SQL 和迁移 |
+| 配置 | System.Text.Json，强类型配置对象与启动校验 |
+| 测试 | xUnit；独立架构约束测试；WPF 测试使用 STA/Dispatcher 环境 |
+| 构建与分发 | dotnet CLI；先做 win-x64 自包含文件夹发布，再验证每用户安装包 |
+
+本机已检测到 .NET SDK 10.0.300 和 9.0.306，这只说明已有 SDK，不代表 WPF 构建与发布已验证。实施阶段确认 Windows Desktop 引用包、运行包及选定 NuGet 版本可用，再建立 global.json、集中包版本和锁文件。
+
+纯业务、契约和存储项目目标为 `net10.0`；WPF 宿主、外壳、界面契约和任务界面目标为 `net10.0-windows`，并开启 `UseWPF`。启用 nullable、代码分析和受控警告策略。
+
+.NET 10 按 LTS 基线选择，维护中更新受支持补丁，不因机器存在较新主版本而自动切换。[官方支持策略](https://dotnet.microsoft.com/en-us/platform/support/policy)
+
+MVVM 辅助库和数据库访问依据：[MVVM Toolkit](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/)、[Microsoft.Data.Sqlite](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/)。
+
+## 3. 进程、线程与职责
+
+第一版为单进程桌面应用，模块通过带类型的公开接口提交请求，不建立额外的跨进程通信桥。
+
+| 执行位置 | 负责内容 |
+| --- | --- |
+| WPF UI 线程 | Window、UserControl、XAML 绑定、导航、对话框、界面状态更新 |
+| 普通应用服务 | 无 WPF 依赖的任务规则、模块依赖和生命周期控制 |
+| 存储模块后台执行队列 | 数据库打开、查询、写入、迁移、备份及关闭 |
+
+WPF 对象及绑定集合在 UI 线程创建和更新。ViewModel 使用 await 获取结果；跨线程更新经 UI Dispatcher。禁止在 UI 线程使用 `.Wait()` 或 `.Result` 等待数据库请求。[WPF 线程模型](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/threading-model)
+
+Microsoft.Data.Sqlite 的异步 ADO.NET 方法实际同步执行，因此不能只加 Async 后缀就认为不会阻塞界面。存储模块采用有容量上限的单消费者后台队列，串行执行实际数据库工作；连接只在该执行器内使用，请求任务把完成结果返回调用方。[官方异步限制](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/async)
+
+队列、连接和事务属于存储模块内部，业务及界面不能直接排入任意工作。事务回调必须同步完成，不能跨 await 持有连接，也不能反向发起嵌套排队并等待自身队列。
+
+## 4. 解决方案与项目布局
+
+以下为项目职责布局；独立项目已创建，部分相关协议合并在同一个源码文件中。
+
+```text
+Mosaic.sln
+Directory.Build.props                 # 统一编译和分析设置
+Directory.Packages.props              # 集中 NuGet 版本
+NuGet.config                          # 包源与还原规则
+global.json                           # 已验证的 SDK 基线
+src/
+  Mosaic.Desktop/                     # WPF 应用宿主
+    App.xaml / App.xaml.cs
+    Bootstrapper.cs                   # 构建宿主并装配模块
+    AppConfiguration.cs
+    BuiltInModuleCatalog.cs
+    ShutdownCoordinator.cs
+  Mosaic.Contracts/                   # 纯 .NET 通用模块与结果协议
+    ModuleManifest.cs
+    CapabilityId.cs
+    ModuleActivation.cs
+    OperationResult.cs
+    IModuleExecutionGate.cs
+    IIdGenerator.cs
+  Mosaic.Kernel/                      # 依赖图、激活和逆序释放
+    ModuleGraph.cs
+    ModuleRuntime.cs
+    CapabilityBindings.cs
+    ModuleExecutionGate.cs
+  Mosaic.Presentation.Contracts/      # 通用 WPF 界面扩展协议
+    NavigationItem.cs
+    ViewContribution.cs
+    IViewFactory.cs
+    INavigationGuard.cs
+    IUiDispatcher.cs
+    IUserDialogService.cs
+  Mosaic.Shell.Wpf/                   # 外壳，不引用任务项目
+    ShellWindow.xaml
+    ShellViewModel.cs
+    NavigationService.cs
+    ContributionRegistry.cs
+    UiDispatcher.cs
+    UserDialogService.cs
+  Mosaic.Presentation.Wpf/            # 共享 WPF 主题与控件样式
+    MosaicTheme.cs
+    MosaicThemeManager.cs
+    Themes/Theme.xaml
+    Themes/Palettes/Light.xaml
+    Themes/Palettes/Dark.xaml
+    Themes/Palettes/HighContrast.xaml
+  Modules/
+    Tasks/
+      Mosaic.Tasks.Contracts/         # DTO、公开任务请求和结果
+        TaskItemDto.cs
+        TaskRequests.cs
+        ITasksApi.cs
+      Mosaic.Tasks.Persistence.Contracts/
+        ITaskRepository.cs            # 只供业务和仓储适配器使用
+      Mosaic.Tasks.Core/
+        TasksModule.cs                # 唯一公开的模块装配入口
+        Internal/TaskService.cs
+        Internal/GuardedTasksApi.cs
+      Mosaic.Tasks.Wpf/
+        TasksUiModule.cs
+        Views/TasksView.xaml
+        Views/TaskEditorView.xaml
+        Internal/TasksViewModel.cs
+        Internal/TaskEditorViewModel.cs
+        Internal/TaskViewFactory.cs
+    Storage/
+      Mosaic.Storage.Contracts/       # 不暴露数据库驱动类型
+        IDatabaseSession.cs
+        SqlStatement.cs
+        SqlRow.cs
+        MigrationDefinition.cs
+      Mosaic.Storage.Sqlite/
+        SqliteModule.cs
+        Internal/DatabaseWorker.cs
+        Internal/SqliteSession.cs
+        Internal/MigrationRunner.cs
+      Mosaic.Tasks.Sqlite/
+        TasksSqliteModule.cs
+        Internal/SqliteTaskRepository.cs
+        Migrations/001_CreateTasks.sql
+    # 后续功能按自己的职责增加模块，不预建空模块
+tests/
+  Mosaic.Architecture.Tests/
+  Mosaic.Kernel.Tests/
+  Mosaic.Tasks.Core.Tests/
+  Mosaic.Storage.Sqlite.Tests/
+  Mosaic.Tasks.Contract.Tests/
+  Mosaic.Wpf.Tests/
+  Mosaic.Desktop.SmokeTests/
+build/                                # 发布、打包与边界检查脚本
+docs/                                 # 原则、计划及决策记录
+```
+
+每个命名项目为独立 `.csproj`/程序集。业务 API 与仓储协议分开，任务界面根本不引用仓储协议程序集。不要把所有模块编译进同一个项目，再仅靠命名空间区别。
+
+### 4.1 项目引用白名单
+
+| 项目 | 允许的 Mosaic 直接依赖 |
+| --- | --- |
+| Contracts | 无 |
+| Kernel | Contracts |
+| Presentation.Contracts | Contracts；另可引用 WPF 框架类型 |
+| Presentation.Wpf | 无（共享主题与控件样式，仅依赖 WPF 框架） |
+| Shell.Wpf | Contracts、Presentation.Contracts、Presentation.Wpf |
+| Tasks.Contracts | Contracts |
+| Tasks.Persistence.Contracts | Contracts、Tasks.Contracts |
+| Tasks.Core | Contracts、Tasks.Contracts、Tasks.Persistence.Contracts |
+| Storage.Contracts | Contracts |
+| Storage.Sqlite | Contracts、Storage.Contracts |
+| Tasks.Sqlite | Contracts、Tasks.Contracts、Tasks.Persistence.Contracts、Storage.Contracts |
+| Tasks.Wpf | Contracts、Tasks.Contracts、Presentation.Contracts、Presentation.Wpf |
+| Desktop | 通用基础设施及各模块公开入口，作为唯一装配根 |
+
+框架依赖另行限制：Microsoft.Data.Sqlite 只出现在 Storage.Sqlite；SQL 文本只出现在存储基础设施、任务存储适配器及相应测试；WPF 和 MVVM 依赖只出现在界面项目；业务与内核不引用数据库或界面框架。
+
+实现类型默认 internal、私有成员默认 private。仅契约、DTO、必要的模块入口和界面扩展类型公开。WPF XAML 生成类若因工具要求公开，应列入窄范围白名单，不允许跨模块直接 new 具体视图。通过 API 清单和程序集依赖测试检查 public 类型；不得用生产程序集间的 InternalsVisibleTo 绕过边界。
+
+## 5. 模块清单、能力和装配
+
+### 5.1 能力归属
+
+| 提供者 | 提供的能力 | 需要的能力 |
+| --- | --- | --- |
+| storage-sqlite | sqlite.session@1 | 宿主传入的数据库位置和执行策略 |
+| tasks-sqlite | tasks.repository@1 | sqlite.session@1 |
+| tasks-core | tasks.api@1 | tasks.repository@1、时钟与 ID 生成器 |
+| tasks-ui | 任务导航与页面贡献 | tasks.api@1、通用界面交互协议 |
+
+宿主使用各模块公开入口创建实例，并传入具名依赖对象。内核校验清单并管理状态，不按任务类型写分支。DI 容器只在装配根使用，不把 IServiceProvider、IHost 或任意服务查找器注入功能模块。[.NET 依赖注入](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection)
+
+界面模块实现 `IUiModule` 并提供导航与页面贡献；宿主在内核报告模块启动后统一注册这些贡献，在模块停止前撤销，外壳只做通用渲染。新增界面模块只需加入模块目录并实现同一契约，宿主不写 `tasks-ui` 特判。
+
+提供给调用者的对象为公开接口的受控入口。例如 GuardedTasksApi 实现 ITasksApi，内部持有业务实现；调用者不获得 TaskService 的具体类型。
+
+入口通过通用执行门取得调用租约：检查模块处于 Active 状态并计数在途请求，释放时减计数。进入 Stopping 后拒绝新租约，等已接受请求结束再释放资源。该机制避免“检查可用后立刻关闭”的竞态。
+
+### 5.2 配置
+
+```json
+{
+  "configVersion": 1,
+  "modules": ["storage-sqlite", "tasks-sqlite", "tasks-core", "tasks-ui"],
+  "providers": {
+    "sqlite.session@1": "storage-sqlite",
+    "tasks.repository@1": "tasks-sqlite",
+    "tasks.api@1": "tasks-core"
+  },
+  "storage": {
+    "engine": "sqlite",
+    "location": "local-app-data",
+    "filename": "mosaic.sqlite"
+  }
+}
+```
+
+数据库规划位于 `%LOCALAPPDATA%\Mosaic\Data\mosaic.sqlite`。配置和日志在应用自己的子目录。宿主解析绝对位置后注入存储模块，业务调用不传路径。文件名必须为合法单个文件名，不接受路径穿越。
+
+首次使用打包默认配置，后续读取用户配置；无效配置显示诊断，不静默覆盖。修改模块配置后重启生效。`modules: []` 且 `providers: {}` 展示空外壳且不打开数据库；禁用了模块却仍保留其 provider 绑定视为配置漂移。缺依赖、重复提供者、版本不匹配、循环依赖拒绝启动功能。
+
+## 6. C# 公开请求与业务契约
+
+以下为已实施的公开任务协议。OperationResult/OperationResult<T> 为公共协议中的明确成功或失败结果；调用方不能把空结果当成功。
+
+```csharp
+public sealed record TaskItemDto(
+    Guid Id,
+    string Title,
+    string Notes,
+    bool IsCompleted,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    long Revision);
+
+public enum TaskFilter { All, Open, Completed }
+public sealed record TaskQuery(TaskFilter Filter = TaskFilter.All);
+public sealed record CreateTaskRequest(string Title, string Notes);
+public sealed record UpdateTaskRequest(
+    Guid Id, string Title, string Notes, long ExpectedRevision);
+public sealed record SetTaskCompletedRequest(
+    Guid Id, bool IsCompleted, long ExpectedRevision);
+public sealed record DeleteTaskRequest(Guid Id, long ExpectedRevision);
+
+public interface ITasksApi
+{
+    Task<OperationResult<TaskItemDto>> CreateAsync(
+        CreateTaskRequest request, CancellationToken cancellationToken = default);
+    Task<OperationResult<TaskItemDto>> GetAsync(
+        Guid id, CancellationToken cancellationToken = default);
+    Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(
+        TaskQuery query, CancellationToken cancellationToken = default);
+    Task<OperationResult<TaskItemDto>> UpdateAsync(
+        UpdateTaskRequest request, CancellationToken cancellationToken = default);
+    Task<OperationResult<TaskItemDto>> SetCompletedAsync(
+        SetTaskCompletedRequest request, CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAsync(
+        DeleteTaskRequest request, CancellationToken cancellationToken = default);
+}
+```
+
+建议业务规则：标题 Trim 后非空，最多 200 个 Unicode 码点；备注为纯文本，最多 20,000 个 Unicode 码点，C# 使用 EnumerateRunes 计数，不能直接用 UTF-16 Length 替代。新任务未完成、Revision 为 1；更新不改变 ID 和创建时间。限额实施前可调整。
+
+任务业务只维护一份权威校验。ViewModel 展示业务返回的字段错误，不使用另一套属性注解重新决定标题是否合法。异步命令的 CanExecute 负责交互状态，例如正在提交时禁用保存。
+
+时钟通过 TimeProvider 注入，ID 通过专用 IIdGenerator 注入；具体 UUID 生成留在宿主提供的实现。公开返回不可变 DTO 与只读快照，不暴露实体引用或可变内部集合。
+
+列表按 UTC 创建时间倒序，Guid 的标准字符串作为稳定次级排序。第一版无分页，规模扩大时扩展查询协议。
+
+### 6.1 仓储契约
+
+```csharp
+public interface ITaskRepository
+{
+    Task<OperationResult> InsertAsync(
+        TaskItemDto task, CancellationToken cancellationToken = default);
+    Task<OperationResult<TaskItemDto?>> FindAsync(
+        Guid id, CancellationToken cancellationToken = default);
+    Task<OperationResult<IReadOnlyList<TaskItemDto>>> QueryAsync(
+        TaskQuery query, CancellationToken cancellationToken = default);
+    Task<OperationResult> ReplaceAsync(
+        TaskItemDto task, long expectedRevision,
+        CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAsync(
+        Guid id, long expectedRevision,
+        CancellationToken cancellationToken = default);
+}
+```
+
+任务业务通过仓储读取并校验当前版本，构造 Revision 为旧值加一的新记录；适配器只写入该值，不重复增加。Replace/Delete 必须原子检查版本和写入，使用条件 SQL 或事务，不允许先查版本再无条件写。
+
+读取不存在由任务 API 返回 TASK_NOT_FOUND；写入时受影响行数为零按 CONFLICT 处理，包括目标已被其他请求删除。界面保留编辑内容并允许重新加载。
+
+### 6.2 结果、取消与错误
+
+| 结果/错误 | 所属位置 | 预期行为 |
+| --- | --- | --- |
+| INVALID_REQUEST | 公开请求入口：null、无效枚举、格式或基础参数不符 | 不执行业务 |
+| VALIDATION_FAILED | 任务业务：标题、备注规则 | 返回字段提示 |
+| TASK_NOT_FOUND | 任务业务：读取不存在 | 提示并刷新 |
+| CONFLICT | 仓储条件写入检测 | 保留编辑，提示重载 |
+| STORAGE_UNAVAILABLE | 驱动错误经存储层转换 | 不宣告已保存 |
+| CAPABILITY_UNAVAILABLE | 执行门：未启用或正在关闭 | 拒绝新调用 |
+| CANCELED | 接受写入前取消，或可安全取消的读取 | 不显示为成功 |
+| INTERNAL_ERROR | 公开入口未预期异常 | 通用提示，记录关联 ID |
+
+错误含 Code、Message、可选 Field 和诊断关联 ID。SQL、路径和驱动堆栈只记录到内部日志。参数为 C# 强类型仍需检查 null 和无效枚举，不依赖 UI 正确使用。
+
+非幂等写入不自动重试。写入一旦开始事务，取消请求不直接中断并宣告未保存；完成提交或明确回滚后返回真实结果。超时或强制退出导致结果未知时，重新读取确认。正常关闭必须等待已接受写入结束。
+
+## 7. SQLite 存储与迁移
+
+### 7.1 任务表
+
+```sql
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL,
+  notes TEXT NOT NULL,
+  completed INTEGER NOT NULL CHECK (completed IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 1)
+);
+CREATE INDEX tasks_created_idx ON tasks(created_at DESC, id);
+CREATE INDEX tasks_status_created_idx
+  ON tasks(completed, created_at DESC, id);
+```
+
+Guid 用固定 D 格式，UTC 时间统一用不变文化的固定精度 ISO 8601 格式，确保排序和解析一致。SQL 及字段映射归 Tasks.Sqlite，任务业务不知道表名。
+
+SQL 参数化；例如条件更新为 `WHERE id = $id AND revision = $expectedRevision`，通过受影响行数识别冲突。Microsoft.Data.Sqlite 的连接、命令、DataReader 都不跨出 Storage.Sqlite。
+
+### 7.2 数据库公开协议
+
+Storage.Contracts 定义公开的参数化 SQL 请求、结果行、事务会话和迁移描述。结果行只包含 BCL 数据值或专用不可变值类型，不包含驱动对象、DbDataReader 或延迟枚举。
+
+任务适配器在数据库执行器外将结果快照转换为 TaskItemDto；数据库基础设施不认识任务实体。事务内部仅使用受限同步会话，禁止泄漏会话引用、开启嵌套事务或再次等待外层后台队列。
+
+连接由后台单消费者独占，设置明确的忙等待和队列容量。第一版先采用单连接策略；日志模式、连接池策略和锁冲突行为在真实测试后固定，不把 WAL 当成界面不卡顿的替代方案。
+
+### 7.3 迁移与恢复
+
+任务迁移嵌入任务存储适配器程序集，通过数据库公开迁移入口执行。基础设施维护模块 ID、版本和校验摘要；迁移与版本记录在事务中提交。检测到发布脚本被修改或数据库版本高于当前支持范围时拒绝写入。
+
+首次自动建库建表；升级既有数据库前由存储模块通过 SQLite 一致性备份机制生成副本，失败则停止升级。事务失败不记录成功。已提交的迁移不因后续 UI 激活失败自动撤销。
+
+目录创建、连接失败、磁盘满、访问被拒、锁等待超时都有明确错误。不得静默改用内存或另建空库。宿主通过数据目录内的独占锁文件配合受限的本机激活通知处理第二个实例；锁文件按系统最终路径识别尾部分隔符、短路径和联接点等路径别名，并跨登录会话生效。该通知只用于窗口激活，不作为业务调用入口，也不额外打开数据库。
+
+## 8. WPF 界面贡献和 MVVM
+
+### 8.1 功能提供参数，外壳负责渲染
+
+通用 Presentation.Contracts 定义 NavigationItem、ViewContribution、IViewFactory 和离开页面前的确认协议。数据示例：
+
+```csharp
+new NavigationItem(
+    Id: "tasks.navigation",
+    Label: "任务",
+    IconKey: "check-square",
+    ViewId: "tasks.list",
+    Order: 100);
+```
+
+Tasks.Wpf 模块贡献 `tasks.list` 对应的 IViewFactory。工厂内部创建自己的 ViewModel 和 UserControl，给 View 设置 DataContext。外壳只调用已登记的通用工厂，不引用任务 ViewModel 或具体 View 类型。
+
+ShellWindow 的 ItemsControl/ListBox 绑定导航只读集合，ContentControl 绑定当前 FrameworkElement。若没有贡献，则导航集合为空，内容区显示通用空状态。首次选择按 Order、ID 排序后的首个页面。重复 ID、导航指向未注册页面、未知工厂均拒绝激活；未知 ViewId 显示通用不可用提示。
+
+通用外壳按约定提供主题资源；任务模块自己的 DataTemplate 和 ResourceDictionary 随模块加载，不把任务模板写进外壳。XAML 中禁止通过静态全局服务定位器解析业务对象。
+
+### 8.2 任务界面
+
+- TasksViewModel 只依赖 ITasksApi 和获准使用的通用界面服务，不依赖仓储或驱动。
+- 使用 ObservableCollection 承载列表显示，业务结果始终为独立快照；更新集合在 UI 线程执行。
+- 使用 AsyncRelayCommand 处理加载、创建、保存、完成切换和删除；执行异常明确观察和转换。
+- 表单保存失败保留输入，业务字段错误绑定到对应控件，不在 code-behind 中实现规则。
+- 完成和删除成功后才改变列表；写入期间阻止重复提交；切换筛选只接受最新查询响应。
+- 删除通过通用对话框确认；取消不发写入。
+- 未保存编辑通过 INavigationGuard 参与离开确认；切换页面和退出使用相同协议。
+- code-behind 仅允许焦点、控件事件转发和窗口生命周期等视图操作，不放 SQL 或业务用例。
+
+### 8.3 禁用矩阵
+
+| 配置/状态 | 预期 |
+| --- | --- |
+| modules 为空 | 空外壳，无任务菜单、页面或可请求的任务能力 |
+| tasks-core 启用、tasks-ui 关闭 | 不创建任务 View 和 ViewModel，服务按声明存在 |
+| tasks-ui 启用、tasks-core 缺失 | 配置失败并显示诊断，不出现半可用界面 |
+| tasks-core 关闭且无依赖它的模块 | 不绑定 ITasksApi，旧入口或非法请求由执行门拒绝 |
+| 存储启动失败 | 不显示任务入口，回收资源，不切换模拟存储 |
+
+修改启用状态第一版需重启。编译进应用的内置程序集不等于它已启用，反射不能作为正常功能发现和调用手段。
+
+### 8.4 窗口自适应：导航折叠与任务详情可用性
+
+目标：窗口缩小时，任务详情页仍能访问全部字段和操作；空间继续不足时，左侧导航只保留图标，把宽度让给内容。自适应只调整显示与布局，不隐藏业务能力，也不改变模块契约。
+
+职责划分：
+
+- 导航折叠由 `Mosaic.Shell.Wpf` 负责。外壳只使用通用 `NavigationItem.Label` 与 `NavigationItem.IconKey`，不认识任务模块。
+- 任务详情布局由 `Mosaic.Tasks.Wpf` 负责。外壳不判断任务字段、编辑器或操作按钮。
+- 两个模块各自响应所在控件的 `ActualWidth`，不通过全局服务或跨模块事件协调；窗口尺寸变化只触发纯视图重排，不重新创建 ViewModel。
+
+导航模式：
+
+| 模式 | 触发条件 | 外观 | 内容宽度 |
+| --- | --- | --- | --- |
+| 完整侧栏 | 窗口宽度 ≥ 1040 DIP | 190 DIP：Logo 与名称、导航图标与文字、底部状态文字 | 其余宽度 |
+| 图标栏 | 窗口宽度 < 1040 DIP；恢复到 ≥ 1060 DIP 才展开 | 64 DIP：Logo 标记、44×44 图标按钮、状态圆点 | 内容区增加约 126 DIP |
+
+- 折叠与展开采用 20 DIP 滞回，避免在恰好 1040 DIP 附近抖动。
+- 图标栏按钮以 `ToolTip` 和 `AutomationProperties.Name` 保留导航文字；图标由 `IconKey` 映射，缺失时回退为标签首字符。
+- 保留键盘焦点环、当前项高亮和 High Contrast 主题下的对比度；可点击目标不小于 40×40 DIP。
+- 图标栏只收起展示，不撤销导航注册；点击仍通过现有 `NavigateCommand` 进入同一页面。
+- 最小窗口 760 DIP 时，图标栏仍为内容区保留约 696 DIP，任务页因此可以使用窄布局。
+- 第一版按窗口宽度自动切换，不持久化手动折叠偏好；手动固定侧栏作为后续扩展，不改变通用契约。
+
+任务页面模式：
+
+| 模式 | 触发条件 | 布局 |
+| --- | --- | --- |
+| 并排 | 任务页可用宽度 ≥ 920 DIP | 列表与详情并排（现状） |
+| 单页切换 | 任务页可用宽度 < 920 DIP | 列表或详情一次显示一个；详情占满内容区 |
+
+- 窄模式默认显示列表；选中任务或新建任务后显示详情；详情提供“返回列表”，返回时沿用 `INavigationGuard` 的未保存确认。
+- 列表与详情面板保持同一实例，只切换可见性；跨断点调整窗口不得丢失输入、滚动位置或已选任务。
+- 详情内容在独立 `ScrollViewer` 中滚动，底部操作栏固定在可见区域，不随内容滚走。
+- 窄宽或矮窗下，操作按钮改为可换行的两行布局，保留完整文字和至少 40 DIP 高度，不缩成省略号或仅剩图标。
+- 详情页必须可达：标题、备注、字数与字段错误、冲突提示与“重新加载最新版本”、保存、完成切换、重新加载、删除、忙碌反馈、状态标签，以及窄模式“返回列表”。过滤、刷新和新建仍归列表页，返回列表后可操作。
+- 小于 920 DIP 时外边距降为 16–18 DIP；高度小于 680 DIP 时压缩标题与段间距，但不降低输入框和按钮的最小尺寸。
+- 不引入横向滚动；文本换行；列表标题可省略，详情标题完整显示并换行。
+
+响应式状态：
+
+- `ShellWindow` 维护 `SidebarMode`（完整、图标栏），在 `SizeChanged` 中计算，重复应用同一模式不产生副作用。
+- `TasksView` 维护 `TaskPageMode`（并排、单页切换）和单页子状态（列表、详情），输入为自身 `ActualWidth`。
+- 宽转窄时，已有选中任务则直接进入详情，无选中则进入列表；窄转宽时恢复并排布局。
+- 保持 `MinWidth=760`、`MinHeight=620`；不把窗口缩到无法完整显示操作按钮的尺寸。
+
+测试与验收：
+
+- 布局：在 STA/Dispatcher 环境渲染 760、839、920、1039、1040、1060、1220 DIP 宽度与 620、780 DIP 高度，断言侧栏宽度、页面模式及控件可见性。
+- 功能：760×620 下完成新建、保存、完成切换、重新加载、删除、冲突重载和未保存返回确认；筛选与刷新在列表页可用。
+- 可访问性：图标栏每项保留可读名称与提示；键盘可导航；High Contrast 及 100/125/150/200% DPI 下无裁剪或重叠。
+- 保护：断点往返不丢未保存输入；无任务模块时外壳的折叠仍正常；空配置和禁用任务界面下，宽窄状态都不产生任务控件或跨模块依赖。
+- 预览：渲染结果输出到 `artifacts/ui-preview/`，至少包含 `shell-760-rail`、`tasks-detail-760`、`tasks-detail-920` 等关键尺寸。
+
+非目标：第一版不实现移动端抽屉、侧栏折叠动画、折叠偏好持久化和新的响应式能力契约；这些扩展可在不改动业务模块的前提下后续加入。
+
+## 9. 应用启动、失败回收与退出
+
+启动：
+
+1. App 在 UI 线程建立最小启动/诊断窗口，使用显式 ShutdownMode 控制退出时机。
+2. 宿主申请单实例控制，读取配置与模块清单，校验依赖图和提供者。
+3. 建立应用设施和范围受限的依赖；启动数据库执行器。
+4. 存储适配器申请迁移，成功后提供仓储。
+5. 任务模块提供受控 ITasksApi，界面模块在 UI 线程贡献工厂和导航。
+6. 校验全部贡献后显示 ShellWindow；空配置直接展示空外壳。
+
+失败：立即停止新的业务请求，撤销已登记入口，逆序释放已激活模块和资源，保留诊断窗口。启动回收只处理资源与注册，不伪装成已撤销提交的迁移。
+
+正常退出：先通过页面守卫询问未保存编辑；用户选择保存时等待保存完成，失败则取消退出。确认离开后将执行门置为 Stopping，拒绝新调用，等待在途请求和数据库队列完成，再按相反顺序释放界面、业务、存储和宿主。
+
+WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处理，完成后通过重入保护执行最终关闭；不能在 Application.Exit 中才开始无法等待的异步清理。用户选择继续等待或强制退出时，明确区分已确认保存与未知结果。
+
+异常入口只做诊断和受控停止，不在 DispatcherUnhandledException 中无条件吞掉错误并继续宣称运行正常。Generic Host 的释放职责与模块资源释放职责明确划分，避免重复 Dispose。
+
+## 10. 分阶段实施与验收
+
+### 阶段 0：WPF 和数据库工具链
+
+交付：解决方案、统一构建设置、空 WPF 窗口、SQLite 后台队列最小验证、自包含文件夹发布。
+
+验收：开发与发布程序都能运行；通过存储公开协议写入并重开临时数据库；发布文件包含正确架构的 SQLite 原生依赖；无需目标机器安装开发 SDK。此阶段不建立任务功能绕过接口的快捷路径。
+
+### 阶段 1：契约、内核和程序集边界
+
+交付：通用协议、任务公开协议、仓储协议、存储协议、界面协议、依赖图、执行门、生命周期及架构测试。
+
+验收：缺依赖、循环、版本不兼容、重复 ID 和提供者被拒绝；逆序回收及停止接收请求正确；禁止项目引用、越权 public 类型和禁止框架依赖被检查发现。
+
+### 阶段 2：纯任务业务
+
+交付：任务服务、受控公开入口、仅用于测试的仓储和时钟/ID 替身。
+
+验收：任务操作、Unicode 限额、字段不可变、找不到目标、并发版本、存储失败与停止状态均正确；测试不加载 WPF 或数据库驱动。
+
+### 阶段 3：SQLite 与任务仓储
+
+交付：公开数据库会话、单消费者执行器、迁移和备份、任务 SQL 与映射。
+
+验收：真实临时库通过仓储契约测试；关闭重开数据完整；竞争更新只有预期版本成功；迁移失败不留下部分状态；驱动对象不离开存储程序集；慢数据库操作不阻塞 UI。
+
+### 阶段 4：宿主和模块装配
+
+交付：强类型 JSON 配置、静态模块目录、提供者选择、DI 装配根、调用租约与应用关闭协调。
+
+验收：公开调用贯通任务和存储；空配置不打开库；未激活能力无法请求；关窗拒绝新请求并等待在途写入；失败回收没有半启用入口。
+
+### 阶段 5：参数导航与任务 MVVM
+
+交付：ShellWindow、贡献注册、任务 Views/ViewModels、加载/错误/冲突状态、未保存离开确认。
+
+验收：完整任务操作可用；无贡献则无业务菜单和页面；禁用任务界面不创建任务 View；所有绑定更新在 UI 线程；无旧查询覆盖；无重复提交或未保存内容被悄悄丢弃。
+
+### 阶段 6：Windows 打包和恢复验证
+
+交付：win-x64 自包含发布、每用户安装包、配置/日志/数据位置说明和验证记录。
+
+先验证文件夹发布，再采用 WiX Toolset 制作每用户安装包并锁定所需版本。签名在有证书后接入。第一版不启用裁剪、Native AOT 或要求所有依赖合并为单文件的发布方式，减少 XAML、资源和原生 SQLite 装载的不确定性。发布及安装范围依据：[.NET 自包含发布](https://learn.microsoft.com/en-us/dotnet/core/deploying/)、[WiX 每用户安装范围](https://docs.firegiant.com/wix/schema/wxs/packagescopetype/)。
+
+验收：无开发环境的干净 Windows 用户环境可以安装、运行、保存和重开；文件不写入安装目录；升级安装不覆盖用户数据；卸载默认保留数据，不隐式删除数据库；单实例和高 DPI/中文输入基础交互通过。
+
+### 阶段 7：窗口自适应布局
+
+交付：外壳导航完整与图标栏两态、20 DIP 滞回；任务页宽并排与窄单页详情；窄窗详情操作栏换行；STA 布局、可访问性与断点预览。
+
+验收：760×620 下可完成全部任务字段和操作，且无横向滚动、裁剪或浮层混叠；1040/1060 DIP 边界来回调整不抖动；图标栏保留可读名称与提示；跨断点不丢未保存输入；空配置和禁用任务界面下无越界依赖。
+
+阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
+
+## 11. 测试与检查命令
+
+| 检查层 | 重点 |
+| --- | --- |
+| 编译与分析 | nullable、分析警告、WPF XAML 编译、禁止引用和公开 API 清单 |
+| 架构测试 | csproj 和实际程序集依赖、public 类型、禁止框架、生产 InternalsVisibleTo 和反射越界 |
+| 内核测试 | 图排序、配置拒绝、能力绑定、执行租约、停止与失败回收 |
+| 业务测试 | 规则、不可变字段、目标不存在、冲突、存储失败和取消语义 |
+| 仓储契约 | 相同用例用于测试仓储和 SQLite，覆盖读取排序、条件写入和删除 |
+| 数据库集成 | 重开、参数化查询、事务、迁移摘要、版本过高、失败备份和锁等待 |
+| MVVM/界面测试 | STA/Dispatcher、命令状态、线程更新、导航贡献、未保存守卫和慢查询 |
+| 自适应布局 | 侧栏断点与滞回、任务详情单页切换、图标可访问名称、断点往返保留输入 |
+| 桌面验收 | 干净 Windows 环境启动，创建编辑完成删除、禁用、关窗、安装升级重开 |
+
+WPF 控件测试使用独立 STA 线程与 Dispatcher，不直接用普通并行测试线程创建 Window。纯 ViewModel 测试注入 IUiDispatcher/IUserDialogService 替身。桌面自动化先用 Windows UI Automation API 做关键烟雾流程，范围以可重复验证为准，不为每个控件建立脆弱测试。
+
+可执行命令（xUnit v3 使用 .NET 10 Microsoft.Testing.Platform；发布后运行桌面测试）：
+
+```powershell
+dotnet restore Mosaic.sln --locked-mode -m:1
+dotnet build Mosaic.sln -c Release --no-restore -m:1
+pwsh -File build/publish.ps1
+pwsh -File build/test.ps1 -NoBuild
+dotnet test --solution Mosaic.sln -c Release --no-build --no-restore
+dotnet format Mosaic.sln --verify-no-changes --no-restore
+dotnet run --project src/Mosaic.Desktop
+dotnet publish src/Mosaic.Desktop -c Release -r win-x64 --self-contained true -o artifacts/win-x64
+```
+
+各项目已生成 packages.lock.json，锁定还原已验证。上述 test 命令应先按相同配置完成构建；测试使用独立数据库和 STA Dispatcher。每用户安装包由 `build/package.ps1` 构建。
+
+## 12. 完成定义和实施前待定事项
+
+第一版完成同时要求：可运行 WPF 桌面程序、真实持久化、公开接口调用闭环、参数驱动导航、有效程序集边界、UI 响应性、已执行测试和发布验证记录。
+
+实施时补齐：应用标识和图标、是否采用默认字段限额、最低支持的 Windows 版本、目标处理器及安装范围。先验证 win-x64，ARM64 需要独立发布和原生依赖测试。正式签名证书和发布账号不阻塞本机开发。
+
+实施选择：应用 ID Mosaic，默认字段限额不变；目标 Windows 10 2004+ x64，每用户安装；图标为内置四格 Mosaic 标记。正式签名、干净系统验收及 ARM64 另行推进，不将未执行的检查视为通过。

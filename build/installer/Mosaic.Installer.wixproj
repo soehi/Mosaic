@@ -1,0 +1,12 @@
+<Project Sdk="WixToolset.Sdk/4.0.6">
+  <PropertyGroup>
+    <OutputName>Mosaic-$(ProductVersion)-win-x64</OutputName>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
+    <!-- ICE91 concerns per-machine installs; this package is strictly per-user.
+         ICE60 flags the upstream language-neutral e_sqlite3.dll version resource. -->
+    <SuppressIces>ICE91;ICE60</SuppressIces>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="$(PayloadFile)" /></ItemGroup>
+</Project>

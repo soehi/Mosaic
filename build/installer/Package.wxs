@@ -1,0 +1,17 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Mosaic" Manufacturer="Mosaic" Version="$(ProductVersion)" UpgradeCode="{4D2B073C-72D5-4C3A-B845-65FC2C52D23C}" Scope="perUser" Language="2052" Codepage="65001">
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Mosaic。" Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Property Id="WINDOWSBUILD"><RegistrySearch Id="WindowsBuildNumber" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion" Name="CurrentBuildNumber" Type="raw" Bitness="always64"/></Property>
+    <Launch Condition="Installed OR (VersionNT64 AND WINDOWSBUILD &gt;= 19041)" Message="Mosaic 需要 64 位 Windows 10 2004 或更高版本。" />
+    <StandardDirectory Id="LocalAppDataFolder"><Directory Id="UserPrograms" Name="Programs"><Directory Id="INSTALLFOLDER" Name="Mosaic" /></Directory></StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder"><Directory Id="MosaicMenu" Name="Mosaic">
+      <Component Id="StartMenu" Guid="{EE2D7997-D220-49B1-9DDC-90C9C61F2FC8}">
+        <Shortcut Id="StartMosaic" Name="Mosaic" Target="[INSTALLFOLDER]Mosaic.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveMosaicMenu" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Mosaic\Installer" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Directory></StandardDirectory>
+    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/></Feature>
+  </Package>
+</Wix>

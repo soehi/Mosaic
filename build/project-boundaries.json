@@ -1,0 +1,15 @@
+{
+  "Mosaic.Contracts": [],
+  "Mosaic.Kernel": ["Mosaic.Contracts"],
+  "Mosaic.Presentation.Contracts": ["Mosaic.Contracts"],
+  "Mosaic.Presentation.Wpf": [],
+  "Mosaic.Shell.Wpf": ["Mosaic.Contracts", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf"],
+  "Mosaic.Tasks.Contracts": ["Mosaic.Contracts"],
+  "Mosaic.Tasks.Persistence.Contracts": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts"],
+  "Mosaic.Tasks.Core": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts", "Mosaic.Tasks.Persistence.Contracts"],
+  "Mosaic.Tasks.Wpf": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf"],
+  "Mosaic.Storage.Contracts": ["Mosaic.Contracts"],
+  "Mosaic.Storage.Sqlite": ["Mosaic.Contracts", "Mosaic.Storage.Contracts"],
+  "Mosaic.Tasks.Sqlite": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts", "Mosaic.Tasks.Persistence.Contracts", "Mosaic.Storage.Contracts"],
+  "Mosaic.Desktop": ["Mosaic.Contracts", "Mosaic.Kernel", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf", "Mosaic.Shell.Wpf", "Mosaic.Tasks.Contracts", "Mosaic.Tasks.Persistence.Contracts", "Mosaic.Tasks.Core", "Mosaic.Tasks.Wpf", "Mosaic.Storage.Contracts", "Mosaic.Storage.Sqlite", "Mosaic.Tasks.Sqlite"]
+}
