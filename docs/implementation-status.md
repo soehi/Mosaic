@@ -188,6 +188,20 @@ pwsh -File build/test-install.ps1
 - MSI 已生成：`artifacts/installer/Mosaic-0.2.0-win-x64.msi`，SHA-256 `BDD63E61B59B79BBCF733A8FA9598E2CDBD8CD6EFE9652DF5A6EDF85D64BC6D8`。受限会话无法访问 Windows Installer 服务，本次以 `-SkipValidation` 关闭 ICE；完整 ICE、安装/升级保留设置与干净 Windows 验收仍需交互式会话。
 - 桌面 smoke 8 项中 5 项通过；依赖窗口发现/关闭的 `Published_application_crud_reopen_and_single_instance` 与 `empty`/`backend`/`invalid` 中的 2–3 项在受限会话超时（窗口发现或关闭），与 0.1.0 基线一致，需交互式桌面复验。
 
+### 复核修复：P1 功能闭环（2026-11-15）
+
+对 verified 0.2.0 线复核后，补上了“界面显示已保存、实际不生效或半落盘”的剩余缺口。提交：`d76f5e3`（值类型）、`6b3f7eb`（宿主装配接线）、`171e13f`（首启尺寸）、`336d2cd`（分区重置）、`1b0be79`（原子提交）、`0ef3546`（预览夹具）。
+
+- 值类型统一：新增 `SettingValueNormalizer`，按定义 `Kind` 把存储层返回的 `long`、`object[]`、字典规范化为 `int`、`string[]`、`Dictionary<string,string>`；设置服务、宿主来源与设置行的显示/回写共用同一规则，`System.Object[]` 不再出现在界面上。
+- 宿主装配真实接线：`Bootstrapper` 以 `settings` 段中的 `host.modules`/`host.providers` 为权威（顶层配置仅作兼容回退），经 `ModuleGraph.Resolve` 与 capability 校验后装配；默认模块清单与 5 条 provider 绑定由 `BuiltInModuleCatalog` 从内建目录推导，恢复默认不会再写出残缺配置。
+- 语义校验归宿主：`IHostSettingSource` 增加 `ValidateAsync`，保存/重置前先由宿主校验未知模块、缺失依赖与不提供的 capability，settings-core 不反向依赖模块目录。
+- 首启尺寸契约：`startup.width/height` 默认改为 1220×780，范围 760–2400 / 620–1600，并新增契约测试断言默认值不小于最小窗口；首启不再被钳到最小值后直接进入图标栏。
+- 分区重置按可见项：`ISettingsApi.ResetAsync` 增加定义 ID 列表重载；UI 用当前分区可见行重置，外观分区含 `shell.window.*`，存储分区只含 `storage.*`/`logging.*`/`startup.*`/`diagnostics.*`，`host.modules`/`host.providers` 只参与“恢复全部默认”。
+- 跨存储原子提交：顺序改为全部校验 → 宿主配置经 `File.Replace` 带备份写入 → SQLite 事务写入；任一步失败用备份或事务回滚，新增键不再残留。宿主写入成功但即时 `ApplyAsync` 失败时返回 `SettingResults.ApplyWarningId`，界面提示“已保存，重启后生效”并清除脏状态，不再误报保存失败。
+- 预览夹具修复：预览测试改为完整装配（settings-core 聚合 host/shell/tasks 来源 + tasks-ui + settings-ui），重拍 `shell-wide`、`settings-wide`、`settings-760`；设置页普通分区不再为空，Shell 导航包含设置页。删除低于产品最小尺寸的 `tasks-detail-560` 验收图，最小验收尺寸统一为 760×620。
+
+本轮 Release 构建 0 警告、0 错误；86 项自动化测试通过（架构 4、内核 5、设置核心 18、设置存储 1、存储 12、任务契约 2、任务核心 9、WPF 35）。
+
 ### 对照 §11 完成定义
 
 - 54 项参数（host 11 + shell 10 + storage-sqlite 5 + tasks-core 5 + tasks-ui 23）均可在对应普通/高级区域查看、修改、校验和恢复默认；普通项即时生效、重启项显示重启徽标。
