@@ -5,7 +5,7 @@
 <ProjectReference Include="..\Mosaic.Presentation.Contracts\Mosaic.Presentation.Contracts.csproj" />
 <ProjectReference Include="..\Mosaic.Presentation.Wpf\Mosaic.Presentation.Wpf.csproj" />
 <ProjectReference Include="..\Modules\Settings\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
-<ProjectReference Include="..\Modules\Settings\Mosaic.Settings.Core\Mosaic.Settings.Core.csproj" />
 <PackageReference Include="CommunityToolkit.Mvvm" />
 </ItemGroup>
 </Project>
+

@@ -15,22 +15,44 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         {
             if (_sources.Any(item => item.ModuleId == source.ModuleId))
                 throw new InvalidOperationException("A setting source is already registered for this module.");
-            if (SettingCatalog.Definitions.Any(item => item.ModuleId == source.ModuleId) is false)
-                throw new InvalidOperationException("The module has no setting definitions.");
+            var allDefinitions = SettingCatalog.Definitions.Concat(_sources.SelectMany(item => item.Definitions)).ToArray();
+            var duplicateIds = source.Definitions
+                .GroupBy(item => item.Id, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .Concat(source.Definitions.Where(item => allDefinitions.Any(existing => existing.Id == item.Id)).Select(item => item.Id))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (duplicateIds.Length > 0)
+                throw new InvalidOperationException("A setting definition is already registered: " + string.Join(", ", duplicateIds));
+            var invalidModules = source.Definitions.Where(item => !string.Equals(item.ModuleId, source.ModuleId, StringComparison.Ordinal)).Select(item => item.Id).ToArray();
+            if (invalidModules.Length > 0)
+                throw new InvalidOperationException("A setting definition belongs to another module: " + string.Join(", ", invalidModules));
             _sources.Add(source);
         }
         return new SourceRegistration(this, source);
     }
 
+    private IReadOnlyList<SettingDefinition> Definitions
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. hostSource?.Definitions ?? [], .. _sources.SelectMany(item => item.Definitions)];
+            }
+        }
+    }
+
     public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(SettingCatalog.Definitions));
+        Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
 
     public async Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default)
     {
         var stored = await repository.LoadAsync(cancellationToken).ConfigureAwait(false);
         if (!stored.IsSuccess) return OperationResult<IReadOnlyDictionary<string, object?>>.Failure(stored.Error!);
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var definition in SettingCatalog.Definitions)
+        foreach (var definition in Definitions)
         {
             if (definition.Persistence == SettingPersistence.HostConfig && hostSource?.GetValue(definition.Id) is { } hostValue)
                 values[definition.Id] = hostValue;
@@ -48,7 +70,7 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         var errors = new Dictionary<string, OperationError>(StringComparer.Ordinal);
         foreach (var (id, value) in changes)
         {
-            var definition = SettingCatalog.Definitions.FirstOrDefault(item => item.Id == id);
+            var definition = Definitions.FirstOrDefault(item => item.Id == id);
             if (definition is null) { errors[id] = new(ErrorCodes.InvalidRequest, "未知设置项。", id); continue; }
             if (Validate(definition, value) is { } error) errors[id] = error;
         }
@@ -105,11 +127,11 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         (definition.Min is int minimum ? minimum : long.MinValue) <= value &&
         value <= (definition.Max is int maximum ? maximum : long.MaxValue);
 
-    private SettingDefinition? Find(string id) => SettingCatalog.Definitions.FirstOrDefault(item => item.Id == id);
+    private SettingDefinition? Find(string id) => Definitions.FirstOrDefault(item => item.Id == id);
 
     public async Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default)
     {
-        var definitions = moduleId is null ? SettingCatalog.Definitions : SettingCatalog.Definitions.Where(item => item.ModuleId == moduleId).ToArray();
+        var definitions = Definitions.Where(item => moduleId is null || item.ModuleId == moduleId).ToArray();
         var ids = definitions.Where(item => item.Persistence == SettingPersistence.UserSettings).Select(item => item.Id).ToArray();
         if (ids.Length > 0 && !(await repository.DeleteAsync(ids, cancellationToken).ConfigureAwait(false)).IsSuccess)
             return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "恢复默认失败。"));

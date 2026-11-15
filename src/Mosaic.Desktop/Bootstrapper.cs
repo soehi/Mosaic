@@ -23,7 +23,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
     internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs)
     {
         var configuration = AppConfiguration.Load(paths);
-        var hostSettings = new HostSettingSource(paths);
+        var hostSettings = new HostSettingSource(paths, new HostSettingsOverrides(configuration.Settings));
         IReadOnlyList<ModuleManifest> ordered;
         try { ordered = ModuleGraph.Resolve(configuration.Modules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(), configuration.Providers); }
         catch (InvalidOperationException ex) { throw new ConfigurationException("模块依赖校验失败：" + ex.Message); }

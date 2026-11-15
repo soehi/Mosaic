@@ -33,7 +33,7 @@ public sealed class SettingsTests
         public Dictionary<string, object?> Values { get; } = [];
         public OperationError? Failure { get; set; }
         public string ModuleId => "host";
-        public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.ForModule("host");
+        public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.Definitions;
         public object? GetValue(string id) => Values.GetValueOrDefault(id);
         public Task<OperationResult> PersistAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         {
@@ -48,19 +48,63 @@ public sealed class SettingsTests
     {
         public string ModuleId { get; }
         public IReadOnlyList<SettingDefinition> Definitions { get; }
-        public IReadOnlyList<IReadOnlyDictionary<string, object?>> Applied { get; } = [];
         public Source(string moduleId, IReadOnlyList<SettingDefinition> definitions) { ModuleId = moduleId; Definitions = definitions; }
+        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private static readonly SettingDefinition[] TaskCoreDefinitions =
+    [
+        new("tasks.sortOrder", "tasks-core", "Sort order", "Default task sorting", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "TitleAsc"],
+            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
+        new("tasks.title.maxCharacters", "tasks-core", "Title limit", "Maximum title characters", SettingValueKind.Integer, 200, 1, 1000, null,
+            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+    ];
+
+    private static readonly SettingDefinition[] TaskUiDefinitions =
+    [
+        new("tasks.confirmDelete", "tasks-ui", "Confirm delete", "Confirm before delete", SettingValueKind.Boolean, true, null, null, null,
+            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+    ];
+
+    private sealed class TaskCoreSource : ISettingSource
+    {
+        public string ModuleId => "tasks-core";
+        public IReadOnlyList<SettingDefinition> Definitions => TaskCoreDefinitions;
+        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class TaskUiSource : ISettingSource
+    {
+        public string ModuleId => "tasks-ui";
+        public IReadOnlyList<SettingDefinition> Definitions => TaskUiDefinitions;
         public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     [Fact]
     public async Task Catalog_has_planned_definitions_and_unique_ids()
     {
-        Assert.Equal(55, SettingCatalog.Definitions.Count);
-        Assert.Equal(55, SettingCatalog.Definitions.Select(item => item.Id).Distinct().Count());
-        Assert.Contains(SettingCatalog.Definitions, item => item.Id == "appearance.theme");
+        Assert.Equal(11, SettingCatalog.Definitions.Count);
+        Assert.Equal(11, SettingCatalog.Definitions.Select(item => item.Id).Distinct().Count());
+        Assert.Contains(SettingCatalog.Definitions, item => item.Id == "startup.width");
         Assert.Contains(SettingCatalog.Definitions, item => item.Id == "diagnostics.singleInstanceRetryMilliseconds");
-        Assert.Contains(SettingCatalog.Definitions, item => item.Id == "ui.text.restoredSuccess");
+    }
+
+    [Fact]
+    public async Task Rejects_duplicate_and_cross_module_definitions()
+    {
+        var repository = new MemoryRepository();
+        await using var module = new SettingsModule(new(repository));
+        await module.ActivateAsync();
+        var api = (ISettingsCore)module.Api;
+        api.Register(new TaskCoreSource());
+
+        Assert.Throws<InvalidOperationException>(() => api.Register(new TaskCoreSource()));
+        Assert.Throws<InvalidOperationException>(() => api.Register(new Source("tasks-ui", TaskCoreDefinitions)));
+        Assert.Throws<InvalidOperationException>(() => api.Register(new Source("tasks-core",
+        [
+            TaskCoreDefinitions[0],
+            TaskCoreDefinitions[0] with { DisplayName = "Duplicate id" }
+        ])));
     }
 
     [Fact]
@@ -69,15 +113,18 @@ public sealed class SettingsTests
         var repository = new MemoryRepository();
         await using var module = new SettingsModule(new(repository));
         await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
         var unknown = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["missing"] = true });
         Assert.Equal(ErrorCodes.InvalidRequest, unknown.Value!["missing"].Code);
         Assert.Empty(repository.Values);
 
-        var outOfRange = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.title.maxCharacters"] = 1001 });
-        Assert.Equal(ErrorCodes.ValidationFailed, outOfRange.Value!["tasks.title.maxCharacters"].Code);
+        await using var tasks = new SettingsModule(new(repository));
+        await tasks.ActivateAsync();
+        ((ISettingsCore)tasks.Api).Register(new TaskCoreSource());
 
-        var invalidEnum = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["appearance.theme"] = "Neon" });
-        Assert.Equal(ErrorCodes.ValidationFailed, invalidEnum.Value!["appearance.theme"].Code);
+        var outOfRange = await tasks.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.title.maxCharacters"] = 1001 });
+        Assert.Equal(ErrorCodes.ValidationFailed, outOfRange.Value!["tasks.title.maxCharacters"].Code);
+        Assert.Empty(repository.Values);
     }
 
     [Fact]
@@ -87,6 +134,7 @@ public sealed class SettingsTests
         var host = new HostSource();
         await using var module = new SettingsModule(new(repository, host));
         await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
         var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
         {
             ["tasks.confirmDelete"] = false,
@@ -105,17 +153,20 @@ public sealed class SettingsTests
         var host = new HostSource();
         await using var module = new SettingsModule(new(repository, host));
         await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
         await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
         {
             ["tasks.confirmDelete"] = false,
             ["tasks.sortOrder"] = "TitleAsc",
             ["logging.level"] = "Warning"
         });
-        Assert.True((await module.Api.ResetAsync("tasks-ui")).IsSuccess);
-        Assert.DoesNotContain("tasks.confirmDelete", repository.Values);
-        Assert.Equal("TitleAsc", repository.Values["tasks.sortOrder"]);
+        Assert.True((await module.Api.ResetAsync("tasks-core")).IsSuccess);
+        Assert.DoesNotContain("tasks.sortOrder", repository.Values);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
         Assert.Equal("Warning", host.Values["logging.level"]);
         Assert.True((await module.Api.ResetAsync()).IsSuccess);
+        Assert.DoesNotContain("tasks.confirmDelete", repository.Values);
         Assert.DoesNotContain("tasks.sortOrder", repository.Values);
         Assert.Equal("Information", host.Values["logging.level"]);
     }
@@ -126,6 +177,7 @@ public sealed class SettingsTests
         var repository = new MemoryRepository { Failure = new(ErrorCodes.StorageUnavailable, "failed") };
         await using var module = new SettingsModule(new(repository));
         await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
         var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.confirmDelete"] = false });
         Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
     }

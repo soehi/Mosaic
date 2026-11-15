@@ -4,7 +4,18 @@ using System.Text.Json.Serialization;
 namespace Mosaic.Desktop;
 
 internal sealed record StorageConfiguration(string Engine, string Location, string Filename);
-internal sealed record AppConfiguration(int ConfigVersion, string[] Modules, Dictionary<string, string> Providers, StorageConfiguration Storage)
+internal sealed record HostSettingsOverrides(
+    IReadOnlyDictionary<string, JsonElement>? Values)
+{
+    public static readonly HostSettingsOverrides Empty = new(new Dictionary<string, JsonElement>(StringComparer.Ordinal));
+}
+
+internal sealed record AppConfiguration(
+    int ConfigVersion,
+    string[] Modules,
+    Dictionary<string, string> Providers,
+    StorageConfiguration Storage,
+    IReadOnlyDictionary<string, JsonElement>? Settings = null)
 {
     internal static AppConfiguration Load(AppPaths paths)
     {
@@ -38,7 +49,7 @@ internal sealed record AppConfiguration(int ConfigVersion, string[] Modules, Dic
             storage.Filename is "." or ".." || storage.Filename != Path.GetFileName(storage.Filename) || storage.Filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
             storage.Filename.EndsWith('.') || storage.Filename.EndsWith(' ') || IsReserved(storage.Filename))
             throw new ConfigurationException("存储配置无效，数据库名称必须是合法的单个文件名。");
-        return configuration;
+        return configuration with { Settings = configuration.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal) };
     }
     private static void RejectDuplicateProperties(JsonElement element)
     {

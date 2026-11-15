@@ -9,6 +9,10 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
         <local:SettingsSectionNameConverter x:Key="SectionName"/>
+        <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolVisibility"/>
+        <DataTemplate x:Key="SettingOptionTemplate">
+            <TextBlock Text="{Binding DisplayName}"/>
+        </DataTemplate>
     </UserControl.Resources>
 
     <Grid Margin="32,30,28,28">
@@ -188,8 +192,8 @@
                                                               MinHeight="34"
                                                               HorizontalAlignment="Left"
                                                               Visibility="{Binding IsBoolean, Converter={StaticResource BoolVisibility}}"/>
-                                                    <ComboBox Grid.Row="0"
-                                                              ItemsSource="{Binding Choices}"
+                                                    <ComboBox ItemsSource="{Binding Choices}"
+                                                              ItemTemplate="{StaticResource SettingOptionTemplate}"
                                                               SelectedValuePath="Value"
                                                               SelectedValue="{Binding ChoiceValue}"
                                                               IsEnabled="{Binding DataContext.IsNotBusy, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -197,6 +201,12 @@
                                                               MinHeight="40"
                                                               HorizontalAlignment="Left"
                                                               Visibility="{Binding IsEnum, Converter={StaticResource BoolVisibility}}"/>
+                                                    <TextBox Text="{Binding TextValue, UpdateSourceTrigger=PropertyChanged}"
+                                                             IsEnabled="{Binding DataContext.IsNotBusy, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                             MinHeight="42"
+                                                             MaxWidth="180"
+                                                             HorizontalAlignment="Left"
+                                                             Visibility="{Binding IsInteger, Converter={StaticResource BoolVisibility}}"/>
                                                     <TextBox Grid.Row="0"
                                                              Text="{Binding TextValue, UpdateSourceTrigger=PropertyChanged}"
                                                              IsEnabled="{Binding DataContext.IsNotBusy, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -233,18 +243,6 @@
                                                         </StackPanel>
                                                     </Grid>
                                                 </Grid>
-                                                <Grid Margin="0,11,0,0" Visibility="Collapsed">
-                                                    <TextBlock Text="{Binding Constraint}"
-                                                               FontSize="10"
-                                                               TextWrapping="Wrap"
-                                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                                                    <TextBlock Text="{Binding Error}"
-                                                               FontSize="11"
-                                                               TextWrapping="Wrap"
-                                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.DangerBrushKey}}"
-                                                               HorizontalAlignment="Right"
-                                                               MaxWidth="320"/>
-                                                </Grid>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
@@ -253,6 +251,7 @@
                             <TextBlock Text="{Binding EmptyMessage}"
                                        Margin="0,24"
                                        HorizontalAlignment="Center"
+                                       Visibility="{Binding HasVisibleRows, Converter={StaticResource InverseBoolVisibility}}"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         </StackPanel>
                     </ScrollViewer>
@@ -261,3 +260,6 @@
         </Grid>
     </Grid>
 </UserControl>
+
+
+

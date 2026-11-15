@@ -147,6 +147,9 @@ internal sealed class SettingRow : ObservableObject
     private object? _proposedValue;
     private string _textValue;
     private string? _error;
+    public event EventHandler? Changed;
+
+    private void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
     public SettingRow(SettingDefinition definition, object? value)
     {
@@ -201,6 +204,7 @@ internal sealed class SettingRow : ObservableObject
                 OnPropertyChanged(nameof(IsDirty));
                 OnPropertyChanged(nameof(IsDefault));
                 OnPropertyChanged(nameof(CurrentValueText));
+                NotifyChanged();
                 PreviewImmediateSetting();
             }
         }
@@ -263,8 +267,10 @@ internal sealed class SettingRow : ObservableObject
         {
             if (!SetProperty(ref _textValue, value)) return;
             Error = null;
+            if (IsText) ProposedValue = value;
             OnPropertyChanged(nameof(IsDirty));
             OnPropertyChanged(nameof(IsDefault));
+            NotifyChanged();
         }
     }
 
@@ -278,19 +284,34 @@ internal sealed class SettingRow : ObservableObject
     {
         CurrentValue = value;
         ProposedValue = value;
-        TextValue = FormatText(value);
+        _textValue = FormatText(value);
         Error = null;
+        OnPropertyChanged(nameof(TextValue));
         OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(IsDefault));
+    }
+
+    public void RestoreSaved()
+    {
+        ProposedValue = CurrentValue;
+        _textValue = FormatText(CurrentValue);
+        Error = null;
+        OnPropertyChanged(nameof(TextValue));
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(IsDefault));
+        PreviewImmediateSetting();
+        NotifyChanged();
     }
 
     public void Reset()
     {
         ProposedValue = Definition.DefaultValue;
-        TextValue = FormatText(Definition.DefaultValue);
+        _textValue = FormatText(Definition.DefaultValue);
         Error = null;
+        OnPropertyChanged(nameof(TextValue));
         OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(IsDefault));
+        PreviewImmediateSetting();
     }
 
     public void SetError(string? message) => Error = message;
@@ -408,7 +429,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     {
         _settings = settings;
         _dialogs = dialogs;
-        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy);
+        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy && HasChanges);
         ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionModuleIds()), () => !IsBusy);
         ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(null), () => !IsBusy);
         DiscardCommand = new RelayCommand(DiscardChanges, () => HasChanges);
@@ -464,6 +485,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     public string EmptyMessage => SelectedSection == SettingsSection.Normal
         ? SettingsLocalization.Localize("Settings.Empty.Normal", "没有普通设置。打开高级设置查看全部参数。")
         : SettingsLocalization.Localize("Settings.Empty.Section", "当前分区没有设置。");
+    public bool HasVisibleRows => VisibleRows.Count > 0;
     public IAsyncRelayCommand SaveCommand { get; }
     public IRelayCommand ResetSectionCommand { get; }
     public IRelayCommand ResetAllCommand { get; }
@@ -492,7 +514,11 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             var source = values.Value!;
             _rows.Clear();
             foreach (var definition in definitions.Value!)
-                _rows[definition.Id] = new SettingRow(definition, source.GetValueOrDefault(definition.Id));
+            {
+                var row = new SettingRow(definition, source.GetValueOrDefault(definition.Id));
+                row.Changed += (_, _) => RefreshDirtyState();
+                _rows[definition.Id] = row;
+            }
             ApplySectionFilter();
             HasChanges = false;
         }
@@ -654,9 +680,8 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
 
     private void DiscardChanges()
     {
-        foreach (var row in _rows.Values) row.Reset();
+        foreach (var row in _rows.Values) row.RestoreSaved();
         HasChanges = false;
-        PreviewDiscardedAppearance();
     }
 
     private void PreviewDiscardedAppearance()
@@ -687,11 +712,17 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     {
         ResetToDefaultCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
+        DiscardCommand.NotifyCanExecuteChanged();
     }
 
     private void SelectSection(SettingsSection? section)
     {
         if (section is { } selected) SelectedSection = selected;
+    }
+
+    private void RefreshDirtyState()
+    {
+        HasChanges = _rows.Values.Any(row => row.IsDirty);
     }
 
     public async Task<bool> CanLeaveAsync()
@@ -786,6 +817,15 @@ internal sealed class SettingsSectionNameConverter : System.Windows.Data.IValueC
         SettingsSection.Text => SettingsLocalization.Localize("Settings.Section.Text", "文案"),
         _ => string.Empty
     };
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+internal sealed class InverseBooleanToVisibilityConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
+        value is bool enabled && enabled ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
         throw new NotSupportedException();

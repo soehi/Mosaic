@@ -6,7 +6,7 @@ using Mosaic.Settings.Core;
 
 namespace Mosaic.Desktop;
 
-internal sealed class HostSettingSource(AppPaths paths) : IHostSettingSource
+internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides startupValues) : IHostSettingSource
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -16,10 +16,15 @@ internal sealed class HostSettingSource(AppPaths paths) : IHostSettingSource
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     public string ModuleId => "host";
-    public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.ForModule(ModuleId);
+    public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.ForHost();
 
     public object? GetValue(string id)
     {
+        if (startupValues.Values is { } overrides && overrides.TryGetValue(id, out var startupValue))
+        {
+            if (startupValue.ValueKind == JsonValueKind.Null) return null;
+            return JsonNodeToObject(JsonNode.Parse(startupValue.GetRawText())!);
+        }
         var node = ReadJson()["settings"]?[id];
         return node is null ? null : JsonNodeToObject(node);
     }

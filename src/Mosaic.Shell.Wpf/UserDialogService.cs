@@ -7,10 +7,8 @@ public sealed class UserDialogService : IUserDialogService
 {
     public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(MessageBox.Show(
         Application.Current.MainWindow,
-        title.Contains("默认", StringComparison.Ordinal)
-            ? $"确定{title}？此操作会影响相关模块的本地设置。"
-            : $"确定永久删除「{title}」？",
-        title.Contains("默认", StringComparison.Ordinal) ? "恢复默认" : "删除任务",
+        $"确定永久删除「{title}」？",
+        "删除任务",
         MessageBoxButton.YesNo,
         MessageBoxImage.Warning) == MessageBoxResult.Yes);
     public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(MessageBox.Show(Application.Current.MainWindow, "当前编辑尚未保存。\n\n是：保存并离开\n否：放弃更改\n取消：继续编辑", "未保存的更改", MessageBoxButton.YesNoCancel, MessageBoxImage.Question) switch
