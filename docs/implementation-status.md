@@ -185,7 +185,7 @@ pwsh -File build/test-install.ps1
 - 修复 WPF 测试中一处泄漏：响应式编辑器用例未释放页面，导致 TasksViewModel 跨 STA 线程收到语言回调。
 - `dotnet format` 仍因受限会话不能连接 MSBuild 命名管道而无法执行（与 0.1.0 历史一致），Roslyn 编译器与分析器在 Release 构建中报告 0 警告。
 - 版本号升至 0.2.0（`Directory.Build.props`、WiX 项目与 `build/package.ps1` 默认值）；`artifacts/win-x64` 已用 0.2.0 负载重新发布（`build/publish.ps1 -UseV2Feed`），产物版本为 `0.2.0.0`。
-- MSI 已生成：`artifacts/installer/Mosaic-0.2.0-win-x64.msi`，最新 SHA-256 `EA3CCF0C7F24C7B72BA1205FCEA89034299B2C5AD771301A371D9ACED9B82443`（2026-11-15 固定双栏与设置分组修订后的负载）。受限会话无法访问 Windows Installer 服务，本次以 `-SkipValidation` 关闭 ICE；完整 ICE、安装/升级保留设置与干净 Windows 验收仍需交互式会话。
+- MSI 已生成：`artifacts/installer/Mosaic-0.2.0-win-x64.msi`，最新 SHA-256 `CB41199094811C4AADA45CB66E9DEA1E43ED285AD9010430D0DBCCE76E58BDBA`（2026-11-15 固定双栏与设置分组修订后的负载）。受限会话无法访问 Windows Installer 服务，本次以 `-SkipValidation` 关闭 ICE；完整 ICE、安装/升级保留设置与干净 Windows 验收仍需交互式会话。
 - 桌面 smoke 8 项中 5 项通过；依赖窗口发现/关闭的 `Published_application_crud_reopen_and_single_instance` 与 `empty`/`backend`/`invalid` 中的 2–3 项在受限会话超时（窗口发现或关闭），与 0.1.0 基线一致，需交互式桌面复验。
 
 ### 对照 §11 完成定义
@@ -205,6 +205,7 @@ pwsh -File build/test-install.ps1
 正式代码签名证书尚未提供，EXE/MSI 未签名。提醒、同步、分组、优先级、插件市场等仍不进入首版。
 
 0.2.0 的交互式桌面 smoke（CRUD、空配置、坏 JSON）与安装/升级保留设置复验同样需要正常交互式 Windows 会话；受限会话中 `empty`/`backend`/`invalid` 的窗口发现与关闭超时属环境限制，非功能回归。
+
 
 
 
