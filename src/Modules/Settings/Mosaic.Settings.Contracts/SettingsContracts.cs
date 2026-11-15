@@ -86,6 +86,7 @@ public interface ISettingSource
 public interface IHostSettingSource : ISettingSource
 {
     object? GetValue(string id);
+    Task<OperationResult> ValidateAsync(IReadOnlyDictionary<string, object?> effectiveValues, CancellationToken cancellationToken = default);
     Task<OperationResult> PersistAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
 }
 

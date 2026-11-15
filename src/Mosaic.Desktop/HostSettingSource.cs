@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Mosaic.Contracts;
+using Mosaic.Kernel;
 using Mosaic.Settings.Contracts;
 using Mosaic.Settings.Core;
 
@@ -17,9 +18,17 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
     private readonly Dictionary<string, JsonElement> _runtimeOverrides = new(
         startupValues.Values ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal),
         StringComparer.Ordinal);
+    private static readonly IReadOnlyList<SettingDefinition> HostDefinitions = SettingCatalog.ForHost()
+        .Select(definition => definition.Id switch
+        {
+            "host.modules" => definition with { DefaultValue = BuiltInModuleCatalog.DefaultModules.ToArray() },
+            "host.providers" => definition with { DefaultValue = new Dictionary<string, string>(BuiltInModuleCatalog.DefaultProviders, StringComparer.Ordinal) },
+            _ => definition
+        })
+        .ToArray();
 
     public string ModuleId => "host";
-    public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.ForHost();
+    public IReadOnlyList<SettingDefinition> Definitions => HostDefinitions;
 
     public object? GetValue(string id)
     {
@@ -35,6 +44,45 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
 
     private static object? Normalize(SettingDefinition? definition, object? value) =>
         definition is null ? value : SettingValueNormalizer.Normalize(definition, value);
+
+    public Task<OperationResult> ValidateAsync(
+        IReadOnlyDictionary<string, object?> effectiveValues,
+        CancellationToken cancellationToken = default)
+    {
+        var modules = effectiveValues.TryGetValue("host.modules", out var moduleValue) && moduleValue is string[] items
+            ? items
+            : BuiltInModuleCatalog.DefaultModules;
+        var providers = effectiveValues.TryGetValue("host.providers", out var providerValue) && providerValue is IReadOnlyDictionary<string, string> map
+            ? map
+            : BuiltInModuleCatalog.DefaultProviders;
+        if (modules.Length == 0)
+            return Task.FromResult(OperationResult.Failure(new(ErrorCodes.ValidationFailed, "至少需要启用一个模块。", "host.modules")));
+        var unknown = modules.Where(id => !BuiltInModuleCatalog.Definitions.ContainsKey(id)).ToArray();
+        if (unknown.Length > 0)
+            return Task.FromResult(OperationResult.Failure(new(
+                ErrorCodes.ValidationFailed, "未知模块：" + string.Join("、", unknown), "host.modules")));
+        var stale = providers.Where(item =>
+                !BuiltInModuleCatalog.Definitions.TryGetValue(item.Value, out var definition) ||
+                !modules.Contains(item.Value, StringComparer.Ordinal) ||
+                !definition.Provides.Any(capability => capability.ToString() == item.Key))
+            .Select(item => item.Key)
+            .ToArray();
+        if (stale.Length > 0)
+            return Task.FromResult(OperationResult.Failure(new(
+                ErrorCodes.ValidationFailed, "能力绑定无效：" + string.Join("、", stale), "host.providers")));
+        try
+        {
+            _ = ModuleGraph.Resolve(
+                modules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(),
+                providers);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Task.FromResult(OperationResult.Failure(new(
+                ErrorCodes.ValidationFailed, "模块依赖或能力绑定无效：" + exception.Message, "host.modules")));
+        }
+        return Task.FromResult(OperationResult.Success());
+    }
 
     public async Task<OperationResult> PersistAsync(
         IReadOnlyDictionary<string, object?> values,

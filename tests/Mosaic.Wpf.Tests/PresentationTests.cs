@@ -77,11 +77,12 @@ public sealed class PresentationTests
     private sealed class SettingsApi : ISettingsApi
     {
         public IReadOnlyList<SettingDefinition> Definitions { get; init; } = [];
+        public IReadOnlyDictionary<string, object?>? Values { get; init; }
         public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
-                Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+                Values ?? Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
         public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
             IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
@@ -682,6 +683,39 @@ public sealed class PresentationTests
         textValue.SetValue(row, "200");
         Assert.Null(error.GetValue(row));
         Assert.False((bool)isDirty.GetValue(row)!);
+        return Task.CompletedTask;
+    });
+
+    [Fact]
+    public Task Setting_rows_format_arrays_and_provider_maps_and_normalize_long_values() => Sta.Run(() =>
+    {
+        var rowType = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingRow")!;
+        string Text(string property, object row) => (string)rowType.GetProperty(property)!.GetValue(row)!;
+        bool Flag(string property, object row) => (bool)rowType.GetProperty(property)!.GetValue(row)!;
+
+        var modules = new SettingDefinition(
+            "host.modules", "host", "Modules", "Description", SettingValueKind.ModuleList,
+            new[] { "storage-sqlite" }, null, null, null,
+            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig);
+        var moduleRow = Activator.CreateInstance(rowType, modules, new object?[] { "storage-sqlite", "tasks-core" })!;
+        Assert.Equal("storage-sqlite, tasks-core", Text("CurrentValueText", moduleRow));
+
+        var providers = new SettingDefinition(
+            "host.providers", "host", "Providers", "Description", SettingValueKind.ProviderMap,
+            new Dictionary<string, string>(StringComparer.Ordinal), null, null, null,
+            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig);
+        var providerRow = Activator.CreateInstance(rowType, providers,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" })!;
+        Assert.Equal("tasks.api@1=tasks-core", Text("CurrentValueText", providerRow));
+
+        var integer = new SettingDefinition(
+            "tasks.title.maxCharacters", "tasks-core", "Title", "Description", SettingValueKind.Integer,
+            200, 1, 1000, null,
+            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
+        var integerRow = Activator.CreateInstance(rowType, integer, 200L)!;
+        Assert.False(Flag("IsDirty", integerRow));
+        Assert.True(Flag("IsDefault", integerRow));
+        Assert.Equal("200", Text("CurrentValueText", integerRow));
         return Task.CompletedTask;
     });
 

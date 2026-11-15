@@ -109,6 +109,14 @@ internal static class BuiltInModuleCatalog
     internal static IReadOnlyDictionary<string, ModuleManifest> Definitions { get; } =
         Entries.ToDictionary(entry => entry.Key, entry => entry.Value.Manifest, StringComparer.Ordinal);
 
+    internal static string[] DefaultModules { get; } =
+        Entries.Values.Select(entry => entry.Manifest.Id).ToArray();
+
+    internal static Dictionary<string, string> DefaultProviders { get; } =
+        Entries.Values
+            .SelectMany(entry => entry.Manifest.Provides.Select(capability => new KeyValuePair<string, string>(capability.ToString(), entry.Manifest.Id)))
+            .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+
     internal static IModuleActivation Create(ModuleRuntimeContext context, ModuleManifest manifest) =>
         Entries.TryGetValue(manifest.Id, out var entry)
             ? entry.Create(context)

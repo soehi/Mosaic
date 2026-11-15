@@ -32,9 +32,14 @@ public sealed class SettingsTests
     {
         public Dictionary<string, object?> Values { get; } = [];
         public OperationError? Failure { get; set; }
+        public Func<IReadOnlyDictionary<string, object?>, OperationError?>? Validator { get; set; }
         public string ModuleId => "host";
         public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.Definitions;
         public object? GetValue(string id) => Values.GetValueOrDefault(id);
+        public Task<OperationResult> ValidateAsync(IReadOnlyDictionary<string, object?> effectiveValues, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Validator?.Invoke(effectiveValues) is { } error
+                ? OperationResult.Failure(error)
+                : OperationResult.Success());
         public Task<OperationResult> PersistAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         {
             if (Failure is not null) return Task.FromResult(OperationResult.Failure(Failure));
@@ -99,6 +104,99 @@ public sealed class SettingsTests
         Assert.Contains("settings-core", modules);
         Assert.Contains("settings-ui", modules);
         Assert.Equal("storage-sqlite", modules[0]);
+    }
+
+    [Fact]
+    public void Startup_defaults_match_the_shell_and_stay_above_the_minimum_window()
+    {
+        var startupWidth = SettingCatalog.Definitions.Single(item => item.Id == "startup.width");
+        var startupHeight = SettingCatalog.Definitions.Single(item => item.Id == "startup.height");
+        var minimumWidth = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minWidth");
+        var minimumHeight = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minHeight");
+
+        Assert.Equal(1220, startupWidth.DefaultValue);
+        Assert.Equal(780, startupHeight.DefaultValue);
+        Assert.True((int)startupWidth.DefaultValue! >= (int)minimumWidth.DefaultValue!);
+        Assert.True((int)startupHeight.DefaultValue! >= (int)minimumHeight.DefaultValue!);
+        Assert.True((int)startupWidth.Min! >= (int)minimumWidth.DefaultValue!);
+        Assert.True((int)startupHeight.Min! >= (int)minimumHeight.DefaultValue!);
+    }
+
+    [Fact]
+    public async Task Values_are_normalized_to_definition_kinds_on_read_and_write()
+    {
+        var repository = new MemoryRepository();
+        repository.Values["tasks.title.maxCharacters"] = 250L;
+        var host = new HostSource();
+        host.Values["host.modules"] = new object?[] { "storage-sqlite", "tasks-core" };
+        host.Values["host.providers"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
+        host.Values["logging.retentionDays"] = 7L;
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
+
+        var values = (await module.Api.GetValuesAsync()).Value!;
+        Assert.Equal(250, values["tasks.title.maxCharacters"]);
+        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(values["host.modules"]));
+        var providers = Assert.IsType<Dictionary<string, string>>(values["host.providers"]);
+        Assert.Equal("tasks-core", providers["tasks.api@1"]);
+        Assert.Equal(7, values["logging.retentionDays"]);
+
+        var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.title.maxCharacters"] = 300L });
+        Assert.True(proposed.IsSuccess);
+        Assert.Equal(300, repository.Values["tasks.title.maxCharacters"]);
+    }
+
+    [Fact]
+    public async Task Host_semantic_validation_blocks_writes_before_any_store_changes()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+
+        host.Validator = _ => new(ErrorCodes.ValidationFailed, "未知模块：ghost", "host.modules");
+        var rejected = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.confirmDelete"] = false,
+            ["host.modules"] = new[] { "storage-sqlite", "ghost" }
+        });
+        Assert.True(rejected.IsSuccess);
+        Assert.Equal("host.modules", Assert.Single(rejected.Value!).Key);
+        Assert.Empty(repository.Values);
+        Assert.Empty(host.Values);
+
+        host.Validator = values => values["host.modules"] is string[] modules && modules.Length == 0
+            ? new(ErrorCodes.ValidationFailed, "至少需要启用一个模块。", "host.modules")
+            : null;
+        var empty = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["host.modules"] = Array.Empty<string>() });
+        Assert.Equal("host.modules", Assert.Single(empty.Value!).Key);
+        Assert.Empty(repository.Values);
+    }
+
+    [Fact]
+    public async Task Host_changes_pass_effective_values_to_semantic_validation()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        host.Values["host.providers"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
+        IReadOnlyDictionary<string, object?>? seen = null;
+        host.Validator = values => { seen = values; return null; };
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["host.modules"] = new[] { "storage-sqlite", "tasks-core" },
+            ["logging.level"] = "Warning"
+        });
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value!);
+        Assert.NotNull(seen);
+        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(seen!["host.modules"]));
+        Assert.Equal("tasks.api@1", Assert.IsType<Dictionary<string, string>>(seen!["host.providers"]).Keys.Single());
+        Assert.Equal("Warning", seen["logging.level"]);
     }
 
     [Fact]

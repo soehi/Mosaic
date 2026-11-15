@@ -8,8 +8,8 @@ public static class SettingCatalog
     [
         Definition("shell.window.minWidth", "host", "窗口最小宽度", "允许的最小窗口宽度", SettingValueKind.Integer, 760, 640, 1200, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
         Definition("shell.window.minHeight", "host", "窗口最小高度", "允许的最小窗口高度", SettingValueKind.Integer, 620, 520, 900, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
-        Definition("startup.width", "host", "启动宽度", "应用启动时的窗口宽度", SettingValueKind.Integer, 580, 420, 1200, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
-        Definition("startup.height", "host", "启动高度", "应用启动时的窗口高度", SettingValueKind.Integer, 260, 240, 800, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        Definition("startup.width", "host", "启动宽度", "应用启动时的窗口宽度", SettingValueKind.Integer, 1220, 760, 2400, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        Definition("startup.height", "host", "启动高度", "应用启动时的窗口高度", SettingValueKind.Integer, 780, 620, 1600, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
         Definition("storage.filename", "host", "数据库文件名", "SQLite 数据库文件名", SettingValueKind.String, "mosaic.sqlite", null, null, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig, "改名后新库为空，旧库保留"),
         Definition("storage.location", "host", "数据库位置", "数据库存储位置", SettingValueKind.String, "local-app-data", null, null, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig, "换位置不自动搬迁"),
         Definition("host.modules", "host", "启用模块", "重启时启用的模块列表", SettingValueKind.ModuleList, new[] { "storage-sqlite", "settings-sqlite", "settings-core", "tasks-sqlite", "tasks-core", "tasks-ui", "settings-ui" }, null, null, null, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig, "禁用模块可能使依赖或绑定无效"),
