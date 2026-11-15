@@ -29,7 +29,11 @@ public partial class ShellWindow : Window, IAsyncDisposable
 
     public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings = null)
     {
-        InitializeComponent(); _model = new(contributions, dialogs, settings); DataContext = _model;
+        InitializeComponent();
+        Title = MosaicVersion.WindowTitle;
+        VersionText.Text = MosaicVersion.Display;
+        VersionText.ToolTip = MosaicVersion.Display;
+        _model = new(contributions, dialogs, settings); DataContext = _model;
         ShellSettingsApplier.Attach(this);
         Closed += (_, _) => ShellSettingsApplier.Detach(this);
     }
@@ -85,6 +89,7 @@ public partial class ShellWindow : Window, IAsyncDisposable
         BrandTagline.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         StatusText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         StatusDetail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        VersionText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceStatusDot.Margin = compact ? new Thickness(0) : new Thickness(0, 0, 8, 0);
         WorkspaceStatusDot.Width = compact ? 9 : 7;
         WorkspaceStatusDot.Height = compact ? 9 : 7;

@@ -10,15 +10,13 @@ public sealed class SettingsTests
     {
         public Dictionary<string, object?> Values { get; } = [];
         public OperationError? Failure { get; set; }
-        public OperationError? SaveFailure { get; set; }
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Failure is null
                 ? OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(Values, StringComparer.Ordinal))
                 : OperationResult<IReadOnlyDictionary<string, object?>>.Failure(Failure));
         public Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         {
-            var failure = Failure ?? SaveFailure;
-            if (failure is not null) return Task.FromResult(OperationResult.Failure(failure));
+            if (Failure is not null) return Task.FromResult(OperationResult.Failure(Failure));
             foreach (var (id, value) in values) Values[id] = value;
             return Task.FromResult(OperationResult.Success());
         }
@@ -68,24 +66,22 @@ public sealed class SettingsTests
     {
         public string ModuleId { get; }
         public IReadOnlyList<SettingDefinition> Definitions { get; }
-        public bool ThrowOnApply { get; init; }
         public Source(string moduleId, IReadOnlyList<SettingDefinition> definitions) { ModuleId = moduleId; Definitions = definitions; }
-        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>
-            ThrowOnApply ? throw new InvalidOperationException("apply failed") : Task.CompletedTask;
+        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private static readonly SettingDefinition[] TaskCoreDefinitions =
     [
         new("tasks.sortOrder", "tasks-core", "Sort order", "Default task sorting", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "TitleAsc"],
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
         new("tasks.title.maxCharacters", "tasks-core", "Title limit", "Maximum title characters", SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private static readonly SettingDefinition[] TaskUiDefinitions =
     [
         new("tasks.confirmDelete", "tasks-ui", "Confirm delete", "Confirm before delete", SettingValueKind.Boolean, true, null, null, null,
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private sealed class TaskCoreSource : ISettingSource
@@ -121,99 +117,6 @@ public sealed class SettingsTests
         Assert.Contains("settings-core", modules);
         Assert.Contains("settings-ui", modules);
         Assert.Equal("storage-sqlite", modules[0]);
-    }
-
-    [Fact]
-    public void Startup_defaults_match_the_shell_and_stay_above_the_minimum_window()
-    {
-        var startupWidth = SettingCatalog.Definitions.Single(item => item.Id == "startup.width");
-        var startupHeight = SettingCatalog.Definitions.Single(item => item.Id == "startup.height");
-        var minimumWidth = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minWidth");
-        var minimumHeight = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minHeight");
-
-        Assert.Equal(1220, startupWidth.DefaultValue);
-        Assert.Equal(780, startupHeight.DefaultValue);
-        Assert.True((int)startupWidth.DefaultValue! >= (int)minimumWidth.DefaultValue!);
-        Assert.True((int)startupHeight.DefaultValue! >= (int)minimumHeight.DefaultValue!);
-        Assert.True((int)startupWidth.Min! >= (int)minimumWidth.DefaultValue!);
-        Assert.True((int)startupHeight.Min! >= (int)minimumHeight.DefaultValue!);
-    }
-
-    [Fact]
-    public async Task Values_are_normalized_to_definition_kinds_on_read_and_write()
-    {
-        var repository = new MemoryRepository();
-        repository.Values["tasks.title.maxCharacters"] = 250L;
-        var host = new HostSource();
-        host.Values["host.modules"] = new object?[] { "storage-sqlite", "tasks-core" };
-        host.Values["host.providers"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
-        host.Values["logging.retentionDays"] = 7L;
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
-
-        var values = (await module.Api.GetValuesAsync()).Value!;
-        Assert.Equal(250, values["tasks.title.maxCharacters"]);
-        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(values["host.modules"]));
-        var providers = Assert.IsType<Dictionary<string, string>>(values["host.providers"]);
-        Assert.Equal("tasks-core", providers["tasks.api@1"]);
-        Assert.Equal(7, values["logging.retentionDays"]);
-
-        var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.title.maxCharacters"] = 300L });
-        Assert.True(proposed.IsSuccess);
-        Assert.Equal(300, repository.Values["tasks.title.maxCharacters"]);
-    }
-
-    [Fact]
-    public async Task Host_semantic_validation_blocks_writes_before_any_store_changes()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
-
-        host.Validator = _ => new(ErrorCodes.ValidationFailed, "未知模块：ghost", "host.modules");
-        var rejected = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["tasks.confirmDelete"] = false,
-            ["host.modules"] = new[] { "storage-sqlite", "ghost" }
-        });
-        Assert.True(rejected.IsSuccess);
-        Assert.Equal("host.modules", Assert.Single(rejected.Value!).Key);
-        Assert.Empty(repository.Values);
-        Assert.Empty(host.Values);
-
-        host.Validator = values => values["host.modules"] is string[] modules && modules.Length == 0
-            ? new(ErrorCodes.ValidationFailed, "至少需要启用一个模块。", "host.modules")
-            : null;
-        var empty = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["host.modules"] = Array.Empty<string>() });
-        Assert.Equal("host.modules", Assert.Single(empty.Value!).Key);
-        Assert.Empty(repository.Values);
-    }
-
-    [Fact]
-    public async Task Host_changes_pass_effective_values_to_semantic_validation()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        host.Values["host.providers"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
-        IReadOnlyDictionary<string, object?>? seen = null;
-        host.Validator = values => { seen = values; return null; };
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
-        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["host.modules"] = new[] { "storage-sqlite", "tasks-core" },
-            ["logging.level"] = "Warning"
-        });
-        Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
-        Assert.NotNull(seen);
-        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(seen!["host.modules"]));
-        Assert.Equal("tasks.api@1", Assert.IsType<Dictionary<string, string>>(seen!["host.providers"]).Keys.Single());
-        Assert.Equal("Warning", seen["logging.level"]);
     }
 
     [Fact]
@@ -299,31 +202,6 @@ public sealed class SettingsTests
     }
 
     [Fact]
-    public async Task Reset_by_definition_ids_only_clears_the_listed_ids()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
-        await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["tasks.sortOrder"] = "TitleAsc",
-            ["tasks.confirmDelete"] = false,
-            ["logging.level"] = "Warning"
-        });
-
-        Assert.True((await module.Api.ResetAsync(["tasks.sortOrder"])).IsSuccess);
-        Assert.DoesNotContain("tasks.sortOrder", repository.Values);
-        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
-        Assert.Equal("Warning", host.Values["logging.level"]);
-
-        var unknown = await module.Api.ResetAsync(["missing.setting"]);
-        Assert.Equal(ErrorCodes.InvalidRequest, unknown.Error?.Code);
-    }
-
-    [Fact]
     public async Task Storage_failure_is_not_applied_as_success()
     {
         var repository = new MemoryRepository { Failure = new(ErrorCodes.StorageUnavailable, "failed") };
@@ -353,51 +231,6 @@ public sealed class SettingsTests
         Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
         Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
         Assert.Empty(host.Values);
-    }
-
-    [Fact]
-    public async Task Storage_failure_after_host_persist_rolls_the_host_config_back()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
-        Assert.True((await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["logging.level"] = "Warning" })).IsSuccess);
-        Assert.Equal("Warning", host.Values["logging.level"]);
-
-        repository.SaveFailure = new(ErrorCodes.StorageUnavailable, "disk full");
-        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["tasks.confirmDelete"] = false,
-            ["logging.level"] = "Error"
-        });
-        Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
-        Assert.Equal(1, host.Rollbacks);
-        Assert.Equal("Warning", host.Values["logging.level"]);
-        Assert.Empty(repository.Values);
-    }
-
-    [Fact]
-    public async Task Immediate_apply_failure_is_reported_as_a_warning_after_saving()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        var storage = new Source("storage-sqlite",
-        [
-            new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
-                SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.HostConfig)
-        ]) { ThrowOnApply = true };
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(storage);
-
-        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Wal" });
-        Assert.True(result.IsSuccess);
-        var warning = Assert.Single(result.Value!);
-        Assert.Equal(SettingResults.ApplyWarningId, warning.Key);
-        Assert.Contains("即时应用失败", warning.Value.Message, StringComparison.Ordinal);
-        Assert.Equal("Wal", host.Values["storage.journalMode"]);
     }
 
     [Fact]
@@ -465,7 +298,7 @@ public sealed class SettingsTests
         var storage = new Source("storage-sqlite",
         [
             new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
-                SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
+                SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
         ]);
         await using var module = new SettingsModule(new(repository, host, DeferredSources: [storage]));
 

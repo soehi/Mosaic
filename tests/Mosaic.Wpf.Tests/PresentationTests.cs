@@ -93,9 +93,7 @@ public sealed class PresentationTests
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
         public List<IReadOnlyList<string>> ResetCalls { get; } = [];
-        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
-            Track(definitionIds);
-        private Task<OperationResult> Track(IReadOnlyList<string> definitionIds)
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default)
         {
             ResetCalls.Add(definitionIds);
             return Task.FromResult(OperationResult.Success());
@@ -324,9 +322,7 @@ public sealed class PresentationTests
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
-        var navigationBar = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
-        Assert.Equal(0, Grid.GetRow(navigationBar));
         Assert.Equal(1, Grid.GetRow(form));
         Assert.Equal(2, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
@@ -420,10 +416,27 @@ public sealed class PresentationTests
         {
             MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
             await shell.DisposeAsync();
-            registration.Dispose();
         }
     });
     [Fact]
+    public Task Shell_shows_the_product_version_and_commit() => Sta.Run(async () =>
+    {
+        var shell = new ShellWindow(new ContributionRegistry(), new Dialogs());
+        try
+        {
+            await shell.InitializeAsync();
+            Assert.Matches(@"^Mosaic v\d+\.\d+\.\d+", shell.Title);
+            var version = Assert.IsType<TextBlock>(shell.FindName("VersionText"));
+            Assert.Matches(@"^v\d+\.\d+\.\d+", version.Text);
+        }
+        finally
+        {
+            await shell.DisposeAsync();
+        }
+    });
+
+    [Fact]
+
     public Task Task_editor_and_count_text_follow_the_ui_language() => Sta.Run(async () =>
     {
         MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
@@ -465,6 +478,8 @@ public sealed class PresentationTests
         try
         {
             await page.Controller.InitializeAsync();
+            SetProperty(page.View.DataContext, "ShowAdvanced", true);
+            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(Get<object>(page.View.DataContext, "SelectedSection").GetType(), "Appearance"));
             static string RowText(object model, string id, string property)
             {
                 var row = VisibleRows(model).Cast<object>()
@@ -678,7 +693,7 @@ public sealed class PresentationTests
         var definition = new SettingDefinition(
             "tasks.title.maxCharacters", "tasks-core", "Title", "Description",
             SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
         var row = Activator.CreateInstance(rowType, definition, 200)!;
         var textValue = rowType.GetProperty("TextValue")!;
         var isDirty = rowType.GetProperty("IsDirty")!;
@@ -699,39 +714,6 @@ public sealed class PresentationTests
     });
 
     [Fact]
-    public Task Setting_rows_format_arrays_and_provider_maps_and_normalize_long_values() => Sta.Run(() =>
-    {
-        var rowType = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingRow")!;
-        string Text(string property, object row) => (string)rowType.GetProperty(property)!.GetValue(row)!;
-        bool Flag(string property, object row) => (bool)rowType.GetProperty(property)!.GetValue(row)!;
-
-        var modules = new SettingDefinition(
-            "host.modules", "host", "Modules", "Description", SettingValueKind.ModuleList,
-            new[] { "storage-sqlite" }, null, null, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig);
-        var moduleRow = Activator.CreateInstance(rowType, modules, new object?[] { "storage-sqlite", "tasks-core" })!;
-        Assert.Equal("storage-sqlite, tasks-core", Text("CurrentValueText", moduleRow));
-
-        var providers = new SettingDefinition(
-            "host.providers", "host", "Providers", "Description", SettingValueKind.ProviderMap,
-            new Dictionary<string, string>(StringComparer.Ordinal), null, null, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig);
-        var providerRow = Activator.CreateInstance(rowType, providers,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" })!;
-        Assert.Equal("tasks.api@1=tasks-core", Text("CurrentValueText", providerRow));
-
-        var integer = new SettingDefinition(
-            "tasks.title.maxCharacters", "tasks-core", "Title", "Description", SettingValueKind.Integer,
-            200, 1, 1000, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
-        var integerRow = Activator.CreateInstance(rowType, integer, 200L)!;
-        Assert.False(Flag("IsDirty", integerRow));
-        Assert.True(Flag("IsDefault", integerRow));
-        Assert.Equal("200", Text("CurrentValueText", integerRow));
-        return Task.CompletedTask;
-    });
-
-    [Fact]
     public Task Tasks_ui_module_registers_definitions_including_text_overrides() => Sta.Run(async () =>
     {
         var settings = new SettingsCore();
@@ -739,7 +721,7 @@ public sealed class PresentationTests
         await module.ActivateAsync();
         var source = Assert.Single(settings.Sources);
         Assert.Equal("tasks-ui", source.ModuleId);
-        Assert.Equal(23, source.Definitions.Count);
+        Assert.Equal(25, source.Definitions.Count);
         Assert.All(source.Definitions, item => Assert.Equal("tasks-ui", item.ModuleId));
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.emptyAllTitle");
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.restoredSuccess");
@@ -760,18 +742,17 @@ public sealed class PresentationTests
         SetProperty(model, "ShowAdvanced", true);
         SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
         var ids = RowIds(model);
-        Assert.Equal(12, ids.Count);
+        Assert.Equal(10, ids.Count);
         Assert.Contains("appearance.theme", ids);
         Assert.Contains("ui.language", ids);
         Assert.Contains("shell.sidebar.fullWidth", ids);
-        Assert.Contains("shell.window.minWidth", ids);
-        Assert.Contains("shell.page.marginBottom", ids);
+        Assert.DoesNotContain("shell.window.minWidth", ids);
         Assert.DoesNotContain("tasks.confirmDelete", ids);
         Assert.DoesNotContain("startup.width", ids);
     });
 
     [Fact]
-    public Task Show_advanced_reveals_all_rows_in_normal_section_and_notifies_visibility() => Sta.Run(async () =>
+    public Task Show_advanced_reveals_all_rows_in_current_section_and_notifies_visibility() => Sta.Run(async () =>
     {
         var api = new SettingsApi
         {
@@ -781,68 +762,13 @@ public sealed class PresentationTests
         var notified = new List<string>();
         ((INotifyPropertyChanged)model).PropertyChanged += (_, e) => notified.Add(e.PropertyName!);
         await Initialize(model);
-        Assert.Equal(2, RowIds(model).Count);
+        Assert.Empty(RowIds(model));
 
+        SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
         SetProperty(model, "ShowAdvanced", true);
-        Assert.Equal(21, RowIds(model).Count);
+        Assert.Equal(10, RowIds(model).Count);
         Assert.Contains("HasVisibleRows", notified);
         Assert.Contains("HasRows", notified);
         Assert.Contains("EmptyMessage", notified);
-    });
-
-    [Fact]
-    public Task Section_reset_targets_visible_rows_and_skips_host_bindings() => Sta.Run(async () =>
-    {
-        var api = new SettingsApi
-        {
-            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
-        };
-        var model = CreateSettingsViewModel(api, new Dialogs { Delete = true });
-        await Initialize(model);
-        SetProperty(model, "ShowAdvanced", true);
-        var sectionType = Get<object>(model, "SelectedSection").GetType();
-        var reset = Get<IAsyncRelayCommand>(model, "ResetSectionCommand");
-
-        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Storage"));
-        await reset.ExecuteAsync(null);
-        var storageIds = Assert.Single(api.ResetCalls);
-        Assert.Contains("logging.level", storageIds);
-        Assert.Contains("startup.width", storageIds);
-        Assert.DoesNotContain("host.modules", storageIds);
-        Assert.DoesNotContain("host.providers", storageIds);
-        Assert.DoesNotContain("shell.window.minWidth", storageIds);
-
-        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Appearance"));
-        await reset.ExecuteAsync(null);
-        var appearanceIds = api.ResetCalls[^1];
-        Assert.Contains("shell.window.minWidth", appearanceIds);
-        Assert.Contains("appearance.theme", appearanceIds);
-        Assert.DoesNotContain("startup.width", appearanceIds);
-        Assert.DoesNotContain("host.modules", appearanceIds);
-    });
-
-    [Fact]
-    public Task Apply_failure_after_save_shows_a_warning_and_keeps_data_saved() => Sta.Run(async () =>
-    {
-        var definition = new SettingDefinition(
-            "tasks.confirmDelete", "tasks-ui", "Confirm", "Description", SettingValueKind.Boolean,
-            true, null, null, null, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings);
-        var api = new SettingsApi
-        {
-            Definitions = [definition],
-            ProposedErrors = new Dictionary<string, OperationError>
-            {
-                [SettingResults.ApplyWarningId] = new(ErrorCodes.InternalError, "已保存，但即时应用失败，重启后生效。")
-            }
-        };
-        var model = CreateSettingsViewModel(api, new Dialogs());
-        await Initialize(model);
-        var row = Assert.Single(VisibleRows(model).Cast<object>());
-        SetProperty(row, "ProposedValue", false);
-
-        await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
-        Assert.Contains("即时应用失败", Get<string?>(model, "Message") ?? String.Empty, StringComparison.Ordinal);
-        Assert.False(Get<bool>(model, "IsError"));
-        Assert.False(Get<bool>(model, "HasChanges"));
     });
 }

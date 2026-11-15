@@ -5,6 +5,7 @@ namespace Mosaic.Settings.Contracts;
 
 public enum SettingValueKind { Boolean, Integer, Double, Enum, String, ModuleList, ProviderMap }
 public enum SettingCategory { Normal, Advanced }
+public enum SettingsGroup { Tasks, Appearance, StorageSystem, Text }
 public enum SettingApplyMode { Immediate, Restart }
 public enum SettingPersistence { UserSettings, HostConfig }
 
@@ -18,6 +19,7 @@ public sealed record SettingDefinition(
     object? Min,
     object? Max,
     IReadOnlyList<string>? AllowedValues,
+    SettingsGroup Group,
     SettingCategory Category,
     SettingApplyMode ApplyMode,
     SettingPersistence Persistence,

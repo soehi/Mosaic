@@ -117,7 +117,11 @@
     <sys:String x:Key="Settings.Setting.PageMarginBottom">Bottom page margin</sys:String>
     <sys:String x:Key="Settings.Setting.PageMarginBottom.Description">Bottom margin for content pages</sys:String>
     <sys:String x:Key="Settings.Setting.TaskCompactBreakpoint">Task narrow breakpoint</sys:String>
-    <sys:String x:Key="Settings.Setting.TaskCompactBreakpoint.Description">Use single-page layout below this width</sys:String>
+    <sys:String x:Key="Settings.Setting.TaskCompactBreakpoint.Description">Compress spacing and wrap header actions below this width while keeping both panes</sys:String>
+    <sys:String x:Key="Settings.Setting.EditorPaneWidth">Editor pane width</sys:String>
+    <sys:String x:Key="Settings.Setting.EditorPaneWidth.Description">Preferred width of the fixed right editor pane</sys:String>
+    <sys:String x:Key="Settings.Setting.PaneGap">Pane gap</sys:String>
+    <sys:String x:Key="Settings.Setting.PaneGap.Description">Gap between the task list and editor pane</sys:String>
     <sys:String x:Key="Settings.Setting.ActionsCompactWidth">Actions narrow width</sys:String>
     <sys:String x:Key="Settings.Setting.ActionsCompactWidth.Description">Wrap action buttons below this width</sys:String>
     <sys:String x:Key="Settings.Setting.ActionsCompactHeight">Actions short height</sys:String>
