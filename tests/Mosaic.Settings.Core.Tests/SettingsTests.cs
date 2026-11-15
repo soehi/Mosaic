@@ -107,6 +107,22 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public void Startup_defaults_match_the_shell_and_stay_above_the_minimum_window()
+    {
+        var startupWidth = SettingCatalog.Definitions.Single(item => item.Id == "startup.width");
+        var startupHeight = SettingCatalog.Definitions.Single(item => item.Id == "startup.height");
+        var minimumWidth = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minWidth");
+        var minimumHeight = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minHeight");
+
+        Assert.Equal(1220, startupWidth.DefaultValue);
+        Assert.Equal(780, startupHeight.DefaultValue);
+        Assert.True((int)startupWidth.DefaultValue! >= (int)minimumWidth.DefaultValue!);
+        Assert.True((int)startupHeight.DefaultValue! >= (int)minimumHeight.DefaultValue!);
+        Assert.True((int)startupWidth.Min! >= (int)minimumWidth.DefaultValue!);
+        Assert.True((int)startupHeight.Min! >= (int)minimumHeight.DefaultValue!);
+    }
+
+    [Fact]
     public async Task Values_are_normalized_to_definition_kinds_on_read_and_write()
     {
         var repository = new MemoryRepository();
