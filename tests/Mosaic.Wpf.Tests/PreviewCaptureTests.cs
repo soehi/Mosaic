@@ -33,7 +33,6 @@ public sealed class PreviewCaptureTests
         await CaptureShell(output, 760, 620, "shell-rail-dot-only.png");
         await CaptureTasksOnly(output, 760, 620, "tasks-detail-760.png", selectTask: true);
         await CaptureTasksOnly(output, 920, 780, "tasks-detail-920.png", selectTask: true);
-        await CaptureTasksOnly(output, 560, 480, "tasks-detail-560.png", selectTask: true);
         await CaptureTasksOnly(output, 480, 480, "tasks-list-480.png", selectTask: false);
         await CaptureTasksOnly(output, 460, 640, "tasks-list-narrow.png", selectTask: false);
         await CaptureSettings(output, 1220, 780, "settings-wide.png");
@@ -44,10 +43,10 @@ public sealed class PreviewCaptureTests
     {
         var registry = new ContributionRegistry();
         var dialogs = new Dialogs();
-        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
-        await module.ActivateAsync();
-        using var registration = registry.Register(module.Navigation, module.Views);
-        var shell = new ShellWindow(registry, dialogs)
+        var (api, tasks, settingsUi) = await CreateAssemblyAsync(dialogs);
+        using var tasksRegistration = registry.Register(tasks.Navigation, tasks.Views);
+        using var settingsRegistration = registry.Register(settingsUi.Navigation, settingsUi.Views);
+        var shell = new ShellWindow(registry, dialogs, api)
         {
             Width = width,
             Height = height,
@@ -58,14 +57,17 @@ public sealed class PreviewCaptureTests
             ShowActivated = false
         };
         await shell.InitializeAsync();
+        shell.Width = width;
+        shell.Height = height;
         shell.Show();
         shell.UpdateLayout();
         await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
 
         Render(shell, width, height, Path.Combine(output, fileName));
         await shell.DisposeAsync();
-        registration.Dispose();
         shell.Close();
+        await settingsUi.DisposeAsync();
+        await tasks.DisposeAsync();
     }
 
     private static async Task CaptureTasksOnly(
@@ -96,7 +98,8 @@ public sealed class PreviewCaptureTests
 
     private static async Task CaptureSettings(string output, double width, double height, string fileName)
     {
-        var module = new SettingsUiModule(new(new SettingsApi(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        var dialogs = new Dialogs();
+        var (api, tasks, module) = await CreateAssemblyAsync(dialogs);
         await module.ActivateAsync();
         var page = Assert.Single(module.Views).Factory.Create();
         await page.Controller.InitializeAsync();
@@ -106,6 +109,21 @@ public sealed class PreviewCaptureTests
         Arrange(host, width, height);
         Render(host, width, height, Path.Combine(output, fileName));
         await page.Controller.DisposeAsync();
+        await module.DisposeAsync();
+        await tasks.DisposeAsync();
+    }
+
+    private static async Task<(SettingsApi Api, TasksUiModule Tasks, SettingsUiModule Settings)> CreateAssemblyAsync(Dialogs dialogs)
+    {
+        var collector = new SettingsCollector();
+        var dispatcher = new UiDispatcher(Dispatcher.CurrentDispatcher);
+        var diagnostics = new Diagnostics();
+        var tasks = new TasksUiModule(new(new Api(), dispatcher, dialogs, diagnostics, collector));
+        await tasks.ActivateAsync();
+        var api = new SettingsApi(collector.Definitions);
+        var settings = new SettingsUiModule(new(api, dispatcher, dialogs, diagnostics));
+        await settings.ActivateAsync();
+        return (api, tasks, settings);
     }
 
     private static void Render(FrameworkElement element, double width, double height, string path)
@@ -158,13 +176,46 @@ public sealed class PreviewCaptureTests
         public void Report(string correlationId, Exception exception) { }
     }
 
-    private sealed class SettingsApi : ISettingsApi
+    private sealed class SettingsCollector : ISettingsCore
     {
+        private readonly List<ISettingSource> _sources = [];
+        public IReadOnlyList<SettingDefinition> Definitions =>
+            SettingCatalog.Definitions
+                .Concat(new ShellSettingSource().Definitions)
+                .Concat(_sources.SelectMany(item => item.Definitions))
+                .ToArray();
         public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(SettingCatalog.Definitions));
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
-                SettingCatalog.Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+                Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+        public IDisposable Register(ISettingSource source)
+        {
+            _sources.Add(source);
+            return new Registration(() => _sources.Remove(source));
+        }
+        private sealed class Registration(Action onDispose) : IDisposable
+        {
+            private int _disposed;
+            public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) onDispose(); }
+        }
+    }
+
+    private sealed class SettingsApi(IReadOnlyList<SettingDefinition> definitions) : ISettingsApi
+    {
+        public IReadOnlyList<SettingDefinition> Definitions { get; } = definitions;
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
+                Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
         public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
             IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
