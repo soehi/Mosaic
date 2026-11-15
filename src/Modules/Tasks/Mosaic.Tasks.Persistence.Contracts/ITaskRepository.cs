@@ -7,7 +7,7 @@ public interface ITaskRepository
 {
     Task<OperationResult> InsertAsync(TaskItemDto task, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto?>> FindAsync(Guid id, CancellationToken cancellationToken = default);
-    // Query order is part of the repository contract: newest CreatedAtUtc first, then Id formatted as "D" in ordinal order.
+    // Query order is part of the repository contract; Id formatted as "D" in ordinal order breaks ties.
     Task<OperationResult<IReadOnlyList<TaskItemDto>>> QueryAsync(TaskQuery query, CancellationToken cancellationToken = default);
     Task<OperationResult> ReplaceAsync(TaskItemDto task, long expectedRevision, CancellationToken cancellationToken = default);
     Task<OperationResult> DeleteAsync(Guid id, long expectedRevision, CancellationToken cancellationToken = default);

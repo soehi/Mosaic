@@ -16,12 +16,29 @@
             ClipToBounds="True">
         <Grid>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
+            <Border x:Name="CompactNavigationBar"
+                    Grid.Row="0"
+                    Padding="10,8"
+                    Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                    BorderThickness="0,0,0,1"
+                    Visibility="Collapsed">
+                <Button x:Name="BackToTaskListButton"
+                        Content="{DynamicResource Tasks.BackToList}"
+                        Command="{Binding BackToListCommand}"
+                        HorizontalAlignment="Left"
+                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                        AutomationProperties.AutomationId="BackToTaskList"
+                        AutomationProperties.Name="{DynamicResource Tasks.BackToList}"/>
+            </Border>
+
             <ScrollViewer x:Name="FormScrollViewer"
-                          Grid.Row="0"
+                          Grid.Row="1"
                           Padding="22,20,14,12"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
@@ -36,7 +53,7 @@
                                 Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
                                 CornerRadius="10"
                                 Visibility="{Binding Editor.IsDirty, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="尚未保存"
+                            <TextBlock Text="{DynamicResource Tasks.NotSaved}"
                                        FontSize="10"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                         </Border>
@@ -48,6 +65,8 @@
                     <TextBlock Text="{Binding Editor.Metadata}"
                                Margin="0,7,0,18"
                                FontSize="11"
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
 
                     <Border Margin="0,0,0,16"
@@ -59,7 +78,7 @@
                             Visibility="{Binding HasConflict, Converter={StaticResource BoolVisibility}}"
                             AutomationProperties.AutomationId="TaskConflict">
                         <StackPanel>
-                            <TextBlock Text="这项任务已在别处更新"
+                            <TextBlock Text="{DynamicResource Tasks.ConflictTitle}"
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.DangerBrushKey}}"/>
                             <TextBlock Text="{Binding Error}"
@@ -67,12 +86,12 @@
                                        FontSize="11"
                                        TextWrapping="Wrap"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-                            <TextBlock Text="当前输入会保留。重新加载最新版本后再修改。"
+                            <TextBlock Text="{DynamicResource Tasks.ConflictDescription}"
                                        Margin="0,4,0,9"
                                        FontSize="11"
                                        TextWrapping="Wrap"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                            <Button Content="重新加载最新版本"
+                            <Button Content="{DynamicResource Tasks.ReloadLatest}"
                                     Command="{Binding ReloadCommand}"
                                     HorizontalAlignment="Left"
                                     Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
@@ -85,7 +104,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="任务标题"
+                            <TextBlock Text="{DynamicResource Tasks.TitleLabel}"
                                    FontSize="12"
                                    FontWeight="SemiBold"/>
                         <TextBlock Grid.Column="1"
@@ -105,7 +124,8 @@
                                    Visibility="{Binding Editor.HasTitleError, Converter={StaticResource BoolVisibility}}"/>
                         <TextBlock Text="{Binding Editor.TitleCountLabel}"
                                    HorizontalAlignment="Right"
-                                   FontSize="10">
+                                   FontSize="10"
+                                   Visibility="{Binding ShowCharacterCount, Converter={StaticResource BoolVisibility}}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
@@ -125,7 +145,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="备注"
+                            <TextBlock Text="{DynamicResource Tasks.NotesLabel}"
                                    FontSize="12"
                                    FontWeight="SemiBold"/>
                         <TextBlock Grid.Column="1"
@@ -136,8 +156,7 @@
                     <TextBox x:Name="NotesTextBox"
                              Text="{Binding Editor.Notes, UpdateSourceTrigger=PropertyChanged}"
                              IsEnabled="{Binding CanEdit}"
-                             MinHeight="128"
-                             MaxHeight="260"
+                             MinHeight="{Binding NotesMinHeight}"
                              TextWrapping="Wrap"
                              AcceptsReturn="True"
                              VerticalContentAlignment="Top"
@@ -151,7 +170,8 @@
                                    Visibility="{Binding Editor.HasNotesError, Converter={StaticResource BoolVisibility}}"/>
                         <TextBlock Text="{Binding Editor.NotesCountLabel}"
                                    HorizontalAlignment="Right"
-                                   FontSize="10">
+                                   FontSize="10"
+                                   Visibility="{Binding ShowCharacterCount, Converter={StaticResource BoolVisibility}}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
@@ -200,7 +220,7 @@
             </ScrollViewer>
 
             <Border x:Name="EditorActionBar"
-                    Grid.Row="1"
+                    Grid.Row="2"
                     Padding="14,12"
                     Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
                     BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
@@ -218,18 +238,21 @@
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                     </Border>
 
-                    <Button Content="保存任务"
+                    <Button Content="{DynamicResource Tasks.Save}"
                             Command="{Binding SaveCommand}"
+                            MinWidth="{Binding TaskButtonMinWidth}"
+                            MinHeight="{Binding TaskButtonMinHeight}"
                             Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                            ToolTip="填写或修改内容后即可保存"
+                            ToolTip="{DynamicResource Tasks.SaveHint}"
                             AutomationProperties.AutomationId="SaveTask"/>
-                    <TextBlock Text="填写或修改内容后即可保存"
+                    <TextBlock Text="{DynamicResource Tasks.SaveHint}"
                                Margin="0,5,0,0"
                                HorizontalAlignment="Center"
                                FontSize="10"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
 
-                    <Grid Margin="0,9,0,0"
+                    <Grid x:Name="EditorActionGrid"
+                          Margin="0,9,0,0"
                           Visibility="{Binding Editor.HasTask, Converter={StaticResource BoolVisibility}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -238,18 +261,31 @@
                             <ColumnDefinition Width="7"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Content="{Binding Editor.ToggleLabel}"
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition x:Name="EditorActionSecondRow" Height="0"/>
+                        </Grid.RowDefinitions>
+                        <Button x:Name="ToggleButton"
+                                Content="{Binding Editor.ToggleLabel}"
                                 Command="{Binding ToggleCommand}"
+                                MinWidth="{Binding TaskButtonMinWidth}"
+                                MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ToggleTask"/>
-                        <Button Grid.Column="2"
-                                Content="重新加载"
+                        <Button x:Name="ReloadButton"
+                                MinWidth="{Binding TaskButtonMinWidth}"
+                                Grid.Column="2"
+                                Content="{DynamicResource Tasks.Reload}"
                                 Command="{Binding ReloadCommand}"
+                                MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="ReloadTask"/>
-                        <Button Grid.Column="4"
-                                Content="删除"
+                        <Button x:Name="DeleteButton"
+                                Grid.Column="4"
+                                Content="{DynamicResource Tasks.Delete}"
                                 Command="{Binding DeleteCommand}"
+                                MinWidth="{Binding TaskButtonMinWidth}"
+                                MinHeight="{Binding TaskButtonMinHeight}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
                                 AutomationProperties.AutomationId="DeleteTask"/>
                     </Grid>

@@ -14,25 +14,30 @@
         FontFamily="Microsoft YaHei UI, Segoe UI"
         FontSize="14"
         UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
+        SnapsToDevicePixels="True"
+        Loaded="OnLoaded"
+        SizeChanged="OnSizeChanged">
     <Window.Resources>
         <local:NullToVisibilityConverter x:Key="NullToVisibility"/>
         <local:NavigationIconConverter x:Key="NavigationIcon"/>
         <local:NavigationItemEqualsConverter x:Key="NavigationItemEquals"/>
     </Window.Resources>
+
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="190"/>
+            <ColumnDefinition x:Name="SidebarColumn" Width="190"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Border Background="{DynamicResource {x:Static theme:MosaicTheme.SidebarBrushKey}}"
+        <Border x:Name="Sidebar"
+                Background="{DynamicResource {x:Static theme:MosaicTheme.SidebarBrushKey}}"
                 BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
                 BorderThickness="0,0,1,0">
-            <DockPanel Margin="20,28,16,22">
-                <StackPanel DockPanel.Dock="Top" Margin="2,0,0,42">
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="30"
+            <DockPanel x:Name="SidebarContent" Margin="20,28,16,22">
+                <StackPanel x:Name="BrandPanel" DockPanel.Dock="Top" Margin="2,0,0,42">
+                    <StackPanel x:Name="BrandLockup" Orientation="Horizontal">
+                        <Border x:Name="BrandMark"
+                                Width="30"
                                 Height="30"
                                 Margin="0,0,9,0"
                                 Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
@@ -43,36 +48,46 @@
                                        FontSize="18"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
                         </Border>
-                        <TextBlock Text="Mosaic"
+                        <TextBlock x:Name="BrandText"
+                                   Text="Mosaic"
                                    VerticalAlignment="Center"
                                    FontSize="24"
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
                     </StackPanel>
-                    <TextBlock Text="让每一件事，有迹可循"
+                    <TextBlock x:Name="BrandTagline"
+                               Text="{DynamicResource Shell.Tagline}"
                                Margin="1,10,0,0"
                                FontSize="11"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                 </StackPanel>
 
-                <StackPanel DockPanel.Dock="Bottom">
-                    <Border Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                <StackPanel x:Name="StatusPanel" DockPanel.Dock="Bottom">
+                    <Border x:Name="WorkspaceStatusCard"
+                            Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
                             BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
                             BorderThickness="1"
                             CornerRadius="9"
-                            Padding="12,10">
+                            Padding="12,10"
+                            ToolTip="{DynamicResource Shell.WorkspaceStatusDetail}"
+                            AutomationProperties.Name="{DynamicResource Shell.WorkspaceStatusAccessibility}">
                         <DockPanel>
-                            <Ellipse Width="7"
+                            <Ellipse x:Name="WorkspaceStatusDot"
+                                     Width="7"
                                      Height="7"
                                      Margin="0,0,8,0"
                                      VerticalAlignment="Center"
+                                     ToolTip="{DynamicResource Shell.WorkspaceStatusDetail}"
+                                     AutomationProperties.Name="{DynamicResource Shell.WorkspaceStatusAccessibility}"
                                      Fill="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
-                            <TextBlock Text="本机工作空间"
+                            <TextBlock x:Name="StatusText"
+                                       Text="{DynamicResource Shell.WorkspaceStatus}"
                                        FontSize="12"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         </DockPanel>
                     </Border>
-                    <TextBlock Text="离线可用 · 数据保存在此电脑"
+                    <TextBlock x:Name="StatusDetail"
+                               Text="{DynamicResource Shell.WorkspaceStatusDetail}"
                                Margin="4,10,0,0"
                                FontSize="10"
                                TextWrapping="Wrap"
@@ -84,13 +99,23 @@
                         <DataTemplate>
                             <Button Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                     CommandParameter="{Binding}"
-                                    HorizontalContentAlignment="Left"
-                                    Margin="0,0,0,6"
-                                    Padding="14,10">
+                                    ToolTip="{Binding Label}"
+                                    AutomationProperties.Name="{Binding Label}">
                                 <Button.Style>
                                     <Style TargetType="Button"
                                            BasedOn="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}">
+                                        <Setter Property="Width" Value="154"/>
+                                        <Setter Property="MinHeight" Value="44"/>
+                                        <Setter Property="Padding" Value="13,0"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                        <Setter Property="Margin" Value="0,0,0,6"/>
                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                         Value="True">
+                                                <Setter Property="Width" Value="44"/>
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                            </DataTrigger>
                                             <DataTrigger Value="True">
                                                 <DataTrigger.Binding>
                                                     <MultiBinding Converter="{StaticResource NavigationItemEquals}">
@@ -109,15 +134,30 @@
                                     </Style>
                                 </Button.Style>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding IconKey, Converter={StaticResource NavigationIcon}}"
-                                               Width="22"
+                                    <TextBlock Width="22"
                                                VerticalAlignment="Center"
                                                FontSize="15"
-                                               TextAlignment="Center"/>
-                                    <TextBlock Text="{Binding Label}"
+                                               TextAlignment="Center">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{StaticResource NavigationIcon}">
+                                                <Binding Path="IconKey"/>
+                                                <Binding Path="Label"/>
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                    <TextBlock x:Name="NavigationLabel"
+                                               Text="{Binding Label}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
+                                             Value="True">
+                                    <Setter TargetName="NavigationLabel"
+                                            Property="Visibility"
+                                            Value="Collapsed"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -129,14 +169,29 @@
                 <RowDefinition Height="66"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <Border BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+
+            <Border x:Name="TopBar"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
                     BorderThickness="0,0,0,1"
                     Padding="32,0">
                 <DockPanel VerticalAlignment="Center">
-                    <TextBlock Text="MOSAIC / 工作空间"
+                    <TextBlock x:Name="WorkspaceBreadcrumb"
+                               Text="{DynamicResource Shell.WorkspaceBreadcrumb}"
                                DockPanel.Dock="Right"
                                FontSize="10"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                 Value="True">
+                                        <Setter Property="Text" Value="MOSAIC"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding PageTitle}"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
@@ -168,16 +223,17 @@
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
                         </Border>
-                        <TextBlock Text="工作空间已就绪"
+                        <TextBlock Text="{DynamicResource Shell.EmptyTitle}"
                                    Margin="0,20,0,0"
                                    FontSize="24"
                                    FontWeight="SemiBold"/>
-                        <TextBlock Text="当前没有启用的功能。修改模块配置并重启后即可使用。"
+                        <TextBlock Text="{DynamicResource Shell.EmptyDescription}"
                                    Margin="0,10,0,0"
                                    TextWrapping="Wrap"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                     </StackPanel>
                 </Border>
+
                 <ContentControl x:Name="PageContent"
                                 Content="{Binding Content}"
                                 HorizontalContentAlignment="Stretch"

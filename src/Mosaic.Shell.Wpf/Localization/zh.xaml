@@ -1,0 +1,12 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Shell.Tagline">让每一件事，有迹可循</sys:String>
+    <sys:String x:Key="Shell.WorkspaceStatus">本机工作空间</sys:String>
+    <sys:String x:Key="Shell.WorkspaceStatusDetail">离线可用 · 数据保存在此电脑</sys:String>
+    <sys:String x:Key="Shell.WorkspaceStatusAccessibility">本机工作空间，离线可用</sys:String>
+    <sys:String x:Key="Shell.WorkspaceBreadcrumb">MOSAIC / 工作空间</sys:String>
+    <sys:String x:Key="Shell.EmptyTitle">工作空间已就绪</sys:String>
+    <sys:String x:Key="Shell.EmptyDescription">当前没有启用的功能。修改模块配置并重启后即可使用。</sys:String>
+    <sys:String x:Key="Shell.PageTitle">工作空间</sys:String>
+</ResourceDictionary>

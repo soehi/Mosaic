@@ -18,6 +18,8 @@ public static class MosaicThemeManager
     private static ResourceDictionary? _attachedResources;
     private static ResourceDictionary? _activePalette;
     private static bool _observing;
+    private static bool _followSystem = true;
+    private static MosaicThemeVariant _fixedVariant = MosaicThemeVariant.Light;
 
     public static void Attach(ResourceDictionary resources)
     {
@@ -26,6 +28,7 @@ public static class MosaicThemeManager
         {
             _attachedResources = resources;
             ApplyCore(resources, DetectSystemVariant());
+            _followSystem = true;
             if (_observing) return;
             SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
             SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
@@ -39,6 +42,8 @@ public static class MosaicThemeManager
         lock (Gate)
         {
             _attachedResources = resources;
+            _followSystem = false;
+            _fixedVariant = variant;
             ApplyCore(resources, variant);
         }
     }
@@ -65,7 +70,7 @@ public static class MosaicThemeManager
         lock (Gate)
         {
             if (!ReferenceEquals(_attachedResources, resources)) return;
-            ApplyCore(resources, DetectSystemVariant());
+            ApplyCore(resources, _followSystem ? DetectSystemVariant() : _fixedVariant);
         }
     }
 

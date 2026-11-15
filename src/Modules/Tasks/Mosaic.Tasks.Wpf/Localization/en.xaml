@@ -1,0 +1,27 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Tasks.Header">Today, finish one thing</sys:String>
+    <sys:String x:Key="Tasks.Subheader">Clear your mind and focus on the next step.</sys:String>
+    <sys:String x:Key="Tasks.NewTask">＋  New task</sys:String>
+    <sys:String x:Key="Tasks.ListTitle">Task list</sys:String>
+    <sys:String x:Key="Tasks.FilterAll">All tasks</sys:String>
+    <sys:String x:Key="Tasks.FilterOpen">Open</sys:String>
+    <sys:String x:Key="Tasks.FilterCompleted">Completed</sys:String>
+    <sys:String x:Key="Tasks.Refresh">Refresh</sys:String>
+    <sys:String x:Key="Tasks.Loading">Loading tasks…</sys:String>
+    <sys:String x:Key="Tasks.LoadError">Could not load the task list</sys:String>
+    <sys:String x:Key="Tasks.Retry">Retry</sys:String>
+    <sys:String x:Key="Tasks.BackToList">‹  Back to tasks</sys:String>
+    <sys:String x:Key="Tasks.NotSaved">Not saved</sys:String>
+    <sys:String x:Key="Tasks.ConflictTitle">This task changed elsewhere</sys:String>
+    <sys:String x:Key="Tasks.ConflictDescription">Your input is preserved. Reload the latest version before editing.</sys:String>
+    <sys:String x:Key="Tasks.ReloadLatest">Reload latest</sys:String>
+    <sys:String x:Key="Tasks.TitleLabel">Task title</sys:String>
+    <sys:String x:Key="Tasks.NotesLabel">Notes</sys:String>
+    <sys:String x:Key="Tasks.Save">Save task</sys:String>
+    <sys:String x:Key="Tasks.SaveHint">Edit the content to enable saving</sys:String>
+    <sys:String x:Key="Tasks.Reload">Reload</sys:String>
+    <sys:String x:Key="Tasks.Delete">Delete</sys:String>
+    <sys:String x:Key="Tasks.Navigation">Tasks</sys:String>
+</ResourceDictionary>

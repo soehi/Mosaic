@@ -7,6 +7,9 @@
 <ProjectReference Include="..\..\src\Mosaic.Shell.Wpf\Mosaic.Shell.Wpf.csproj" />
 <ProjectReference Include="..\..\src\Modules\Tasks\Mosaic.Tasks.Contracts\Mosaic.Tasks.Contracts.csproj" />
 <ProjectReference Include="..\..\src\Modules\Tasks\Mosaic.Tasks.Wpf\Mosaic.Tasks.Wpf.csproj" />
+<ProjectReference Include="..\..\src\Modules\Settings\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Settings\Mosaic.Settings.Core\Mosaic.Settings.Core.csproj" />
+<ProjectReference Include="..\..\src\Modules\Settings\Mosaic.Settings.Wpf\Mosaic.Settings.Wpf.csproj" />
 <PackageReference Include="xunit.v3" />
 <PackageReference Include="xunit.runner.visualstudio" />
 <PackageReference Include="Microsoft.NET.Test.Sdk" />

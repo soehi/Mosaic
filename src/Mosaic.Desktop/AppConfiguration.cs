@@ -4,7 +4,18 @@ using System.Text.Json.Serialization;
 namespace Mosaic.Desktop;
 
 internal sealed record StorageConfiguration(string Engine, string Location, string Filename);
-internal sealed record AppConfiguration(int ConfigVersion, string[] Modules, Dictionary<string, string> Providers, StorageConfiguration Storage)
+internal sealed record HostSettingsOverrides(
+    IReadOnlyDictionary<string, JsonElement>? Values)
+{
+    public static readonly HostSettingsOverrides Empty = new(new Dictionary<string, JsonElement>(StringComparer.Ordinal));
+}
+
+internal sealed record AppConfiguration(
+    int ConfigVersion,
+    string[] Modules,
+    Dictionary<string, string> Providers,
+    StorageConfiguration Storage,
+    IReadOnlyDictionary<string, JsonElement>? Settings = null)
 {
     internal static AppConfiguration Load(AppPaths paths)
     {
@@ -34,12 +45,18 @@ internal sealed record AppConfiguration(int ConfigVersion, string[] Modules, Dic
                 !definition.Provides.Any(c => c.ToString() == p.Key)))
             throw new ConfigurationException("能力提供者配置无效。");
         var storage = configuration.Storage;
-        if (storage.Engine != "sqlite" || storage.Location != "local-app-data" || string.IsNullOrWhiteSpace(storage.Filename) ||
-            storage.Filename is "." or ".." || storage.Filename != Path.GetFileName(storage.Filename) || storage.Filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
-            storage.Filename.EndsWith('.') || storage.Filename.EndsWith(' ') || IsReserved(storage.Filename))
+        if (storage.Engine != "sqlite" || storage.Location != "local-app-data" || !IsValidDatabaseFilename(storage.Filename))
             throw new ConfigurationException("存储配置无效，数据库名称必须是合法的单个文件名。");
-        return configuration;
+        return configuration with { Settings = configuration.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal) };
     }
+    internal static bool IsValidDatabaseFilename(string filename) =>
+        !string.IsNullOrWhiteSpace(filename) &&
+        filename is not "." and not ".." &&
+        filename == Path.GetFileName(filename) &&
+        filename.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+        !filename.EndsWith('.') &&
+        !filename.EndsWith(' ') &&
+        !IsReserved(filename);
     private static void RejectDuplicateProperties(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -68,7 +85,10 @@ internal sealed record AppPaths(string Root)
     internal string ConfigDirectory => Path.Combine(Root, "Config");
     internal string ConfigPath => Path.Combine(ConfigDirectory, "appsettings.json");
     internal string Logs => Path.Combine(Root, "Logs");
-    internal string Database(string filename) => Path.Combine(Root, "Data", filename);
+    internal string Database(StorageConfiguration storage) =>
+        Path.Combine(
+            storage.Location == "local-app-data" ? Path.Combine(Root, "Data") : Path.TrimEndingDirectorySeparator(storage.Location),
+            storage.Filename);
     internal static AppPaths FromArguments(string[] args)
     {
         if (args.Length == 0) return new(Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Mosaic"))));

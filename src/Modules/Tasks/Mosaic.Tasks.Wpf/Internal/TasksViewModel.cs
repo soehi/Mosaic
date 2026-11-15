@@ -13,6 +13,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private readonly IUiDispatcher _dispatcher;
     private readonly IUserDialogService _dialogs;
     private readonly IDiagnosticSink _diagnostics;
+    private readonly Mosaic.Settings.Contracts.ISettingsApi? _settings;
+    private readonly TaskUiSettingsTarget? _settingsTarget;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _query;
     private long _queryVersion;
@@ -23,20 +25,39 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private bool _disposed;
     private int _filter;
     private TaskListItemViewModel? _selectedItem;
+    private bool _editorOpen;
     private string _listError = "";
     private string _message = "";
     private string _error = "";
     private bool _conflict;
+    private bool _showCharacterCount = true;
+    private bool _confirmDelete = true;
+    private bool _confirmUnsaved = true;
+    private bool _autoSwitchToAllOnHidden = true;
+    private bool _defaultFilterApplied;
+    private TaskSortOrder _sortOrder = TaskSortOrder.CreatedDesc;
+    private TaskTextSettings _text = TaskTextSettings.Defaults;
+    private TasksLayoutSettings _layout = TasksLayoutSettings.Defaults;
 
-    internal TasksViewModel(ITasksApi api, IUiDispatcher dispatcher, IUserDialogService dialogs, IDiagnosticSink diagnostics)
+    internal TasksViewModel(
+        ITasksApi api,
+        IUiDispatcher dispatcher,
+        IUserDialogService dialogs,
+        IDiagnosticSink diagnostics,
+        Mosaic.Settings.Contracts.ISettingsApi? settings = null,
+        TaskUiSettingsTarget? settingsTarget = null)
     {
         _api = api;
         _dispatcher = dispatcher;
         _dialogs = dialogs;
         _diagnostics = diagnostics;
+        _settings = settings;
+        _settingsTarget = settingsTarget;
+        settingsTarget?.Attach(ApplySettings);
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
+        BackToListCommand = new AsyncRelayCommand(BackToListAsync, () => !IsBusy && IsEditorOpen);
         SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty);
         ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => !IsBusy && Editor.HasTask);
         DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => !IsBusy && Editor.HasTask);
@@ -50,6 +71,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }
+    public IAsyncRelayCommand BackToListCommand { get; }
     public IAsyncRelayCommand SaveCommand { get; }
     public IAsyncRelayCommand ToggleCommand { get; }
     public IAsyncRelayCommand DeleteCommand { get; }
@@ -67,6 +89,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
                 return;
             }
             _ = SelectFromListAsync(value);
+        }
+    }
+
+    public bool IsEditorOpen
+    {
+        get => _editorOpen;
+        private set
+        {
+            if (!SetProperty(ref _editorOpen, value)) return;
+            OnPropertyChanged(nameof(ShowListMessage));
+            BackToListCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -112,24 +145,23 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool CanRetry => HasListError && CanRefresh;
     public bool HasGeneralError => !string.IsNullOrEmpty(Error) && !HasConflict;
     public bool HasMessage => !string.IsNullOrEmpty(Message);
+    public bool ShowCharacterCount => _showCharacterCount;
+    public double CompactBreakpoint => _layout.CompactBreakpoint;
+    public double CompactActionsWidth => _layout.CompactActionsWidth;
+    public double CompactActionsHeight => _layout.CompactActionsHeight;
+    public double ListMinColumnWidth => _layout.ListMinColumnWidth;
+    public double NotesMinHeight => _layout.NotesMinHeight;
+    public double TaskButtonMinWidth => _layout.TaskButtonMinWidth;
+    public double TaskButtonMinHeight => _layout.TaskButtonMinHeight;
+    public bool ShowListMessage => HasMessage && !IsEditorOpen;
     public string CountLabel => FilterIndex switch
     {
         1 => $"{Items.Count} 项未完成",
         2 => $"{Items.Count} 项已完成",
         _ => $"{Items.Count} 项任务"
     };
-    public string EmptyTitle => FilterIndex switch
-    {
-        1 => "没有未完成任务",
-        2 => "还没有已完成的任务",
-        _ => "这里还没有任务"
-    };
-    public string EmptyDescription => FilterIndex switch
-    {
-        1 => "新建任务或恢复一项任务后，会显示在这里。",
-        2 => "完成一项任务后，会显示在这里。",
-        _ => "新建一项任务，给今天一个开始。"
-    };
+    public string EmptyTitle => FilterIndex switch { 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
+    public string EmptyDescription => FilterIndex switch { 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
     public string ListError
     {
         get => _listError;
@@ -144,7 +176,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         get => _message;
         private set
         {
-            if (SetProperty(ref _message, value)) OnPropertyChanged(nameof(HasMessage));
+            if (!SetProperty(ref _message, value)) return;
+            OnPropertyChanged(nameof(HasMessage));
+            OnPropertyChanged(nameof(ShowListMessage));
         }
     }
     public string Error
@@ -164,7 +198,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
     }
 
-    public Task InitializeAsync() => LoadAsync();
+    public async Task InitializeAsync()
+    {
+        if (_settings is not null)
+        {
+            var values = await _settings.GetValuesAsync(_lifetime.Token);
+            if (values.IsSuccess) await _dispatcher.InvokeAsync(() => ApplySettings(values.Value));
+        }
+        var constraints = await _api.GetConstraintsAsync(_lifetime.Token);
+        if (constraints.IsSuccess) await _dispatcher.InvokeAsync(() => Editor.ApplyConstraints(constraints.Value));
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -177,7 +221,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IsLoading = true;
         try
         {
-            var result = await _api.ListAsync(new((TaskFilter)FilterIndex), query.Token);
+            var result = await _api.ListAsync(new((TaskFilter)FilterIndex, _sortOrder), query.Token);
             await _dispatcher.InvokeAsync(() =>
             {
                 if (_disposed || version != _queryVersion) return;
@@ -215,13 +259,19 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (FilterIndex != 0) SetFilter(0, load: false);
         Editor.Load(null);
         SetSelectedItem(null);
+        IsEditorOpen = true;
         ClearFeedback();
         await LoadAsync();
     }
 
     private async Task SelectFromCommandAsync(TaskItemDto? task)
     {
-        if (task is null || task.Id == Editor.Current?.Id) return;
+        if (task is null) return;
+        if (task.Id == Editor.Current?.Id)
+        {
+            IsEditorOpen = true;
+            return;
+        }
         var previous = SelectedItem;
         var requested = Items.FirstOrDefault(item => item.Id == task.Id);
         if (requested is not null) SetSelectedItem(requested);
@@ -232,7 +282,11 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         var previous = SelectedItem;
         SetSelectedItem(requested);
-        if (requested.Id == Editor.Current?.Id) return;
+        if (requested.Id == Editor.Current?.Id)
+        {
+            IsEditorOpen = true;
+            return;
+        }
         if (!await SelectAsync(requested.Item)) SetSelectedItem(previous);
     }
 
@@ -247,6 +301,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 Editor.Load(result.Value);
                 SetSelectedItem(Items.FirstOrDefault(item => item.Id == result.Value.Id));
+                IsEditorOpen = true;
                 ClearFeedback();
                 return true;
             }
@@ -290,7 +345,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             }
             EnsureTaskVisible(result.Value);
             Editor.Load(result.Value);
-            ShowMessage("已保存到此电脑");
+            ShowMessage(_text.SaveSuccess);
             await LoadAsync();
             return true;
         }
@@ -321,7 +376,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 EnsureTaskVisible(result.Value);
                 Editor.Load(result.Value);
-                ShowMessage(result.Value.IsCompleted ? "已标记完成" : "已恢复为未完成");
+                ShowMessage(result.Value.IsCompleted ? _text.CompletedSuccess : _text.RestoredSuccess);
                 await LoadAsync();
             }
             else
@@ -344,7 +399,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private async Task DeleteAsync()
     {
-        if (Editor.Current is not { } current || !await _dialogs.ConfirmDeleteAsync(current.Title)) return;
+        if (Editor.Current is not { } current || (_confirmDelete && !await _dialogs.ConfirmDeleteAsync(current.Title))) return;
         EnterBusy("正在删除任务…");
         ClearFeedback();
         try
@@ -354,7 +409,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 Editor.Load(null);
                 SetSelectedItem(null);
-                ShowMessage("任务已删除");
+                IsEditorOpen = false;
+                ShowMessage(_text.DeleteSuccess);
                 await LoadAsync();
             }
             else
@@ -380,8 +436,15 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (Editor.Current is not { } current) return;
         if (Editor.IsDirty)
         {
+            if (!_confirmUnsaved)
+            {
+                Editor.Load(Editor.Current);
+            }
+            else
+            {
             var choice = await _dialogs.AskUnsavedChangesAsync();
             if (choice == UnsavedChoice.Cancel || (choice == UnsavedChoice.Save && !await SaveAsync())) return;
+            }
         }
         EnterBusy("正在重新加载任务…");
         ClearFeedback();
@@ -396,6 +459,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             else if (result.Error!.Code == ErrorCodes.NotFound)
             {
                 Editor.Load(null);
+                IsEditorOpen = false;
                 ShowError(result.Error);
             }
             else
@@ -417,10 +481,37 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
     }
 
+    private async Task BackToListAsync()
+    {
+        if (IsBusy) await _idle.Task;
+        if (Editor.IsDirty)
+        {
+            if (!_confirmUnsaved)
+            {
+                Editor.Load(Editor.Current);
+                SetSelectedItem(null);
+                IsEditorOpen = false;
+                return;
+            }
+            switch (await _dialogs.AskUnsavedChangesAsync())
+            {
+                case UnsavedChoice.Cancel:
+                    return;
+                case UnsavedChoice.Save when !await SaveAsync():
+                    return;
+                case UnsavedChoice.Discard:
+                    Editor.Load(Editor.Current);
+                    break;
+            }
+        }
+        SetSelectedItem(null);
+        IsEditorOpen = false;
+    }
+
     public async Task<bool> CanLeaveAsync()
     {
         if (IsBusy) await _idle.Task;
-        if (!Editor.IsDirty) return true;
+        if (!Editor.IsDirty || !_confirmUnsaved) return true;
         return await _dialogs.AskUnsavedChangesAsync() switch
         {
             UnsavedChoice.Discard => true,
@@ -443,6 +534,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             Editor.Load(null);
             SetSelectedItem(null);
+            IsEditorOpen = false;
             ClearFeedback();
         }
         OnPropertyChanged(nameof(CountLabel));
@@ -459,7 +551,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             2 => task.IsCompleted,
             _ => true
         };
-        if (!visible) SetFilter(0, load: false);
+        if (!visible && _autoSwitchToAllOnHidden) SetFilter(0, load: false);
     }
 
     private void EnterBusy(string feedback)
@@ -494,7 +586,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             var selectedId = Editor.Current?.Id ?? SelectedItem?.Id;
             Items.Clear();
-            foreach (var task in result.Value) Items.Add(new TaskListItemViewModel(task));
+            foreach (var task in result.Value) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
             SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
             ListError = "";
             return;
@@ -527,6 +619,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         NewCommand.NotifyCanExecuteChanged();
         SelectCommand.NotifyCanExecuteChanged();
+        BackToListCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         ToggleCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();
@@ -548,9 +641,139 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         return correlationId;
     }
 
+    private void ApplySettings(IReadOnlyDictionary<string, object?> values)
+    {
+        if (_disposed) return;
+        _confirmDelete = ReadBoolean(values, "tasks.confirmDelete", _confirmDelete);
+        _confirmUnsaved = ReadBoolean(values, "tasks.confirmUnsaved", _confirmUnsaved);
+        _showCharacterCount = ReadBoolean(values, "tasks.showCharacterCount", _showCharacterCount);
+        _autoSwitchToAllOnHidden = ReadBoolean(values, "tasks.autoSwitchToAllOnHidden", _autoSwitchToAllOnHidden);
+
+        if (!_defaultFilterApplied)
+        {
+            var filter = ReadString(values, "tasks.defaultFilter", "All") switch { "Open" => 1, "Completed" => 2, _ => 0 };
+            if (_filter != filter)
+            {
+                _filter = filter;
+                OnPropertyChanged(nameof(FilterIndex));
+            }
+            _defaultFilterApplied = true;
+        }
+
+        var sortOrder = ReadString(values, "tasks.sortOrder", _sortOrder.ToString()) switch
+        {
+            "CreatedAsc" => TaskSortOrder.CreatedAsc,
+            "TitleAsc" => TaskSortOrder.TitleAsc,
+            "TitleDesc" => TaskSortOrder.TitleDesc,
+            _ => TaskSortOrder.CreatedDesc
+        };
+        var sortChanged = _sortOrder != sortOrder;
+        _sortOrder = sortOrder;
+
+        var previousUntitled = _text.UntitledTask;
+        _text = new(
+            ReadString(values, "ui.text.emptyAllTitle", TaskTextSettings.Defaults.EmptyAllTitle),
+            ReadString(values, "ui.text.emptyAllDescription", TaskTextSettings.Defaults.EmptyAllDescription),
+            ReadString(values, "ui.text.emptyOpenTitle", TaskTextSettings.Defaults.EmptyOpenTitle),
+            ReadString(values, "ui.text.emptyOpenDescription", TaskTextSettings.Defaults.EmptyOpenDescription),
+            ReadString(values, "ui.text.emptyCompletedTitle", TaskTextSettings.Defaults.EmptyCompletedTitle),
+            ReadString(values, "ui.text.emptyCompletedDescription", TaskTextSettings.Defaults.EmptyCompletedDescription),
+            ReadString(values, "ui.text.untitledTask", TaskTextSettings.Defaults.UntitledTask),
+            ReadString(values, "ui.text.saveSuccess", TaskTextSettings.Defaults.SaveSuccess),
+            ReadString(values, "ui.text.deleteSuccess", TaskTextSettings.Defaults.DeleteSuccess),
+            ReadString(values, "ui.text.completedSuccess", TaskTextSettings.Defaults.CompletedSuccess),
+            ReadString(values, "ui.text.restoredSuccess", TaskTextSettings.Defaults.RestoredSuccess));
+        _layout = new(
+            ReadDouble(values, "tasks.layout.compactBreakpoint", TasksLayoutSettings.Defaults.CompactBreakpoint),
+            ReadDouble(values, "tasks.editor.compactActionsWidth", TasksLayoutSettings.Defaults.CompactActionsWidth),
+            ReadDouble(values, "tasks.editor.compactActionsHeight", TasksLayoutSettings.Defaults.CompactActionsHeight),
+            ReadDouble(values, "tasks.list.minColumnWidth", TasksLayoutSettings.Defaults.ListMinColumnWidth),
+            ReadDouble(values, "tasks.editor.notesMinHeight", TasksLayoutSettings.Defaults.NotesMinHeight),
+            ReadDouble(values, "tasks.button.minWidth", TasksLayoutSettings.Defaults.TaskButtonMinWidth),
+            ReadDouble(values, "tasks.button.minHeight", TasksLayoutSettings.Defaults.TaskButtonMinHeight));
+
+        foreach (var name in new[]
+        {
+            nameof(ShowCharacterCount),
+            nameof(CompactBreakpoint),
+            nameof(CompactActionsWidth),
+            nameof(CompactActionsHeight),
+            nameof(ListMinColumnWidth),
+            nameof(NotesMinHeight),
+            nameof(TaskButtonMinWidth),
+            nameof(TaskButtonMinHeight),
+            nameof(EmptyTitle),
+            nameof(EmptyDescription)
+        })
+            OnPropertyChanged(name);
+
+        if (previousUntitled != _text.UntitledTask) RebuildListTitles();
+        if (sortChanged && _defaultFilterApplied) LoadCommand.Execute(null);
+    }
+
+    private void RebuildListTitles()
+    {
+        var selectedId = SelectedItem?.Id;
+        var tasks = Items.Select(item => item.Item).ToArray();
+        Items.Clear();
+        foreach (var task in tasks) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
+        SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
+    }
+
+    private static bool ReadBoolean(IReadOnlyDictionary<string, object?> values, string id, bool fallback) =>
+        values.TryGetValue(id, out var value) && value is bool boolean ? boolean : fallback;
+
+    private static double ReadDouble(IReadOnlyDictionary<string, object?> values, string id, double fallback) =>
+        values.TryGetValue(id, out var value) && value is not null
+            ? Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture)
+            : fallback;
+
+    private static string ReadString(IReadOnlyDictionary<string, object?> values, string id, string fallback) =>
+        values.TryGetValue(id, out var value) && value is string text && !string.IsNullOrWhiteSpace(text) ? text : fallback;
+
+    private sealed record TaskTextSettings(
+        string EmptyAllTitle,
+        string EmptyAllDescription,
+        string EmptyOpenTitle,
+        string EmptyOpenDescription,
+        string EmptyCompletedTitle,
+        string EmptyCompletedDescription,
+        string UntitledTask,
+        string SaveSuccess,
+        string DeleteSuccess,
+        string CompletedSuccess,
+        string RestoredSuccess)
+    {
+        internal static TaskTextSettings Defaults { get; } = new(
+            "这里还没有任务",
+            "新建一项任务，给今天一个开始。",
+            "没有未完成任务",
+            "新建任务或恢复一项任务后，会显示在这里。",
+            "还没有已完成的任务",
+            "完成一项任务后，会显示在这里。",
+            "未命名任务",
+            "已保存到此电脑",
+            "任务已删除",
+            "已标记完成",
+            "已恢复为未完成");
+    }
+
+    private sealed record TasksLayoutSettings(
+        double CompactBreakpoint,
+        double CompactActionsWidth,
+        double CompactActionsHeight,
+        double ListMinColumnWidth,
+        double NotesMinHeight,
+        double TaskButtonMinWidth,
+        double TaskButtonMinHeight)
+    {
+        internal static TasksLayoutSettings Defaults { get; } = new(920, 480, 680, 300, 128, 96, 40);
+    }
+
     public ValueTask DisposeAsync()
     {
         _disposed = true;
+        _settingsTarget?.Detach();
         _lifetime.Cancel();
         _query?.Cancel();
         _lifetime.Dispose();

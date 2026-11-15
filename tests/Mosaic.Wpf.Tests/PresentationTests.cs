@@ -1,4 +1,5 @@
 using System.Collections;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -8,6 +9,9 @@ using CommunityToolkit.Mvvm.Input;
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
+using Mosaic.Settings.Core;
+using Mosaic.Settings.Contracts;
+using Mosaic.Settings.Wpf;
 using Mosaic.Shell.Wpf;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf;
@@ -20,6 +24,7 @@ public sealed class PresentationTests
     {
         internal UnsavedChoice Choice = UnsavedChoice.Cancel;
         internal bool Delete = false;
+        public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(Delete);
         public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(Delete);
         public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(Choice);
         public Task ShowErrorAsync(string message) => Task.CompletedTask;
@@ -38,12 +43,60 @@ public sealed class PresentationTests
         public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) => Task.FromResult(SaveError is null ? OperationResult<TaskItemDto>.Success(Item with { Title = request.Title, Revision = request.ExpectedRevision + 1 }) : OperationResult<TaskItemDto>.Failure(SaveError));
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult<TaskItemDto>.Success(Item with { IsCompleted = request.IsCompleted }));
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(OperationResult.Success()); }
+        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
     }
     private sealed class Diagnostics : IDiagnosticSink
     {
         internal List<(string CorrelationId, Exception Exception)> Reports { get; } = [];
         public void Report(string correlationId, Exception exception) => Reports.Add((correlationId, exception));
     }
+    private sealed class SettingsCore : ISettingsCore
+    {
+        public List<ISettingSource> Sources { get; } = [];
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success([]));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+        public IDisposable Register(ISettingSource source)
+        {
+            Sources.Add(source);
+            return new Registration(() => Sources.Remove(source));
+        }
+        private sealed class Registration(Action onDispose) : IDisposable
+        {
+            private int _disposed;
+            public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) onDispose(); }
+        }
+    }
+    private sealed class SettingsApi : ISettingsApi
+    {
+        public IReadOnlyList<SettingDefinition> Definitions { get; init; } = [];
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
+                Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+    }
+    private static object CreateSettingsViewModel(ISettingsApi api, Dialogs dialogs)
+    {
+        var type = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingsViewModel")!;
+        return Activator.CreateInstance(type, api, dialogs)!;
+    }
+    private static Task Initialize(object model) => (Task)model.GetType().GetMethod("InitializeAsync")!.Invoke(model, null)!;
+    private static void SetProperty(object model, string property, object value) => model.GetType().GetProperty(property)!.SetValue(model, value);
+    private static IList VisibleRows(object model) => (IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!;
+    private static IList<string> RowIds(object model) => VisibleRows(model).Cast<object>().Select(row => (string)row.GetType().GetProperty("Id")!.GetValue(row)!).ToList();
     private static T Get<T>(object model, string property) => (T)model.GetType().GetProperty(property)!.GetValue(model)!;
     private static void Set(object model, string property, object value) => model.GetType().GetProperty(property)!.SetValue(model, value);
     private static IReadOnlyList<object> Items(object model) => ((IEnumerable)Get<object>(model, "Items")).Cast<object>().ToArray();
@@ -250,20 +303,22 @@ public sealed class PresentationTests
         await page.Controller.DisposeAsync();
     });
     [Fact]
-    public Task Editor_keeps_the_action_bar_outside_the_form_scroller_and_lets_notes_grow() => Sta.Run(() =>
+    public Task Editor_keeps_the_action_bar_outside_the_form_scroller_and_lets_notes_grow() => Sta.Run(async () =>
     {
-        var editor = new Mosaic.Tasks.Wpf.Views.TaskEditorView();
+        var page = await Page(new Api(), new Dialogs());
+        var editor = Assert.IsType<Mosaic.Tasks.Wpf.Views.TaskEditorView>(page.View.FindName("TaskEditorPane"));
         Arrange(editor, 520, 640);
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
+        var navigationBar = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
-        Assert.Equal(0, Grid.GetRow(form));
-        Assert.Equal(1, Grid.GetRow(actionBar));
+        Assert.Equal(0, Grid.GetRow(navigationBar));
+        Assert.Equal(1, Grid.GetRow(form));
+        Assert.Equal(2, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
         Assert.True(notes.MinHeight >= 120);
-        Assert.True(notes.MaxHeight >= notes.MinHeight);
-        return Task.CompletedTask;
+        Assert.True(double.IsPositiveInfinity(notes.MaxHeight));
     });
     [Fact]
     public Task Muted_text_meets_readability_targets_and_all_system_palettes_load() => Sta.Run(() =>
@@ -306,6 +361,7 @@ public sealed class PresentationTests
 
         var registration = registry.Register(module.Navigation, module.Views);
         var shell = new ShellWindow(registry, new Dialogs());
+        shell.Resources.MergedDictionaries.Add(LoadTheme());
         await shell.InitializeAsync();
         shell.ShowInTaskbar = false;
         shell.WindowStyle = WindowStyle.None;
@@ -509,4 +565,90 @@ public sealed class PresentationTests
             foreach (var descendant in FindVisualChildren<T>(child)) yield return descendant;
         }
     }
+
+    [Fact]
+    public Task Integer_row_typing_marks_dirty_and_invalid_text_reports_error() => Sta.Run(() =>
+    {
+        var rowType = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingRow")!;
+        var definition = new SettingDefinition(
+            "tasks.title.maxCharacters", "tasks-core", "Title", "Description",
+            SettingValueKind.Integer, 200, 1, 1000, null,
+            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
+        var row = Activator.CreateInstance(rowType, definition, 200)!;
+        var textValue = rowType.GetProperty("TextValue")!;
+        var isDirty = rowType.GetProperty("IsDirty")!;
+        var error = rowType.GetProperty("Error")!;
+
+        textValue.SetValue(row, "50");
+        Assert.True((bool)isDirty.GetValue(row)!);
+        Assert.Null(error.GetValue(row));
+
+        textValue.SetValue(row, "12a");
+        Assert.Equal("请输入整数。", error.GetValue(row));
+        Assert.True((bool)isDirty.GetValue(row)!);
+
+        textValue.SetValue(row, "200");
+        Assert.Null(error.GetValue(row));
+        Assert.False((bool)isDirty.GetValue(row)!);
+        return Task.CompletedTask;
+    });
+
+    [Fact]
+    public Task Tasks_ui_module_registers_definitions_including_text_overrides() => Sta.Run(async () =>
+    {
+        var settings = new SettingsCore();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics(), settings));
+        await module.ActivateAsync();
+        var source = Assert.Single(settings.Sources);
+        Assert.Equal("tasks-ui", source.ModuleId);
+        Assert.Equal(23, source.Definitions.Count);
+        Assert.All(source.Definitions, item => Assert.Equal("tasks-ui", item.ModuleId));
+        Assert.Contains(source.Definitions, item => item.Id == "ui.text.emptyAllTitle");
+        Assert.Contains(source.Definitions, item => item.Id == "ui.text.restoredSuccess");
+        Assert.Contains(source.Definitions, item => item.Id == "tasks.button.minHeight");
+        await module.StopAsync();
+        Assert.Empty(settings.Sources);
+    });
+
+    [Fact]
+    public Task Appearance_section_lists_theme_language_and_shell_layout_rows() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs());
+        await Initialize(model);
+        SetProperty(model, "ShowAdvanced", true);
+        SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
+        var ids = RowIds(model);
+        Assert.Equal(12, ids.Count);
+        Assert.Contains("appearance.theme", ids);
+        Assert.Contains("ui.language", ids);
+        Assert.Contains("shell.sidebar.fullWidth", ids);
+        Assert.Contains("shell.window.minWidth", ids);
+        Assert.Contains("shell.page.marginBottom", ids);
+        Assert.DoesNotContain("tasks.confirmDelete", ids);
+        Assert.DoesNotContain("startup.width", ids);
+    });
+
+    [Fact]
+    public Task Show_advanced_reveals_all_rows_in_normal_section_and_notifies_visibility() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs());
+        var notified = new List<string>();
+        ((INotifyPropertyChanged)model).PropertyChanged += (_, e) => notified.Add(e.PropertyName!);
+        await Initialize(model);
+        Assert.Equal(2, RowIds(model).Count);
+
+        SetProperty(model, "ShowAdvanced", true);
+        Assert.Equal(21, RowIds(model).Count);
+        Assert.Contains("HasVisibleRows", notified);
+        Assert.Contains("HasRows", notified);
+        Assert.Contains("EmptyMessage", notified);
+    });
 }

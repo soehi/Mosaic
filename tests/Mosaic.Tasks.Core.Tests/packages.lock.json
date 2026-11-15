@@ -166,6 +166,12 @@
       "mosaic.contracts": {
         "type": "Project"
       },
+      "mosaic.settings.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "Mosaic.Contracts": "[0.1.0, )"
+        }
+      },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {
@@ -176,6 +182,7 @@
         "type": "Project",
         "dependencies": {
           "Mosaic.Contracts": "[0.1.0, )",
+          "Mosaic.Settings.Contracts": "[0.1.0, )",
           "Mosaic.Tasks.Contracts": "[0.1.0, )",
           "Mosaic.Tasks.Persistence.Contracts": "[0.1.0, )"
         }

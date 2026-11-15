@@ -5,22 +5,24 @@ using Mosaic.Tasks.Persistence.Contracts;
 
 namespace Mosaic.Tasks.Core.Internal;
 
-internal sealed class TaskService(ITaskRepository repository, TimeProvider clock, IIdGenerator ids)
+internal sealed class TaskService(ITaskRepository repository, TimeProvider clock, IIdGenerator ids, TaskRules rules)
 {
-    private static OperationError? Validate(string title, string notes)
+    private OperationError? Validate(string title, string notes)
     {
-        if (title.Trim().Length == 0) return new(ErrorCodes.ValidationFailed, "请输入任务标题。", "Title");
-        if (title.Trim().EnumerateRunes().Count() > TaskConstraints.TitleMaxCharacters)
-            return new(ErrorCodes.ValidationFailed, $"标题最多 {TaskConstraints.TitleMaxCharacters} 个字符。", "Title");
-        if (notes.EnumerateRunes().Count() > TaskConstraints.NotesMaxCharacters)
-            return new(ErrorCodes.ValidationFailed, $"备注最多 {TaskConstraints.NotesMaxCharacters:N0} 个字符。", "Notes");
+        var constraints = rules.Current;
+        if (constraints.TitleRequired && title.Trim().Length == 0) return new(ErrorCodes.ValidationFailed, "请输入任务标题。", "Title");
+        if (title.Trim().EnumerateRunes().Count() > constraints.TitleMaxCharacters)
+            return new(ErrorCodes.ValidationFailed, $"标题最多 {constraints.TitleMaxCharacters} 个字符。", "Title");
+        if (notes.EnumerateRunes().Count() > constraints.NotesMaxCharacters)
+            return new(ErrorCodes.ValidationFailed, $"备注最多 {constraints.NotesMaxCharacters:N0} 个字符。", "Notes");
         return null;
     }
     internal async Task<OperationResult<TaskItemDto>> CreateAsync(CreateTaskRequest request, CancellationToken ct)
     {
         if (Validate(request.Title, request.Notes) is { } error) return OperationResult<TaskItemDto>.Failure(error);
         var now = clock.GetUtcNow();
-        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, false, now, now, 1);
+        var constraints = rules.Current;
+        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted || constraints.DefaultCompleted, now, now, constraints.RevisionStart);
         var saved = await repository.InsertAsync(task, ct).ConfigureAwait(false);
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(task) : OperationResult<TaskItemDto>.Failure(saved.Error!);
     }
@@ -34,6 +36,11 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
     {
         var result = await repository.QueryAsync(query, ct).ConfigureAwait(false);
         return result;
+    }
+    internal Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(OperationResult<TaskConstraintsDto>.Success(rules.Current));
     }
     internal async Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken ct)
     {

@@ -35,7 +35,7 @@ public partial class App : Application
         try
         {
             _paths = AppPaths.FromArguments(e.Args);
-            _instance = new(_paths.Root, ReportFailure);
+            _instance = new(_paths.Root, ReportFailure, ReadSingleInstanceRetry(_paths));
             if (!_instance.IsPrimary) { await _instance.NotifyAsync(); await FinishAsync(); return; }
             _instance.Listen(() => Dispatcher.BeginInvoke(() =>
             {
@@ -81,6 +81,21 @@ public partial class App : Application
             provider.CreateLogger("Desktop").LogError(exception, "Desktop lifecycle failure");
         }
         catch { /* Diagnostics must not break the failure path it is reporting. */ }
+    }
+    private static int ReadSingleInstanceRetry(AppPaths paths)
+    {
+        try
+        {
+            var configuration = AppConfiguration.Load(paths);
+            return configuration.Settings!.TryGetValue("diagnostics.singleInstanceRetryMilliseconds", out var element) &&
+                element.TryGetInt32(out var value) && value > 0
+                ? value
+                : 250;
+        }
+        catch
+        {
+            return 250;
+        }
     }
     private void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {

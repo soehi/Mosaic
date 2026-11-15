@@ -22,6 +22,7 @@ public enum UnsavedChoice { Save, Discard, Cancel }
 public interface IUserDialogService
 {
     Task<bool> ConfirmDeleteAsync(string title);
+    Task<bool> ConfirmAsync(string title, string message);
     Task<UnsavedChoice> AskUnsavedChangesAsync();
     Task ShowErrorAsync(string message);
 }

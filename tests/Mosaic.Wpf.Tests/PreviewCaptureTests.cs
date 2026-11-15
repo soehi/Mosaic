@@ -4,10 +4,14 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Input;
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
 using Mosaic.Shell.Wpf;
+using Mosaic.Settings.Contracts;
+using Mosaic.Settings.Core;
+using Mosaic.Settings.Wpf;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf;
 
@@ -16,7 +20,7 @@ namespace Mosaic.Wpf.Tests;
 public sealed class PreviewCaptureTests
 {
     [Fact]
-    public Task Write_wide_and_narrow_previews_to_artifacts() => Sta.Run(async () =>
+    public Task Write_required_responsive_previews_to_artifacts() => Sta.Run(async () =>
     {
         var root = FindRepositoryRoot();
         var output = Path.Combine(root, "artifacts", "ui-preview");
@@ -24,12 +28,19 @@ public sealed class PreviewCaptureTests
         var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         application.Resources.MergedDictionaries.Add(LoadTheme());
 
-        await CaptureShell(root, output, 1220, 780, "shell-wide.png");
-        await CaptureShell(root, output, 860, 700, "shell-narrow.png");
-        await CaptureTasksOnly(root, output, 460, 640, "tasks-narrow.png");
+        await CaptureShell(output, 1220, 780, "shell-wide.png");
+        await CaptureShell(output, 760, 620, "shell-760-rail.png");
+        await CaptureShell(output, 760, 620, "shell-rail-dot-only.png");
+        await CaptureTasksOnly(output, 760, 620, "tasks-detail-760.png", selectTask: true);
+        await CaptureTasksOnly(output, 920, 780, "tasks-detail-920.png", selectTask: true);
+        await CaptureTasksOnly(output, 560, 480, "tasks-detail-560.png", selectTask: true);
+        await CaptureTasksOnly(output, 480, 480, "tasks-list-480.png", selectTask: false);
+        await CaptureTasksOnly(output, 460, 640, "tasks-list-narrow.png", selectTask: false);
+        await CaptureSettings(output, 1220, 780, "settings-wide.png");
+        await CaptureSettings(output, 760, 620, "settings-760.png");
     });
 
-    private static async Task CaptureShell(string root, string output, double width, double height, string fileName)
+    private static async Task CaptureShell(string output, double width, double height, string fileName)
     {
         var registry = new ContributionRegistry();
         var dialogs = new Dialogs();
@@ -57,10 +68,35 @@ public sealed class PreviewCaptureTests
         shell.Close();
     }
 
-    private static async Task CaptureTasksOnly(string root, string output, double width, double height, string fileName)
+    private static async Task CaptureTasksOnly(
+        string output,
+        double width,
+        double height,
+        string fileName,
+        bool selectTask)
     {
         var dialogs = new Dialogs();
         var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
+        await module.ActivateAsync();
+        var page = Assert.Single(module.Views).Factory.Create();
+        await page.Controller.InitializeAsync();
+        if (selectTask)
+        {
+            var select = Assert.IsAssignableFrom<IAsyncRelayCommand<TaskItemDto>>(
+                page.View.DataContext.GetType().GetProperty("SelectCommand")!.GetValue(page.View.DataContext));
+            await select.ExecuteAsync(Api.First);
+        }
+        var resources = LoadTheme();
+        var host = new Grid { Resources = resources };
+        host.Children.Add(page.View);
+        Arrange(host, width, height);
+        Render(host, width, height, Path.Combine(output, fileName));
+        await page.Controller.DisposeAsync();
+    }
+
+    private static async Task CaptureSettings(string output, double width, double height, string fileName)
+    {
+        var module = new SettingsUiModule(new(new SettingsApi(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
         await module.ActivateAsync();
         var page = Assert.Single(module.Views).Factory.Create();
         await page.Controller.InitializeAsync();
@@ -111,6 +147,7 @@ public sealed class PreviewCaptureTests
 
     private sealed class Dialogs : IUserDialogService
     {
+        public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(false);
         public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(false);
         public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(UnsavedChoice.Cancel);
         public Task ShowErrorAsync(string message) => Task.CompletedTask;
@@ -121,9 +158,23 @@ public sealed class PreviewCaptureTests
         public void Report(string correlationId, Exception exception) { }
     }
 
+    private sealed class SettingsApi : ISettingsApi
+    {
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(SettingCatalog.Definitions));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
+                SettingCatalog.Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+    }
+
     private sealed class Api : ITasksApi
     {
-        private static readonly TaskItemDto First = new(
+        public static TaskItemDto First { get; } = new(
             Guid.NewGuid(),
             "完成产品方案初稿",
             "整理需求、画出主流程，并标注下一步需要确认的问题。",
@@ -151,5 +202,7 @@ public sealed class PreviewCaptureTests
             Task.FromResult(OperationResult<TaskItemDto>.Success((request.Id == First.Id ? First : Second) with { IsCompleted = request.IsCompleted }));
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
     }
 }

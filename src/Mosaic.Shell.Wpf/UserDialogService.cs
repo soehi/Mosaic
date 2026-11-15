@@ -5,7 +5,18 @@ namespace Mosaic.Shell.Wpf;
 
 public sealed class UserDialogService : IUserDialogService
 {
-    public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(MessageBox.Show(Application.Current.MainWindow, $"确定永久删除「{title}」？", "删除任务", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes);
+    public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(MessageBox.Show(
+        Application.Current.MainWindow,
+        message,
+        title,
+        MessageBoxButton.YesNo,
+        MessageBoxImage.Question) == MessageBoxResult.Yes);
+    public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(MessageBox.Show(
+        Application.Current.MainWindow,
+        $"确定永久删除「{title}」？",
+        "删除任务",
+        MessageBoxButton.YesNo,
+        MessageBoxImage.Warning) == MessageBoxResult.Yes);
     public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(MessageBox.Show(Application.Current.MainWindow, "当前编辑尚未保存。\n\n是：保存并离开\n否：放弃更改\n取消：继续编辑", "未保存的更改", MessageBoxButton.YesNoCancel, MessageBoxImage.Question) switch
     {
         MessageBoxResult.Yes => UnsavedChoice.Save,
