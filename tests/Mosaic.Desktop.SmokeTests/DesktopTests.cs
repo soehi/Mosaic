@@ -89,7 +89,7 @@ public sealed class DesktopTests
             config["modules"] = JsonSerializer.SerializeToElement(Array.Empty<string>());
             config["providers"] = JsonSerializer.SerializeToElement(new Dictionary<string, string>());
         }
-        if (scenario == "backend") config["modules"] = JsonSerializer.SerializeToElement(new[] { "storage-sqlite", "tasks-sqlite", "tasks-core" });
+        if (scenario == "backend") config["modules"] = JsonSerializer.SerializeToElement(new[] { "storage-sqlite", "settings-sqlite", "settings-core", "tasks-sqlite", "tasks-core" });
         if (scenario == "disabled-provider") config["modules"] = JsonSerializer.SerializeToElement(new[] { "storage-sqlite", "tasks-sqlite" });
         if (scenario == "missing") config["modules"] = JsonSerializer.SerializeToElement(new[] { "tasks-ui" });
         if (scenario == "traversal") config["storage"] = JsonSerializer.SerializeToElement(new { engine = "sqlite", location = "local-app-data", filename = "../escape.sqlite" });
