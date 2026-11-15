@@ -38,6 +38,7 @@ Mosaic.Settings.Contracts.SettingCategory
 Mosaic.Settings.Contracts.SettingDefinition
 Mosaic.Settings.Contracts.SettingOption
 Mosaic.Settings.Contracts.SettingPersistence
+Mosaic.Settings.Contracts.SettingResults
 Mosaic.Settings.Contracts.SettingValueKind
 Mosaic.Settings.Contracts.SettingValueNormalizer
 Mosaic.Settings.Contracts.IHostSettingSource

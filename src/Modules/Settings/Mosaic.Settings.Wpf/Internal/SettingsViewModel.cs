@@ -687,10 +687,11 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
                 IsError = true;
                 return false;
             }
-            if (proposed.Value!.Count > 0)
+            var applyWarning = proposed.Value!.GetValueOrDefault(SettingResults.ApplyWarningId);
+            foreach (var (id, error) in proposed.Value.Where(item => item.Key != SettingResults.ApplyWarningId))
+                _rows.GetValueOrDefault(id)?.SetError(error.Message);
+            if (proposed.Value.Keys.Any(id => id != SettingResults.ApplyWarningId))
             {
-                foreach (var (id, error) in proposed.Value)
-                    _rows.GetValueOrDefault(id)?.SetError(error.Message);
                 SetFeedback(SettingsFeedbackKind.InvalidAfterSave);
                 IsError = true;
                 return false;
@@ -705,7 +706,8 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             }
             foreach (var row in _rows.Values) row.SetValue(values.Value!.GetValueOrDefault(row.Id));
             HasChanges = false;
-            SetFeedback(SettingsFeedbackKind.Saved);
+            if (applyWarning is not null) SetFeedback(SettingsFeedbackKind.Api, applyWarning.Message);
+            else SetFeedback(SettingsFeedbackKind.Saved);
             return true;
         }
         catch (Exception)

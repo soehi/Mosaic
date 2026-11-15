@@ -18,6 +18,8 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
     private readonly Dictionary<string, JsonElement> _runtimeOverrides = new(
         startupValues.Values ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal),
         StringComparer.Ordinal);
+    private Dictionary<string, JsonElement>? _rollbackOverrides;
+    private string BackupPath => paths.ConfigPath + ".bak";
     private static readonly IReadOnlyList<SettingDefinition> HostDefinitions = SettingCatalog.ForHost()
         .Select(definition => definition.Id switch
         {
@@ -102,15 +104,18 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
             var directory = Path.GetDirectoryName(paths.ConfigPath)!;
             Directory.CreateDirectory(directory);
             var temporaryPath = paths.ConfigPath + ".tmp";
+            var previousOverrides = new Dictionary<string, JsonElement>(_runtimeOverrides, StringComparer.Ordinal);
             try
             {
                 await File.WriteAllTextAsync(temporaryPath, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
-                File.Replace(temporaryPath, paths.ConfigPath, null);
+                if (File.Exists(paths.ConfigPath)) File.Replace(temporaryPath, paths.ConfigPath, BackupPath);
+                else File.Move(temporaryPath, paths.ConfigPath);
                 foreach (var (id, value) in values)
                 {
                     using var document = JsonDocument.Parse(value is null ? "null" : JsonSerializer.Serialize(value, JsonOptions));
                     _runtimeOverrides[id] = document.RootElement.Clone();
                 }
+                _rollbackOverrides = previousOverrides;
             }
             catch (OperationCanceledException)
             {
@@ -123,6 +128,31 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
                 return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "宿主配置保存失败：" + exception.Message));
             }
             return OperationResult.Success();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<OperationResult> RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!File.Exists(BackupPath)) return OperationResult.Success();
+            File.Replace(BackupPath, paths.ConfigPath, null);
+            if (_rollbackOverrides is not null)
+            {
+                _runtimeOverrides.Clear();
+                foreach (var (id, value) in _rollbackOverrides) _runtimeOverrides[id] = value;
+                _rollbackOverrides = null;
+            }
+            return OperationResult.Success();
+        }
+        catch (Exception exception)
+        {
+            return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "宿主配置回滚失败：" + exception.Message));
         }
         finally
         {
