@@ -190,7 +190,7 @@ pwsh -File build/test-install.ps1
 
 ### 复核修复：P1 功能闭环（2026-11-15）
 
-对 verified 0.2.0 线复核后，补上了“界面显示已保存、实际不生效或半落盘”的剩余缺口。提交：`d76f5e3`（值类型）、`6b3f7eb`（宿主装配接线）、`171e13f`（首启尺寸）、`336d2cd`（分区重置）、`1b0be79`（原子提交）、`0ef3546`（预览夹具）。
+对 verified 0.2.0 线复核后，补上了“界面显示已保存、实际不生效或半落盘”的剩余缺口。提交：`3a2c6f3`（值类型规范化、宿主语义校验与测试）、`3257cf2`（分区重置与回滚加固）、`1d71265`（完整装配预览）。
 
 - 值类型统一：新增 `SettingValueNormalizer`，按定义 `Kind` 把存储层返回的 `long`、`object[]`、字典规范化为 `int`、`string[]`、`Dictionary<string,string>`；设置服务、宿主来源与设置行的显示/回写共用同一规则，`System.Object[]` 不再出现在界面上。
 - 宿主装配真实接线：`Bootstrapper` 以 `settings` 段中的 `host.modules`/`host.providers` 为权威（顶层配置仅作兼容回退），经 `ModuleGraph.Resolve` 与 capability 校验后装配；默认模块清单与 5 条 provider 绑定由 `BuiltInModuleCatalog` 从内建目录推导，恢复默认不会再写出残缺配置。
@@ -219,4 +219,3 @@ pwsh -File build/test-install.ps1
 正式代码签名证书尚未提供，EXE/MSI 未签名。提醒、同步、分组、优先级、插件市场等仍不进入首版。
 
 0.2.0 的交互式桌面 smoke（CRUD、空配置、坏 JSON）与安装/升级保留设置复验同样需要正常交互式 Windows 会话；受限会话中 `empty`/`backend`/`invalid` 的窗口发现与关闭超时属环境限制，非功能回归。
-
