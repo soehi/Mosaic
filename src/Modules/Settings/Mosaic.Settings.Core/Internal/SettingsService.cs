@@ -104,27 +104,21 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
                         [semantic.Error!.Field ?? "host.modules"] = semantic.Error
                     });
         }
-        IReadOnlyDictionary<string, object?>? previousUserValues = null;
+        var hostPersisted = false;
+        if (hostSource is not null && hostChanges.Count > 0)
+        {
+            var persisted = await hostSource.PersistAsync(hostChanges, cancellationToken).ConfigureAwait(false);
+            if (!persisted.IsSuccess)
+                return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(persisted.Error!);
+            hostPersisted = true;
+        }
         if (userChanges.Count > 0)
         {
-            var loaded = await repository.LoadAsync(cancellationToken).ConfigureAwait(false);
-            if (!loaded.IsSuccess) return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(loaded.Error!);
-            previousUserValues = loaded.Value;
-            if (!(await repository.SaveAsync(userChanges, cancellationToken).ConfigureAwait(false)).IsSuccess)
-                return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(new(ErrorCodes.StorageUnavailable, "设置保存失败。"));
-        }
-
-        if (hostSource is not null)
-        {
-            if (hostChanges.Count > 0)
+            var saved = await repository.SaveAsync(userChanges, cancellationToken).ConfigureAwait(false);
+            if (!saved.IsSuccess)
             {
-                var persisted = await hostSource.PersistAsync(hostChanges, cancellationToken).ConfigureAwait(false);
-                if (!persisted.IsSuccess)
-                {
-                    if (previousUserValues is not null)
-                        _ = await repository.SaveAsync(previousUserValues, cancellationToken).ConfigureAwait(false);
-                    return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(persisted.Error!);
-                }
+                if (hostPersisted) _ = await hostSource!.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(saved.Error!);
             }
         }
 
@@ -133,13 +127,33 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         if (immediate.Count > 0)
         {
             var values = (await GetValuesAsync(cancellationToken).ConfigureAwait(false)).Value;
-            foreach (var group in immediate.GroupBy(item => Find(item.Key)!.ModuleId))
-            {
-                var source = _sources.FirstOrDefault(item => item.ModuleId == group.Key);
-                if (source is not null) await source.ApplyAsync(values, cancellationToken).ConfigureAwait(false);
-            }
+            var warnings = await TryApplyAsync(
+                values,
+                immediate.Keys.Select(id => Find(id)!.ModuleId).Distinct(StringComparer.Ordinal),
+                cancellationToken).ConfigureAwait(false);
+            foreach (var (id, warning) in warnings) errors[id] = warning;
         }
         return OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(errors);
+    }
+
+    private async Task<Dictionary<string, OperationError>> TryApplyAsync(
+        IReadOnlyDictionary<string, object?> values,
+        IEnumerable<string> moduleIds,
+        CancellationToken cancellationToken)
+    {
+        var warnings = new Dictionary<string, OperationError>(StringComparer.Ordinal);
+        foreach (var moduleId in moduleIds)
+        {
+            var source = _sources.FirstOrDefault(item => item.ModuleId == moduleId);
+            if (source is null) continue;
+            try { await source.ApplyAsync(values, cancellationToken).ConfigureAwait(false); }
+            catch (Exception)
+            {
+                warnings[SettingResults.ApplyWarningId] = new(
+                    ErrorCodes.InternalError, "已保存，但即时应用失败，重启后生效。");
+            }
+        }
+        return warnings;
     }
 
     private static OperationError? Validate(SettingDefinition definition, object? value)
@@ -204,19 +218,31 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
 
     private SettingDefinition? Find(string id) => Definitions.FirstOrDefault(item => item.Id == id);
 
-    public async Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default)
+    public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+        ResetDefinitionsAsync(
+            Definitions.Where(item => moduleId is null || item.ModuleId == moduleId).ToArray(),
+            cancellationToken);
+
+    public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default)
     {
-        var definitions = Definitions.Where(item => moduleId is null || item.ModuleId == moduleId).ToArray();
-        var ids = definitions.Where(item => item.Persistence == SettingPersistence.UserSettings).Select(item => item.Id).ToArray();
-        IReadOnlyDictionary<string, object?>? previousUserValues = null;
-        if (ids.Length > 0)
+        var definitions = new List<SettingDefinition>();
+        var known = Definitions;
+        foreach (var id in definitionIds.Distinct(StringComparer.Ordinal))
         {
-            var loaded = await repository.LoadAsync(cancellationToken).ConfigureAwait(false);
-            if (!loaded.IsSuccess) return OperationResult.Failure(loaded.Error!);
-            previousUserValues = loaded.Value;
-            if (!(await repository.DeleteAsync(ids, cancellationToken).ConfigureAwait(false)).IsSuccess)
-                return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "恢复默认失败。"));
+            var definition = known.FirstOrDefault(item => item.Id == id);
+            if (definition is null)
+                return Task.FromResult(OperationResult.Failure(new(ErrorCodes.InvalidRequest, "未知设置项：" + id, id)));
+            definitions.Add(definition);
         }
+        return ResetDefinitionsAsync(definitions, cancellationToken);
+    }
+
+    private async Task<OperationResult> ResetDefinitionsAsync(
+        IReadOnlyList<SettingDefinition> definitions,
+        CancellationToken cancellationToken)
+    {
+        var ids = definitions.Where(item => item.Persistence == SettingPersistence.UserSettings).Select(item => item.Id).ToArray();
+        var hostPersisted = false;
         var hostIds = definitions.Where(item => item.Persistence == SettingPersistence.HostConfig).Select(item => item.Id).ToArray();
         if (hostIds.Length > 0 && hostSource is not null)
         {
@@ -228,16 +254,21 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
             var semantic = await hostSource.ValidateAsync(effective, cancellationToken).ConfigureAwait(false);
             if (!semantic.IsSuccess) return semantic;
             var persisted = await hostSource.PersistAsync(defaults, cancellationToken).ConfigureAwait(false);
-            if (!persisted.IsSuccess)
+            if (!persisted.IsSuccess) return persisted;
+            hostPersisted = true;
+        }
+        if (ids.Length > 0)
+        {
+            var deleted = await repository.DeleteAsync(ids, cancellationToken).ConfigureAwait(false);
+            if (!deleted.IsSuccess)
             {
-                if (previousUserValues is not null)
-                    _ = await repository.SaveAsync(previousUserValues, cancellationToken).ConfigureAwait(false);
-                return persisted;
+                if (hostPersisted) _ = await hostSource!.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "恢复默认失败。"));
             }
         }
         var values = (await GetValuesAsync(cancellationToken).ConfigureAwait(false)).Value;
-        foreach (var source in _sources.Where(item => moduleId is null || item.ModuleId == moduleId))
-            await source.ApplyAsync(values, cancellationToken).ConfigureAwait(false);
+        var moduleIds = definitions.Select(item => item.ModuleId).ToHashSet(StringComparer.Ordinal);
+        _ = await TryApplyAsync(values, moduleIds, cancellationToken).ConfigureAwait(false);
         return OperationResult.Success();
     }
 

@@ -25,6 +25,11 @@ public sealed record SettingDefinition(
 
 public sealed record SettingOption(string Value, string DisplayNameKey);
 
+public static class SettingResults
+{
+    public const string ApplyWarningId = "settings.apply";
+}
+
 public static class SettingValueNormalizer
 {
     public static object? Normalize(SettingDefinition definition, object? value)
@@ -88,6 +93,7 @@ public interface IHostSettingSource : ISettingSource
     object? GetValue(string id);
     Task<OperationResult> ValidateAsync(IReadOnlyDictionary<string, object?> effectiveValues, CancellationToken cancellationToken = default);
     Task<OperationResult> PersistAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
+    Task<OperationResult> RollbackAsync(CancellationToken cancellationToken = default);
 }
 
 public interface ISettingsApi
@@ -97,6 +103,7 @@ public interface ISettingsApi
     Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
         IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default);
     Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default);
+    Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default);
 }
 
 public interface ISettingsCore : ISettingsApi

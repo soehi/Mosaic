@@ -10,13 +10,15 @@ public sealed class SettingsTests
     {
         public Dictionary<string, object?> Values { get; } = [];
         public OperationError? Failure { get; set; }
+        public OperationError? SaveFailure { get; set; }
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Failure is null
                 ? OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(Values, StringComparer.Ordinal))
                 : OperationResult<IReadOnlyDictionary<string, object?>>.Failure(Failure));
         public Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         {
-            if (Failure is not null) return Task.FromResult(OperationResult.Failure(Failure));
+            var failure = Failure ?? SaveFailure;
+            if (failure is not null) return Task.FromResult(OperationResult.Failure(failure));
             foreach (var (id, value) in values) Values[id] = value;
             return Task.FromResult(OperationResult.Success());
         }
@@ -33,6 +35,8 @@ public sealed class SettingsTests
         public Dictionary<string, object?> Values { get; } = [];
         public OperationError? Failure { get; set; }
         public Func<IReadOnlyDictionary<string, object?>, OperationError?>? Validator { get; set; }
+        public int Rollbacks { get; private set; }
+        private Dictionary<string, object?>? _snapshot;
         public string ModuleId => "host";
         public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.Definitions;
         public object? GetValue(string id) => Values.GetValueOrDefault(id);
@@ -43,7 +47,18 @@ public sealed class SettingsTests
         public Task<OperationResult> PersistAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         {
             if (Failure is not null) return Task.FromResult(OperationResult.Failure(Failure));
+            _snapshot = new Dictionary<string, object?>(Values, StringComparer.Ordinal);
             foreach (var (id, value) in values) Values[id] = value;
+            return Task.FromResult(OperationResult.Success());
+        }
+        public Task<OperationResult> RollbackAsync(CancellationToken cancellationToken = default)
+        {
+            Rollbacks++;
+            if (_snapshot is not null)
+            {
+                Values.Clear();
+                foreach (var (id, value) in _snapshot) Values[id] = value;
+            }
             return Task.FromResult(OperationResult.Success());
         }
         public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -53,8 +68,10 @@ public sealed class SettingsTests
     {
         public string ModuleId { get; }
         public IReadOnlyList<SettingDefinition> Definitions { get; }
+        public bool ThrowOnApply { get; init; }
         public Source(string moduleId, IReadOnlyList<SettingDefinition> definitions) { ModuleId = moduleId; Definitions = definitions; }
-        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>
+            ThrowOnApply ? throw new InvalidOperationException("apply failed") : Task.CompletedTask;
     }
 
     private static readonly SettingDefinition[] TaskCoreDefinitions =
@@ -282,6 +299,31 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public async Task Reset_by_definition_ids_only_clears_the_listed_ids()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.sortOrder"] = "TitleAsc",
+            ["tasks.confirmDelete"] = false,
+            ["logging.level"] = "Warning"
+        });
+
+        Assert.True((await module.Api.ResetAsync(["tasks.sortOrder"])).IsSuccess);
+        Assert.DoesNotContain("tasks.sortOrder", repository.Values);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
+        Assert.Equal("Warning", host.Values["logging.level"]);
+
+        var unknown = await module.Api.ResetAsync(["missing.setting"]);
+        Assert.Equal(ErrorCodes.InvalidRequest, unknown.Error?.Code);
+    }
+
+    [Fact]
     public async Task Storage_failure_is_not_applied_as_success()
     {
         var repository = new MemoryRepository { Failure = new(ErrorCodes.StorageUnavailable, "failed") };
@@ -311,6 +353,51 @@ public sealed class SettingsTests
         Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
         Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
         Assert.Empty(host.Values);
+    }
+
+    [Fact]
+    public async Task Storage_failure_after_host_persist_rolls_the_host_config_back()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        Assert.True((await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["logging.level"] = "Warning" })).IsSuccess);
+        Assert.Equal("Warning", host.Values["logging.level"]);
+
+        repository.SaveFailure = new(ErrorCodes.StorageUnavailable, "disk full");
+        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.confirmDelete"] = false,
+            ["logging.level"] = "Error"
+        });
+        Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
+        Assert.Equal(1, host.Rollbacks);
+        Assert.Equal("Warning", host.Values["logging.level"]);
+        Assert.Empty(repository.Values);
+    }
+
+    [Fact]
+    public async Task Immediate_apply_failure_is_reported_as_a_warning_after_saving()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        var storage = new Source("storage-sqlite",
+        [
+            new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
+                SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.HostConfig)
+        ]) { ThrowOnApply = true };
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(storage);
+
+        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Wal" });
+        Assert.True(result.IsSuccess);
+        var warning = Assert.Single(result.Value!);
+        Assert.Equal(SettingResults.ApplyWarningId, warning.Key);
+        Assert.Contains("即时应用失败", warning.Value.Message, StringComparison.Ordinal);
+        Assert.Equal("Wal", host.Values["storage.journalMode"]);
     }
 
     [Fact]

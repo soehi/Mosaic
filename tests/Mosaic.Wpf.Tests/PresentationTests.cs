@@ -63,6 +63,8 @@ public sealed class PresentationTests
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
         public IDisposable Register(ISettingSource source)
         {
             Sources.Add(source);
@@ -78,6 +80,7 @@ public sealed class PresentationTests
     {
         public IReadOnlyList<SettingDefinition> Definitions { get; init; } = [];
         public IReadOnlyDictionary<string, object?>? Values { get; init; }
+        public IReadOnlyDictionary<string, OperationError>? ProposedErrors { get; init; }
         public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
@@ -85,9 +88,18 @@ public sealed class PresentationTests
                 Values ?? Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
         public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
             IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(
+                ProposedErrors ?? new Dictionary<string, OperationError>()));
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public List<IReadOnlyList<string>> ResetCalls { get; } = [];
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Track(definitionIds);
+        private Task<OperationResult> Track(IReadOnlyList<string> definitionIds)
+        {
+            ResetCalls.Add(definitionIds);
+            return Task.FromResult(OperationResult.Success());
+        }
     }
     private static object CreateSettingsViewModel(ISettingsApi api, Dialogs dialogs)
     {
@@ -776,5 +788,61 @@ public sealed class PresentationTests
         Assert.Contains("HasVisibleRows", notified);
         Assert.Contains("HasRows", notified);
         Assert.Contains("EmptyMessage", notified);
+    });
+
+    [Fact]
+    public Task Section_reset_targets_visible_rows_and_skips_host_bindings() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs { Delete = true });
+        await Initialize(model);
+        SetProperty(model, "ShowAdvanced", true);
+        var sectionType = Get<object>(model, "SelectedSection").GetType();
+        var reset = Get<IAsyncRelayCommand>(model, "ResetSectionCommand");
+
+        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Storage"));
+        await reset.ExecuteAsync(null);
+        var storageIds = Assert.Single(api.ResetCalls);
+        Assert.Contains("logging.level", storageIds);
+        Assert.Contains("startup.width", storageIds);
+        Assert.DoesNotContain("host.modules", storageIds);
+        Assert.DoesNotContain("host.providers", storageIds);
+        Assert.DoesNotContain("shell.window.minWidth", storageIds);
+
+        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Appearance"));
+        await reset.ExecuteAsync(null);
+        var appearanceIds = api.ResetCalls[^1];
+        Assert.Contains("shell.window.minWidth", appearanceIds);
+        Assert.Contains("appearance.theme", appearanceIds);
+        Assert.DoesNotContain("startup.width", appearanceIds);
+        Assert.DoesNotContain("host.modules", appearanceIds);
+    });
+
+    [Fact]
+    public Task Apply_failure_after_save_shows_a_warning_and_keeps_data_saved() => Sta.Run(async () =>
+    {
+        var definition = new SettingDefinition(
+            "tasks.confirmDelete", "tasks-ui", "Confirm", "Description", SettingValueKind.Boolean,
+            true, null, null, null, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings);
+        var api = new SettingsApi
+        {
+            Definitions = [definition],
+            ProposedErrors = new Dictionary<string, OperationError>
+            {
+                [SettingResults.ApplyWarningId] = new(ErrorCodes.InternalError, "已保存，但即时应用失败，重启后生效。")
+            }
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs());
+        await Initialize(model);
+        var row = Assert.Single(VisibleRows(model).Cast<object>());
+        SetProperty(row, "ProposedValue", false);
+
+        await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
+        Assert.Contains("即时应用失败", Get<string?>(model, "Message") ?? String.Empty, StringComparison.Ordinal);
+        Assert.False(Get<bool>(model, "IsError"));
+        Assert.False(Get<bool>(model, "HasChanges"));
     });
 }

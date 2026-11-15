@@ -46,6 +46,16 @@ internal sealed class GuardedSettingsApi(ISettingsCore inner, IModuleExecutionGa
         }
     }
 
+    public async Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default)
+    {
+        if (!TryEnter(out var lease)) return UnavailableReset();
+        using (lease)
+        {
+            try { return await inner.ResetAsync(definitionIds, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { return ReportReset(exception); }
+        }
+    }
+
     public IDisposable Register(ISettingSource source) => inner.Register(source);
 
     private bool TryEnter(out IDisposable? lease)

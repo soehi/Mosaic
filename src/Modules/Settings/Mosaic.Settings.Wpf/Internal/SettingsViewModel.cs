@@ -481,7 +481,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         _settings = settings;
         _dialogs = dialogs;
         SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy && HasChanges);
-        ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionModuleIds()), () => !IsBusy);
+        ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionRowIds()), () => !IsBusy && VisibleRows.Count > 0);
         ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(null), () => !IsBusy);
         DiscardCommand = new RelayCommand(DiscardChanges, () => HasChanges);
         ResetToDefaultCommand = new RelayCommand<SettingRow>(row => row?.Reset(), _ => !IsBusy);
@@ -630,6 +630,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         OnPropertyChanged(nameof(HasRows));
         OnPropertyChanged(nameof(HasVisibleRows));
         OnPropertyChanged(nameof(EmptyMessage));
+        ((AsyncRelayCommand)ResetSectionCommand).NotifyCanExecuteChanged();
     }
 
     private bool IsRowVisible(SettingRow row)
@@ -642,8 +643,9 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             SettingsSection.Appearance => row.Definition.ModuleId == "shell" ||
                 (row.Definition.ModuleId == "host" && row.Id.StartsWith("shell.", StringComparison.Ordinal)),
             SettingsSection.Storage => row.Definition.ModuleId is "storage-sqlite" or "host" &&
-                (row.Id.StartsWith("storage.", StringComparison.Ordinal) || row.Id.StartsWith("host.", StringComparison.Ordinal) ||
-                    row.Id.StartsWith("logging.", StringComparison.Ordinal) || row.Id.StartsWith("diagnostics.", StringComparison.Ordinal) ||
+                (row.Id.StartsWith("storage.", StringComparison.Ordinal) ||
+                    row.Id.StartsWith("logging.", StringComparison.Ordinal) ||
+                    row.Id.StartsWith("diagnostics.", StringComparison.Ordinal) ||
                     row.Id.StartsWith("startup.", StringComparison.Ordinal)),
             SettingsSection.Text => row.Id.StartsWith("ui.text.", StringComparison.Ordinal),
             _ => false
@@ -685,10 +687,11 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
                 IsError = true;
                 return false;
             }
-            if (proposed.Value!.Count > 0)
+            var applyWarning = proposed.Value!.GetValueOrDefault(SettingResults.ApplyWarningId);
+            foreach (var (id, error) in proposed.Value.Where(item => item.Key != SettingResults.ApplyWarningId))
+                _rows.GetValueOrDefault(id)?.SetError(error.Message);
+            if (proposed.Value.Keys.Any(id => id != SettingResults.ApplyWarningId))
             {
-                foreach (var (id, error) in proposed.Value)
-                    _rows.GetValueOrDefault(id)?.SetError(error.Message);
                 SetFeedback(SettingsFeedbackKind.InvalidAfterSave);
                 IsError = true;
                 return false;
@@ -703,7 +706,8 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             }
             foreach (var row in _rows.Values) row.SetValue(values.Value!.GetValueOrDefault(row.Id));
             HasChanges = false;
-            SetFeedback(SettingsFeedbackKind.Saved);
+            if (applyWarning is not null) SetFeedback(SettingsFeedbackKind.Api, applyWarning.Message);
+            else SetFeedback(SettingsFeedbackKind.Saved);
             return true;
         }
         catch (Exception)
@@ -718,35 +722,24 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         }
     }
 
-    private async Task ResetCoreAsync(string[]? moduleIds)
+    private async Task ResetCoreAsync(IReadOnlyList<string>? definitionIds)
     {
         if (IsBusy) return;
-        if (!await ConfirmResetAsync(moduleIds is null ? null : string.Join("、", moduleIds))) return;
+        if (definitionIds is { Count: 0 }) return;
+        if (!await ConfirmResetAsync(definitionIds is null ? null : SectionDisplayName())) return;
         IsBusy = true;
         Message = null;
         IsError = false;
         try
         {
-            if (moduleIds is null)
+            var reset = definitionIds is null
+                ? await _settings.ResetAsync()
+                : await _settings.ResetAsync(definitionIds);
+            if (!reset.IsSuccess)
             {
-                if (!(await _settings.ResetAsync()).IsSuccess)
-                {
-                    SetFeedback(SettingsFeedbackKind.ResetFailed);
-                    IsError = true;
-                    return;
-                }
-            }
-            else
-            {
-                foreach (var moduleId in moduleIds)
-                {
-                    if (!(await _settings.ResetAsync(moduleId)).IsSuccess)
-                    {
-                        SetFeedback(SettingsFeedbackKind.ResetFailed);
-                        IsError = true;
-                        return;
-                    }
-                }
+                SetFeedback(SettingsFeedbackKind.ResetFailed, reset.Error?.Message);
+                IsError = true;
+                return;
             }
 
             var values = await _settings.GetValuesAsync();
@@ -771,13 +764,16 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         }
     }
 
-    private string[] SectionModuleIds() => SelectedSection switch
+    private string[] SectionRowIds() => VisibleRows.Select(row => row.Id).ToArray();
+
+    private string SectionDisplayName() => SelectedSection switch
     {
-        SettingsSection.Tasks => ["tasks-core", "tasks-ui"],
-        SettingsSection.Appearance => ["shell"],
-        SettingsSection.Storage => ["storage-sqlite", "host"],
-        SettingsSection.Text => ["tasks-ui"],
-        _ => ["tasks-ui", "tasks-core", "shell"]
+        SettingsSection.Normal => SettingsLocalization.Localize("Settings.Section.Normal", "普通"),
+        SettingsSection.Tasks => SettingsLocalization.Localize("Settings.Section.Tasks", "任务"),
+        SettingsSection.Appearance => SettingsLocalization.Localize("Settings.Section.Appearance", "外观与布局"),
+        SettingsSection.Storage => SettingsLocalization.Localize("Settings.Section.Storage", "存储与系统"),
+        SettingsSection.Text => SettingsLocalization.Localize("Settings.Section.Text", "文案"),
+        _ => string.Empty
     };
 
     private async Task<bool> ConfirmResetAsync(string? scope)
