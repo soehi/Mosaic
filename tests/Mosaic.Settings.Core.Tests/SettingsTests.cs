@@ -272,4 +272,31 @@ public sealed class SettingsTests
         Assert.True(valid.IsSuccess);
     }
 
+    [Fact]
+    public async Task Deferred_sources_register_at_activation_and_their_values_are_validated_and_persisted()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        var storage = new Source("storage-sqlite",
+        [
+            new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
+                SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
+        ]);
+        await using var module = new SettingsModule(new(repository, host, DeferredSources: [storage]));
+
+        var unknown = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Bogus" });
+        Assert.Equal(ErrorCodes.InvalidRequest, unknown.Value!["storage.journalMode"].Code);
+
+        await module.ActivateAsync();
+        var definitions = await module.Api.ListDefinitionsAsync();
+        Assert.Contains(definitions.Value!, definition => definition.Id == "storage.journalMode");
+        Assert.Equal("storage-sqlite", definitions.Value!.Single(definition => definition.Id == "storage.journalMode").ModuleId);
+
+        var invalid = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Bogus" });
+        Assert.Equal(ErrorCodes.ValidationFailed, invalid.Value!["storage.journalMode"].Code);
+
+        var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Wal" });
+        Assert.True(proposed.IsSuccess);
+        Assert.Equal("Wal", host.Values["storage.journalMode"]);
+    }
 }

@@ -59,6 +59,9 @@ Mosaic.Storage.Contracts.SqlRow
 Mosaic.Storage.Contracts.SqlStatement
 Mosaic.Storage.Sqlite.SqliteModule
 Mosaic.Storage.Sqlite.SqliteOptions
+Mosaic.Storage.Sqlite.SqliteConnectionMode
+Mosaic.Storage.Sqlite.SqliteJournalMode
+Mosaic.Storage.Sqlite.StorageSettingSource
 Mosaic.Tasks.Contracts.CreateTaskRequest
 Mosaic.Tasks.Contracts.TaskConstraintsDto
 Mosaic.Tasks.Contracts.TaskSortOrder

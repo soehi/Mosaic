@@ -9,4 +9,8 @@ TestResults/
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
+!src/Modules/Storage/Mosaic.Storage.Sqlite/
+!src/Modules/Storage/Mosaic.Tasks.Sqlite/
+!src/Modules/Settings/Mosaic.Settings.Sqlite/
+!tests/Mosaic.Storage.Sqlite.Tests/
 *.log

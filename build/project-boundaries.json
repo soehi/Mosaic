@@ -9,7 +9,7 @@
   "Mosaic.Tasks.Core": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts", "Mosaic.Tasks.Persistence.Contracts", "Mosaic.Settings.Contracts"],
   "Mosaic.Tasks.Wpf": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf", "Mosaic.Settings.Contracts"],
   "Mosaic.Storage.Contracts": ["Mosaic.Contracts"],
-  "Mosaic.Storage.Sqlite": ["Mosaic.Contracts", "Mosaic.Storage.Contracts"],
+  "Mosaic.Storage.Sqlite": ["Mosaic.Contracts", "Mosaic.Storage.Contracts", "Mosaic.Settings.Contracts"],
   "Mosaic.Tasks.Sqlite": ["Mosaic.Contracts", "Mosaic.Tasks.Contracts", "Mosaic.Tasks.Persistence.Contracts", "Mosaic.Storage.Contracts"],
   "Mosaic.Settings.Contracts": ["Mosaic.Contracts"],
   "Mosaic.Settings.Core": ["Mosaic.Contracts", "Mosaic.Settings.Contracts"],

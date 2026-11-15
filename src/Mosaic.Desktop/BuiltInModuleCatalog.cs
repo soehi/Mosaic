@@ -27,6 +27,7 @@ internal sealed class ModuleRuntimeContext(
     internal IDiagnosticSink Diagnostics { get; } = diagnostics;
     internal IUiDispatcher Dispatcher { get; } = dispatcher;
     internal IUserDialogService Dialogs { get; } = dialogs;
+    internal List<ISettingSource> DeferredSettingSources { get; } = [];
     internal SqliteModule? Storage { get; set; }
     internal TasksSqliteModule? Repository { get; set; }
     internal TasksModule? Tasks { get; set; }
@@ -43,7 +44,15 @@ internal static class BuiltInModuleCatalog
     {
         [SqliteModule.Definition.Id] = new(SqliteModule.Definition, context =>
         {
-            context.Storage = new(new(context.Paths.Database(context.StorageConfiguration)), context.Diagnostics);
+            context.Storage = new(new(
+                context.Paths.Database(context.StorageConfiguration),
+                StorageIntSetting(context.HostSettings, "storage.queueCapacity"),
+                StorageIntSetting(context.HostSettings, "storage.busyTimeoutSeconds"),
+                StorageIntSetting(context.HostSettings, "storage.backupRetention"),
+                context.HostSettings?.GetValue("storage.journalMode") as string == "Wal" ? SqliteJournalMode.Wal : SqliteJournalMode.Delete,
+                context.HostSettings?.GetValue("storage.connectionMode") as string == "PooledPerOperation" ? SqliteConnectionMode.PooledPerOperation : SqliteConnectionMode.ReusedSingle),
+                context.Diagnostics);
+            context.DeferredSettingSources.Add(context.Storage.Settings);
             return context.Storage;
         }),
         [TasksSqliteModule.Definition.Id] = new(TasksSqliteModule.Definition, context =>
@@ -83,7 +92,8 @@ internal static class BuiltInModuleCatalog
                 context.SettingsRepository?.Repository ?? throw new InvalidOperationException("Settings repository was not assembled before settings core."),
                 context.HostSettings,
                 new Mosaic.Kernel.ModuleExecutionGate(),
-                context.Diagnostics));
+                context.Diagnostics,
+                DeferredSources: context.DeferredSettingSources.ToArray()));
             return context.Settings;
         }),
         [SettingsUiModule.Definition.Id] = new(SettingsUiModule.Definition, context =>
@@ -103,4 +113,16 @@ internal static class BuiltInModuleCatalog
         Entries.TryGetValue(manifest.Id, out var entry)
             ? entry.Create(context)
             : throw new ConfigurationException("未知模块。");
+
+    private static int StorageIntSetting(IHostSettingSource? hostSettings, string id)
+    {
+        var definition = new StorageSettingSource().Definitions.FirstOrDefault(item => item.Id == id)
+            ?? throw new ConfigurationException("未知存储设置：" + id);
+        var fallback = definition.DefaultValue is int value ? value : throw new ConfigurationException("存储设置默认值无效：" + id);
+        var minimum = definition.Min is int min ? min : int.MinValue;
+        var maximum = definition.Max is int max ? max : int.MaxValue;
+        return hostSettings?.GetValue(id) is int configured && configured >= minimum && configured <= maximum
+            ? configured
+            : fallback;
+    }
 }

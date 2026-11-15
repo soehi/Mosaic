@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup></PropertyGroup>
+<ItemGroup>
+<ProjectReference Include="..\..\..\Mosaic.Contracts\Mosaic.Contracts.csproj" />
+<ProjectReference Include="..\..\Storage\Mosaic.Storage.Contracts\Mosaic.Storage.Contracts.csproj" />
+<ProjectReference Include="..\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
+<ProjectReference Include="..\Mosaic.Settings.Core\Mosaic.Settings.Core.csproj" />
+<EmbeddedResource Include="Migrations/*.sql" />
+</ItemGroup>
+</Project>
