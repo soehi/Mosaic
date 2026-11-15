@@ -5,7 +5,6 @@ using Mosaic.Contracts;
 using Mosaic.Presentation.Wpf;
 using Mosaic.Settings.Contracts;
 using Mosaic.Presentation.Contracts;
-using Mosaic.Settings.Core;
 
 namespace Mosaic.Settings.Wpf.Internal;
 
@@ -170,7 +169,7 @@ internal sealed class SettingRow : ObservableObject
     public string Warning => Definition.Warning ?? string.Empty;
     public bool IsDefault => Equals(NormalizedCurrent, Definition.DefaultValue);
     public bool IsDirty => !Equals(NormalizedProposed, NormalizedCurrent);
-    public IReadOnlyList<SettingOption> Choices => SettingCatalog.OptionsFor(Id) is { Count: > 0 } options
+    public IReadOnlyList<SettingOption> Choices => SettingOptionCatalog.OptionsFor(Id) is { Count: > 0 } options
         ? options
         : (Definition.AllowedValues ?? []).Select(value => new SettingOption(value, value)).ToArray();
     public bool IsBoolean => Definition.Kind == SettingValueKind.Boolean;
@@ -394,7 +393,7 @@ internal sealed class SettingRow : ObservableObject
 
     private string GetConstraint()
     {
-        if (SettingCatalog.OptionsFor(Id) is { Count: > 0 } localizedOptions) return string.Join(" / ", localizedOptions.Select(item => SettingsLocalization.Localize(item.DisplayNameKey, item.Value)));
+        if (SettingOptionCatalog.OptionsFor(Id) is { Count: > 0 } localizedOptions) return string.Join(" / ", localizedOptions.Select(item => SettingsLocalization.Localize(item.DisplayNameKey, item.Value)));
         if (Definition.AllowedValues is { Count: > 0 }) return string.Join(" / ", Definition.AllowedValues);
         if (Definition.Min is not null || Definition.Max is not null) return $"{Definition.Min} – {Definition.Max}";
         if (Definition.Kind == SettingValueKind.String) return SettingsLocalization.Localize("Settings.Constraint.Max200", "最多 200 个字符");

@@ -50,3 +50,10 @@ public interface ISettingsCore : ISettingsApi
 {
     IDisposable Register(ISettingSource source);
 }
+
+public interface ISettingRepository
+{
+    Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default);
+    Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
+}

@@ -11,13 +11,6 @@ public sealed record SettingsDependencies(
     IDiagnosticSink? Diagnostics = null,
     IReadOnlyList<ISettingSource>? DeferredSources = null);
 
-public interface ISettingRepository
-{
-    Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default);
-    Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
-    Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
-}
-
 public sealed class SettingsModule : IModuleActivation
 {
     private readonly IModuleExecutionGate? _gate;

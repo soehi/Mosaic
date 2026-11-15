@@ -1,6 +1,5 @@
 using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
-using Mosaic.Settings.Core;
 using Mosaic.Storage.Contracts;
 using Mosaic.Settings.Sqlite.Internal;
 

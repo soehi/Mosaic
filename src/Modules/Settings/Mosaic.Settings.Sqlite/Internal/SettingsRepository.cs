@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Mosaic.Contracts;
-using Mosaic.Settings.Core;
+using Mosaic.Settings.Contracts;
 using Mosaic.Storage.Contracts;
 
 namespace Mosaic.Settings.Sqlite.Internal;
