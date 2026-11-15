@@ -282,6 +282,31 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public async Task Reset_by_definition_ids_only_clears_the_listed_ids()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.sortOrder"] = "TitleAsc",
+            ["tasks.confirmDelete"] = false,
+            ["logging.level"] = "Warning"
+        });
+
+        Assert.True((await module.Api.ResetAsync(["tasks.sortOrder"])).IsSuccess);
+        Assert.DoesNotContain("tasks.sortOrder", repository.Values);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
+        Assert.Equal("Warning", host.Values["logging.level"]);
+
+        var unknown = await module.Api.ResetAsync(["missing.setting"]);
+        Assert.Equal(ErrorCodes.InvalidRequest, unknown.Error?.Code);
+    }
+
+    [Fact]
     public async Task Storage_failure_is_not_applied_as_success()
     {
         var repository = new MemoryRepository { Failure = new(ErrorCodes.StorageUnavailable, "failed") };

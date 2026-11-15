@@ -97,6 +97,7 @@ public interface ISettingsApi
     Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
         IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default);
     Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default);
+    Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default);
 }
 
 public interface ISettingsCore : ISettingsApi

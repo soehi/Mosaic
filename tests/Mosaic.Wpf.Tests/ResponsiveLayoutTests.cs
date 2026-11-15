@@ -365,6 +365,8 @@ public sealed class ResponsiveLayoutTests
 
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
     }
 
     private sealed class Api : ITasksApi

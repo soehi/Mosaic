@@ -31,6 +31,8 @@ public sealed class TaskTests
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
         public IDisposable Register(Mosaic.Settings.Contracts.ISettingSource source)
         {
             RegisteredModules.Add(source.ModuleId);

@@ -204,9 +204,29 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
 
     private SettingDefinition? Find(string id) => Definitions.FirstOrDefault(item => item.Id == id);
 
-    public async Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default)
+    public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+        ResetDefinitionsAsync(
+            Definitions.Where(item => moduleId is null || item.ModuleId == moduleId).ToArray(),
+            cancellationToken);
+
+    public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default)
     {
-        var definitions = Definitions.Where(item => moduleId is null || item.ModuleId == moduleId).ToArray();
+        var definitions = new List<SettingDefinition>();
+        var known = Definitions;
+        foreach (var id in definitionIds.Distinct(StringComparer.Ordinal))
+        {
+            var definition = known.FirstOrDefault(item => item.Id == id);
+            if (definition is null)
+                return Task.FromResult(OperationResult.Failure(new(ErrorCodes.InvalidRequest, "未知设置项：" + id, id)));
+            definitions.Add(definition);
+        }
+        return ResetDefinitionsAsync(definitions, cancellationToken);
+    }
+
+    private async Task<OperationResult> ResetDefinitionsAsync(
+        IReadOnlyList<SettingDefinition> definitions,
+        CancellationToken cancellationToken)
+    {
         var ids = definitions.Where(item => item.Persistence == SettingPersistence.UserSettings).Select(item => item.Id).ToArray();
         IReadOnlyDictionary<string, object?>? previousUserValues = null;
         if (ids.Length > 0)
@@ -236,7 +256,8 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
             }
         }
         var values = (await GetValuesAsync(cancellationToken).ConfigureAwait(false)).Value;
-        foreach (var source in _sources.Where(item => moduleId is null || item.ModuleId == moduleId))
+        var moduleIds = definitions.Select(item => item.ModuleId).ToHashSet(StringComparer.Ordinal);
+        foreach (var source in _sources.Where(item => moduleIds.Contains(item.ModuleId)))
             await source.ApplyAsync(values, cancellationToken).ConfigureAwait(false);
         return OperationResult.Success();
     }

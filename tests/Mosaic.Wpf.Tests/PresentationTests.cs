@@ -63,6 +63,8 @@ public sealed class PresentationTests
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
         public IDisposable Register(ISettingSource source)
         {
             Sources.Add(source);
@@ -88,6 +90,14 @@ public sealed class PresentationTests
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
+        public List<IReadOnlyList<string>> ResetCalls { get; } = [];
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
+            Track(definitionIds);
+        private Task<OperationResult> Track(IReadOnlyList<string> definitionIds)
+        {
+            ResetCalls.Add(definitionIds);
+            return Task.FromResult(OperationResult.Success());
+        }
     }
     private static object CreateSettingsViewModel(ISettingsApi api, Dialogs dialogs)
     {
@@ -776,5 +786,36 @@ public sealed class PresentationTests
         Assert.Contains("HasVisibleRows", notified);
         Assert.Contains("HasRows", notified);
         Assert.Contains("EmptyMessage", notified);
+    });
+
+    [Fact]
+    public Task Section_reset_targets_visible_rows_and_skips_host_bindings() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs { Delete = true });
+        await Initialize(model);
+        SetProperty(model, "ShowAdvanced", true);
+        var sectionType = Get<object>(model, "SelectedSection").GetType();
+        var reset = Get<IAsyncRelayCommand>(model, "ResetSectionCommand");
+
+        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Storage"));
+        await reset.ExecuteAsync(null);
+        var storageIds = Assert.Single(api.ResetCalls);
+        Assert.Contains("logging.level", storageIds);
+        Assert.Contains("startup.width", storageIds);
+        Assert.DoesNotContain("host.modules", storageIds);
+        Assert.DoesNotContain("host.providers", storageIds);
+        Assert.DoesNotContain("shell.window.minWidth", storageIds);
+
+        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Appearance"));
+        await reset.ExecuteAsync(null);
+        var appearanceIds = api.ResetCalls[^1];
+        Assert.Contains("shell.window.minWidth", appearanceIds);
+        Assert.Contains("appearance.theme", appearanceIds);
+        Assert.DoesNotContain("startup.width", appearanceIds);
+        Assert.DoesNotContain("host.modules", appearanceIds);
     });
 }
