@@ -146,6 +146,8 @@ internal sealed class SettingRow : ObservableObject
     private object? _proposedValue;
     private string _textValue;
     private string? _error;
+    private RowErrorKind _errorKind;
+    private string? _apiErrorMessage;
     public event EventHandler? Changed;
 
     private void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
@@ -275,7 +277,7 @@ internal sealed class SettingRow : ObservableObject
                 if (long.TryParse(value.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
                     ProposedValue = parsed;
                 else
-                    Error = Localize("Settings.Error.Integer", "请输入整数。");
+                    SetLocalizedError(RowErrorKind.Integer);
             }
             OnPropertyChanged(nameof(IsDirty));
             OnPropertyChanged(nameof(IsDefault));
@@ -323,7 +325,47 @@ internal sealed class SettingRow : ObservableObject
         PreviewImmediateSetting();
     }
 
-    public void SetError(string? message) => Error = message;
+    public void SetError(string? message)
+    {
+        _errorKind = RowErrorKind.Api;
+        _apiErrorMessage = message;
+        Error = message;
+    }
+
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(Description));
+        OnPropertyChanged(nameof(Constraint));
+        OnPropertyChanged(nameof(TextHint));
+        if (_errorKind != RowErrorKind.Api && _errorKind != RowErrorKind.None)
+            Error = RenderError(_errorKind);
+    }
+
+    private string SetLocalizedError(RowErrorKind kind)
+    {
+        _errorKind = kind;
+        _apiErrorMessage = null;
+        Error = RenderError(kind);
+        return Error ?? string.Empty;
+    }
+
+    private string? RenderError(RowErrorKind kind) => kind switch
+    {
+        RowErrorKind.Integer => SettingsLocalization.Localize("Settings.Error.Integer", "请输入整数。"),
+        RowErrorKind.ProviderMap => SettingsLocalization.Localize("Settings.Error.ProviderMap", "格式应为 capability@version=module-id，且不能重复。"),
+        RowErrorKind.Unsupported => SettingsLocalization.Localize("Settings.Error.Unsupported", "不支持的设置类型。"),
+        _ => null
+    };
+
+    private enum RowErrorKind
+    {
+        None,
+        Integer,
+        ProviderMap,
+        Unsupported,
+        Api
+    }
 
     public object? NormalizedProposed => Normalize(ProposedValue);
     public object? NormalizedCurrent => Normalize(CurrentValue);
@@ -342,10 +384,7 @@ internal sealed class SettingRow : ObservableObject
         {
             case SettingValueKind.Integer:
                 if (!long.TryParse(TextValue.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var integer))
-                {
-                    error = SettingsLocalization.Localize("Settings.Error.Integer", "请输入整数。");
-                    return false;
-                }
+                { error = SetLocalizedError(RowErrorKind.Integer); return false; }
                 value = integer;
                 return true;
             case SettingValueKind.ModuleList:
@@ -359,7 +398,7 @@ internal sealed class SettingRow : ObservableObject
                     if (pieces.Length != 2 || string.IsNullOrWhiteSpace(pieces[0]) || string.IsNullOrWhiteSpace(pieces[1]) ||
                         !providers.TryAdd(pieces[0], pieces[1]))
                     {
-                        error = SettingsLocalization.Localize("Settings.Error.ProviderMap", "格式应为 capability@version=module-id，且不能重复。");
+                        error = SetLocalizedError(RowErrorKind.ProviderMap);
                         return false;
                     }
                 }
@@ -370,7 +409,7 @@ internal sealed class SettingRow : ObservableObject
                 value = string.IsNullOrWhiteSpace(text) ? Definition.DefaultValue : text;
                 return true;
             default:
-                error = SettingsLocalization.Localize("Settings.Error.Unsupported", "不支持的设置类型。");
+                error = SetLocalizedError(RowErrorKind.Unsupported);
                 return false;
         }
     }
@@ -433,6 +472,8 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     private bool _showAdvanced;
     private string? _message;
     private bool _isError;
+    private SettingsFeedbackKind _feedbackKind = SettingsFeedbackKind.None;
+    private string? _feedbackApiMessage;
 
     public SettingsViewModel(ISettingsApi settings, IUserDialogService dialogs)
     {
@@ -446,6 +487,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         SelectSectionCommand = new RelayCommand<SettingsSection>(section => SelectSection(section), _ => !IsBusy);
         Sections.CollectionChanged += (_, _) => NotifyRowVisibility();
         VisibleRows.CollectionChanged += (_, _) => NotifyRowVisibility();
+        MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
 
     public ObservableCollection<SettingsSection> Sections { get; } =
@@ -534,12 +576,23 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         IsLoading = true;
         Message = null;
         IsError = false;
+        _feedbackKind = SettingsFeedbackKind.None;
         try
         {
             var definitions = await _settings.ListDefinitionsAsync();
             var values = await _settings.GetValuesAsync();
-            if (!definitions.IsSuccess) throw new InvalidOperationException(definitions.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.LoadDefinitions", "设置定义加载失败。"));
-            if (!values.IsSuccess) throw new InvalidOperationException(values.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.LoadValues", "设置值加载失败。"));
+            if (!definitions.IsSuccess)
+            {
+                SetFeedback(SettingsFeedbackKind.LoadDefinitions, definitions.Error?.Message);
+                IsError = true;
+                return;
+            }
+            if (!values.IsSuccess)
+            {
+                SetFeedback(SettingsFeedbackKind.LoadValues, values.Error?.Message);
+                IsError = true;
+                return;
+            }
 
             var source = values.Value!;
             _rows.Clear();
@@ -552,9 +605,9 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             ApplySectionFilter();
             HasChanges = false;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Message = exception is InvalidOperationException ? exception.Message : SettingsLocalization.Localize("Settings.Error.Load", "无法加载设置，请刷新后重试。");
+            SetFeedback(SettingsFeedbackKind.Load);
             IsError = true;
         }
         finally
@@ -609,8 +662,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             {
                 if (!row.TryGetProposedValue(out var value, out var fieldError))
                 {
-                    row.SetError(fieldError);
-                    Message = SettingsLocalization.Localize("Settings.Error.InvalidBeforeSave", "部分设置格式无效，请修正后再保存。");
+                    SetFeedback(SettingsFeedbackKind.InvalidBeforeSave);
                     IsError = true;
                     return false;
                 }
@@ -620,34 +672,42 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             if (changes.Count == 0)
             {
                 HasChanges = false;
-                Message = SettingsLocalization.Localize("Settings.Message.NoChanges", "没有需要保存的修改。");
+                SetFeedback(SettingsFeedbackKind.NoChanges);
                 return true;
             }
 
             foreach (var row in _rows.Values) row.SetError(null);
             var proposed = await _settings.ProposeChangesAsync(changes);
             if (!proposed.IsSuccess)
-                throw new InvalidOperationException(proposed.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.Save", "设置保存失败。"));
+            {
+                SetFeedback(SettingsFeedbackKind.Save, proposed.Error?.Message);
+                IsError = true;
+                return false;
+            }
             if (proposed.Value!.Count > 0)
             {
                 foreach (var (id, error) in proposed.Value)
                     _rows.GetValueOrDefault(id)?.SetError(error.Message);
-                Message = SettingsLocalization.Localize("Settings.Error.InvalidAfterSave", "部分设置无效，请修正后再保存。");
+                SetFeedback(SettingsFeedbackKind.InvalidAfterSave);
                 IsError = true;
                 return false;
             }
 
             var values = await _settings.GetValuesAsync();
             if (!values.IsSuccess)
-                throw new InvalidOperationException(values.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.Refresh", "设置刷新失败。"));
+            {
+                SetFeedback(SettingsFeedbackKind.Refresh, values.Error?.Message);
+                IsError = true;
+                return false;
+            }
             foreach (var row in _rows.Values) row.SetValue(values.Value!.GetValueOrDefault(row.Id));
             HasChanges = false;
-            Message = SettingsLocalization.Localize("Settings.Message.Saved", "设置已保存。");
+            SetFeedback(SettingsFeedbackKind.Saved);
             return true;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Message = exception is InvalidOperationException ? exception.Message : SettingsLocalization.Localize("Settings.Error.SaveRetry", "设置保存失败，请重试。");
+            SetFeedback(SettingsFeedbackKind.SaveRetry);
             IsError = true;
             return false;
         }
@@ -669,27 +729,39 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             if (moduleIds is null)
             {
                 if (!(await _settings.ResetAsync()).IsSuccess)
-                    throw new InvalidOperationException(SettingsLocalization.Localize("Settings.Error.Reset", "恢复默认失败。"));
+                {
+                    SetFeedback(SettingsFeedbackKind.ResetFailed);
+                    IsError = true;
+                    return;
+                }
             }
             else
             {
                 foreach (var moduleId in moduleIds)
                 {
                     if (!(await _settings.ResetAsync(moduleId)).IsSuccess)
-                        throw new InvalidOperationException(SettingsLocalization.Localize("Settings.Error.Reset", "恢复默认失败。"));
+                    {
+                        SetFeedback(SettingsFeedbackKind.ResetFailed);
+                        IsError = true;
+                        return;
+                    }
                 }
             }
 
             var values = await _settings.GetValuesAsync();
             if (!values.IsSuccess)
-                throw new InvalidOperationException(values.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.Refresh", "设置刷新失败。"));
+            {
+                SetFeedback(SettingsFeedbackKind.Refresh, values.Error?.Message);
+                IsError = true;
+                return;
+            }
             foreach (var row in _rows.Values) row.SetValue(values.Value!.GetValueOrDefault(row.Id));
             HasChanges = false;
-            Message = SettingsLocalization.Localize("Settings.Message.Reset", "已恢复默认设置。");
+            SetFeedback(SettingsFeedbackKind.Reset);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Message = exception is InvalidOperationException ? exception.Message : SettingsLocalization.Localize("Settings.Error.ResetRetry", "恢复默认失败，请重试。");
+            SetFeedback(SettingsFeedbackKind.ResetRetry);
             IsError = true;
         }
         finally
@@ -766,6 +838,76 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         HasChanges = _rows.Values.Any(row => row.IsDirty);
     }
 
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshLocalizedText();
+
+    private void RefreshLocalizedText()
+    {
+        foreach (var row in _rows.Values) row.RefreshLocalizedText();
+        if (_feedbackKind != SettingsFeedbackKind.None && _feedbackKind != SettingsFeedbackKind.Api)
+            SetFeedback(_feedbackKind, _feedbackApiMessage);
+        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshSections();
+    }
+
+    private void RefreshSections()
+    {
+        Sections.Clear();
+        foreach (var section in new[]
+        {
+            SettingsSection.Normal,
+            SettingsSection.Tasks,
+            SettingsSection.Appearance,
+            SettingsSection.Storage,
+            SettingsSection.Text
+        })
+            Sections.Add(section);
+    }
+
+    private void SetFeedback(SettingsFeedbackKind kind, string? apiMessage = null)
+    {
+        _feedbackKind = kind;
+        _feedbackApiMessage = apiMessage;
+        Message = RenderFeedback(kind, apiMessage);
+    }
+
+    private static string? RenderFeedback(SettingsFeedbackKind kind, string? apiMessage) => kind switch
+    {
+        SettingsFeedbackKind.Api => apiMessage,
+        SettingsFeedbackKind.Load => SettingsLocalization.Localize("Settings.Error.Load", "无法加载设置，请刷新后重试。"),
+        SettingsFeedbackKind.LoadDefinitions => SettingsLocalization.Localize("Settings.Error.LoadDefinitions", "设置定义加载失败。"),
+        SettingsFeedbackKind.LoadValues => SettingsLocalization.Localize("Settings.Error.LoadValues", "设置值加载失败。"),
+        SettingsFeedbackKind.InvalidBeforeSave => SettingsLocalization.Localize("Settings.Error.InvalidBeforeSave", "部分设置格式无效，请修正后再保存。"),
+        SettingsFeedbackKind.NoChanges => SettingsLocalization.Localize("Settings.Message.NoChanges", "没有需要保存的修改。"),
+        SettingsFeedbackKind.Save => SettingsLocalization.Localize("Settings.Error.Save", "设置保存失败。"),
+        SettingsFeedbackKind.InvalidAfterSave => SettingsLocalization.Localize("Settings.Error.InvalidAfterSave", "部分设置无效，请修正后再保存。"),
+        SettingsFeedbackKind.Refresh => SettingsLocalization.Localize("Settings.Error.Refresh", "设置刷新失败。"),
+        SettingsFeedbackKind.Saved => SettingsLocalization.Localize("Settings.Message.Saved", "设置已保存。"),
+        SettingsFeedbackKind.Reset => SettingsLocalization.Localize("Settings.Message.Reset", "已恢复默认设置。"),
+        SettingsFeedbackKind.ResetFailed => SettingsLocalization.Localize("Settings.Error.Reset", "恢复默认失败。"),
+        SettingsFeedbackKind.ResetRetry => SettingsLocalization.Localize("Settings.Error.ResetRetry", "恢复默认失败，请重试。"),
+        SettingsFeedbackKind.SaveRetry => SettingsLocalization.Localize("Settings.Error.SaveRetry", "设置保存失败，请重试。"),
+        _ => null
+    };
+
+    private enum SettingsFeedbackKind
+    {
+        None,
+        Api,
+        Load,
+        LoadDefinitions,
+        LoadValues,
+        InvalidBeforeSave,
+        NoChanges,
+        Save,
+        InvalidAfterSave,
+        Refresh,
+        Saved,
+        Reset,
+        ResetFailed,
+        ResetRetry,
+        SaveRetry
+    }
+
     public async Task<bool> CanLeaveAsync()
     {
         if (!HasChanges) return true;
@@ -785,75 +927,25 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         return true;
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
+        return ValueTask.CompletedTask;
+    }
 }
 
 internal static class SettingsLocalization
 {
     public static string Localize(string key, string fallback) =>
-        System.Windows.Application.Current?.TryFindResource(key) as string ?? fallback;
+        MosaicLocalizationManager.TryFindResource(key) ?? fallback;
 }
 
 internal static class SettingsLocalizationDictionaries
 {
     public static System.Windows.ResourceDictionary Dictionary(bool english)
     {
-        var dictionary = new System.Windows.ResourceDictionary();
-        Add(dictionary, english);
-        AddValues(dictionary, english);
-        return dictionary;
-    }
-
-    private static void Add(System.Windows.ResourceDictionary dictionary, bool english)
-    {
-        dictionary["Settings.Title"] = english ? "Settings" : "设置";
-        dictionary["Settings.Subtitle"] = english ? "Adjust local behavior. Theme and language preview before saving." : "调整本地行为。主题和语言可先预览，再保存。";
-        dictionary["Settings.Advanced"] = english ? "Advanced" : "高级设置";
-        dictionary["Settings.ShowAll"] = english ? "Show all parameters" : "显示全部参数";
-        dictionary["Settings.Discard"] = english ? "Discard changes" : "放弃修改";
-        dictionary["Settings.Save"] = english ? "Save settings" : "保存设置";
-        dictionary["Settings.ResetSection"] = english ? "Reset this section" : "恢复当前分区默认";
-        dictionary["Settings.ResetAll"] = english ? "Reset all settings" : "恢复全部默认";
-        dictionary["Settings.ResetSection.Detail"] = english ? "Restore this section to its defaults. This cannot be undone." : "将把当前分区的设置恢复为默认值，且不可撤销。";
-        dictionary["Settings.ResetAll.Detail"] = english ? "Restore every setting to its default. This cannot be undone." : "将清除所有修改过的设置并恢复默认值，且不可撤销。";
-        dictionary["Settings.Loading"] = english ? "Loading settings…" : "正在加载设置…";
-        dictionary["Settings.RequiresRestart"] = english ? "Takes effect on restart" : "下次启动生效";
-        dictionary["Settings.Risk"] = english ? "Risk" : "风险";
-        dictionary["Settings.Enabled"] = english ? "Enabled" : "启用";
-        dictionary["Settings.ResetRow"] = english ? "Reset default" : "恢复默认";
-        dictionary["Settings.Section.Normal"] = english ? "General" : "普通";
-        dictionary["Settings.Section.Tasks"] = english ? "Tasks" : "任务";
-        dictionary["Settings.Section.Appearance"] = english ? "Appearance and layout" : "外观与布局";
-        dictionary["Settings.Section.Storage"] = english ? "Storage and system" : "存储与系统";
-        dictionary["Settings.Section.Text"] = english ? "Text" : "文案";
-        dictionary["Settings.Navigation"] = english ? "Settings" : "设置";
-    }
-
-    private static void AddValues(System.Windows.ResourceDictionary dictionary, bool english)
-    {
-        dictionary["Setting.Value.FollowSystem"] = english ? "Follow system" : "跟随系统";
-        dictionary["Setting.Value.Light"] = english ? "Light" : "浅色";
-        dictionary["Setting.Value.Dark"] = english ? "Dark" : "深色";
-        dictionary["Setting.Value.HighContrast"] = english ? "High contrast" : "高对比度";
-        dictionary["Setting.Value.FollowSystemLanguage"] = english ? "Follow system language" : "跟随系统语言";
-        dictionary["Setting.Value.Chinese"] = "中文";
-        dictionary["Setting.Value.English"] = "English";
-        dictionary["Setting.Value.All"] = english ? "All" : "全部";
-        dictionary["Setting.Value.Open"] = english ? "Open" : "未完成";
-        dictionary["Setting.Value.Completed"] = english ? "Completed" : "已完成";
-        dictionary["Setting.Value.CreatedDesc"] = english ? "Newest first" : "按创建时间倒序";
-        dictionary["Setting.Value.CreatedAsc"] = english ? "Oldest first" : "按创建时间正序";
-        dictionary["Setting.Value.TitleAsc"] = english ? "Title A–Z" : "按标题正序";
-        dictionary["Setting.Value.TitleDesc"] = english ? "Title Z–A" : "按标题倒序";
-        dictionary["Setting.Value.Delete"] = english ? "Delete (rollback journal)" : "Delete（回滚日志）";
-        dictionary["Setting.Value.Wal"] = "WAL";
-        dictionary["Setting.Value.ReusedSingle"] = english ? "Reused single connection" : "复用单连接";
-        dictionary["Setting.Value.PooledPerOperation"] = english ? "Pooled per operation" : "每次操作池化";
-        dictionary["Setting.Value.Debug"] = english ? "Debug" : "调试";
-        dictionary["Setting.Value.Information"] = english ? "Information" : "信息";
-        dictionary["Setting.Value.Warning"] = english ? "Warning" : "警告";
-        dictionary["Setting.Value.Error"] = english ? "Error" : "错误";
-        dictionary["Setting.Value.None"] = english ? "Disabled" : "关闭";
+        var uri = new Uri($"/Mosaic.Settings.Wpf;component/Localization/{(english ? "en" : "zh")}.xaml", UriKind.Relative);
+        return (System.Windows.ResourceDictionary)System.Windows.Application.LoadComponent(uri);
     }
 }
 

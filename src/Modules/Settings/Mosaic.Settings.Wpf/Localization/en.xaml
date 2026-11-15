@@ -20,6 +20,33 @@
     <sys:String x:Key="Settings.Section.Storage">Storage and system</sys:String>
     <sys:String x:Key="Settings.Section.Text">Text</sys:String>
     <sys:String x:Key="Settings.Navigation">Settings</sys:String>
+    <sys:String x:Key="Settings.ResetSection.Detail">Restore this section to its defaults. This cannot be undone.</sys:String>
+    <sys:String x:Key="Settings.ResetAll.Detail">Restore every setting to its default. This cannot be undone.</sys:String>
+    <sys:String x:Key="Settings.Hint.ModuleList">Module IDs separated by commas</sys:String>
+    <sys:String x:Key="Settings.Hint.ProviderMap">One per line or separated by semicolons: capability@version=module-id</sys:String>
+    <sys:String x:Key="Settings.Hint.Text">Text</sys:String>
+    <sys:String x:Key="Settings.Constraint.Boolean">On / Off</sys:String>
+    <sys:String x:Key="Settings.Constraint.Max200">Up to 200 characters</sys:String>
+    <sys:String x:Key="Settings.Constraint.ModuleList">Comma-separated module IDs</sys:String>
+    <sys:String x:Key="Settings.Constraint.ProviderMap">capability=module-id, separated by semicolons</sys:String>
+    <sys:String x:Key="Settings.Empty.Normal">No general settings. Open Advanced to see every parameter.</sys:String>
+    <sys:String x:Key="Settings.Empty.Section">This section has no settings.</sys:String>
+    <sys:String x:Key="Settings.Error.Integer">Enter a whole number.</sys:String>
+    <sys:String x:Key="Settings.Error.InvalidAfterSave">Some settings are invalid. Fix them and save again.</sys:String>
+    <sys:String x:Key="Settings.Error.InvalidBeforeSave">Some settings are not valid. Fix them before saving.</sys:String>
+    <sys:String x:Key="Settings.Error.Load">Could not load settings. Refresh and try again.</sys:String>
+    <sys:String x:Key="Settings.Error.LoadDefinitions">Could not load setting definitions.</sys:String>
+    <sys:String x:Key="Settings.Error.LoadValues">Could not load setting values.</sys:String>
+    <sys:String x:Key="Settings.Error.ProviderMap">Expected capability@version=module-id with no duplicates.</sys:String>
+    <sys:String x:Key="Settings.Error.Refresh">Could not refresh settings.</sys:String>
+    <sys:String x:Key="Settings.Error.Reset">Could not restore defaults.</sys:String>
+    <sys:String x:Key="Settings.Error.ResetRetry">Could not restore defaults. Try again.</sys:String>
+    <sys:String x:Key="Settings.Error.Save">Could not save settings.</sys:String>
+    <sys:String x:Key="Settings.Error.SaveRetry">Could not save settings. Try again.</sys:String>
+    <sys:String x:Key="Settings.Error.Unsupported">Unsupported setting type.</sys:String>
+    <sys:String x:Key="Settings.Message.NoChanges">No changes to save.</sys:String>
+    <sys:String x:Key="Settings.Message.Reset">Restored default settings.</sys:String>
+    <sys:String x:Key="Settings.Message.Saved">Settings saved.</sys:String>
     <sys:String x:Key="Setting.Value.FollowSystem">Follow system</sys:String>
     <sys:String x:Key="Setting.Value.Light">Light</sys:String>
     <sys:String x:Key="Setting.Value.Dark">Dark</sys:String>

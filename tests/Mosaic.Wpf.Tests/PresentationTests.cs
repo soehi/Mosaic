@@ -319,6 +319,7 @@ public sealed class PresentationTests
         Assert.True(double.IsNaN(notes.Height));
         Assert.True(notes.MinHeight >= 120);
         Assert.True(double.IsPositiveInfinity(notes.MaxHeight));
+        await page.Controller.DisposeAsync();
     });
     [Fact]
     public Task Muted_text_meets_readability_targets_and_all_system_palettes_load() => Sta.Run(() =>
@@ -380,6 +381,97 @@ public sealed class PresentationTests
         await shell.DisposeAsync();
         registration.Dispose();
         shell.Close();
+    });
+    [Fact]
+    public Task Shell_navigation_labels_and_page_title_follow_the_ui_language() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var registry = new ContributionRegistry();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        using var registration = registry.Register(module.Navigation, module.Views);
+        var shell = new ShellWindow(registry, new Dialogs());
+        try
+        {
+            await shell.InitializeAsync();
+            Assert.Equal("任务", Get<string>(shell.DataContext, "PageTitle"));
+            var navigation = (IReadOnlyList<NavigationItem>)Get<object>(shell.DataContext, "Navigation");
+            Assert.Equal("任务", Assert.Single(navigation).Label);
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+
+            Assert.Equal("Tasks", Get<string>(shell.DataContext, "PageTitle"));
+            Assert.Equal("Tasks", Assert.Single(navigation).Label);
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await shell.DisposeAsync();
+            registration.Dispose();
+        }
+    });
+    [Fact]
+    public Task Task_editor_and_count_text_follow_the_ui_language() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var api = new Api();
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([api.Item]));
+        var page = await Page(api, new());
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var select = Assert.IsAssignableFrom<IAsyncRelayCommand<TaskItemDto>>(
+                page.View.DataContext.GetType().GetProperty("SelectCommand")!.GetValue(page.View.DataContext));
+            await select.ExecuteAsync(api.Item);
+            var editor = Get<object>(page.View.DataContext, "Editor");
+            Assert.Equal("任务详情", Get<string>(editor, "Heading"));
+            Assert.Equal("1 项任务", Get<string>(page.View.DataContext, "CountLabel"));
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+
+            Assert.Equal("Task details", Get<string>(editor, "Heading"));
+            Assert.Equal("1 task", Get<string>(page.View.DataContext, "CountLabel"));
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await page.Controller.DisposeAsync();
+        }
+    });
+    [Fact]
+    public Task Settings_row_text_follows_the_ui_language() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var module = new SettingsUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var page = Assert.Single(module.Views).Factory.Create();
+        try
+        {
+            await page.Controller.InitializeAsync();
+            static string RowText(object model, string id, string property)
+            {
+                var row = VisibleRows(model).Cast<object>()
+                    .Single(item => (string)item.GetType().GetProperty("Id")!.GetValue(item)! == id);
+                return (string)row.GetType().GetProperty(property)!.GetValue(row)!;
+            }
+
+            Assert.Equal("主题", RowText(page.View.DataContext, "appearance.theme", "DisplayName"));
+            Assert.Equal("界面语言", RowText(page.View.DataContext, "ui.language", "DisplayName"));
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+
+            Assert.Equal("Theme", RowText(page.View.DataContext, "appearance.theme", "DisplayName"));
+            Assert.Equal("Interface language", RowText(page.View.DataContext, "ui.language", "DisplayName"));
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await page.Controller.DisposeAsync();
+        }
     });
     [Fact]
     public Task Empty_state_copy_and_count_follow_the_active_filter() => Sta.Run(async () =>

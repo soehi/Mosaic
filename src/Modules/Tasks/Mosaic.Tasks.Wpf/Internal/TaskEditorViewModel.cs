@@ -18,6 +18,7 @@ internal sealed class TaskEditorViewModel : ObservableObject
         TitleRequired: true,
         DefaultCompleted: false,
         RevisionStart: 1);
+    private bool _validationErrors;
 
     public TaskItemDto? Current => _current;
     public string Title
@@ -50,12 +51,34 @@ internal sealed class TaskEditorViewModel : ObservableObject
     public bool HasNotesError => !string.IsNullOrEmpty(NotesError);
     public bool IsDirty => Title != (_current?.Title ?? "") || Notes != (_current?.Notes ?? "");
     public bool HasTask => _current is not null;
-    public string Heading => HasTask ? "任务详情" : "新建任务";
-    public string StateLabel => _current?.IsCompleted == true ? "已完成" : "未完成";
-    public string ToggleLabel => _current?.IsCompleted == true ? "恢复未完成" : "标记完成";
-    public string Metadata => _current is null ? "记录一个想法，开始下一步。" : $"创建于 {_current.CreatedAtUtc.ToLocalTime():MM月dd日 HH:mm}  ·  版本 {_current.Revision}";
-    public string TitleHelpText => $"{(_constraints.TitleRequired ? "必填" : "可选")} · 最多 {_constraints.TitleMaxCharacters:N0} 个字符";
-    public string NotesHelpText => $"可选 · 最多 {_constraints.NotesMaxCharacters:N0} 个字符";
+    public string Heading => TaskLocalization.Localize(
+        HasTask ? "Tasks.Editor.Details" : "Tasks.Editor.New",
+        HasTask ? "任务详情" : "新建任务");
+    public string StateLabel => TaskLocalization.Localize(
+        _current?.IsCompleted == true ? "Tasks.FilterCompleted" : "Tasks.FilterOpen",
+        _current?.IsCompleted == true ? "已完成" : "未完成");
+    public string ToggleLabel => TaskLocalization.Localize(
+        _current?.IsCompleted == true ? "Tasks.Editor.MarkOpen" : "Tasks.Editor.MarkCompleted",
+        _current?.IsCompleted == true ? "恢复未完成" : "标记完成");
+    public string Metadata => _current is null
+        ? TaskLocalization.Localize("Tasks.Editor.EmptyMetadata", "记录一个想法，开始下一步。")
+        : TaskLocalization.Format(
+            "Tasks.Editor.Created",
+            "创建于 {0}  ·  版本 {1}",
+            _current.CreatedAtUtc.ToLocalTime().ToString("MM-dd HH:mm"),
+            _current.Revision);
+    public string TitleHelpText => TaskLocalization.Format(
+        "Tasks.Editor.Limit",
+        "{0} · 最多 {1:N0} 个字符",
+        _constraints.TitleRequired
+            ? TaskLocalization.Localize("Tasks.Required", "必填")
+            : TaskLocalization.Localize("Tasks.Optional", "可选"),
+        _constraints.TitleMaxCharacters);
+    public string NotesHelpText => TaskLocalization.Format(
+        "Tasks.Editor.Limit",
+        "{0} · 最多 {1:N0} 个字符",
+        TaskLocalization.Localize("Tasks.Optional", "可选"),
+        _constraints.NotesMaxCharacters);
     public string TitleCountLabel => $"{CountCharacters(Title):N0} / {_constraints.TitleMaxCharacters:N0}";
     public string NotesCountLabel => $"{CountCharacters(Notes):N0} / {_constraints.NotesMaxCharacters:N0}";
     public bool TitleExceedsLimit => CountCharacters(Title) > _constraints.TitleMaxCharacters;
@@ -74,6 +97,21 @@ internal sealed class TaskEditorViewModel : ObservableObject
             nameof(NotesExceedsLimit)
         })
             OnPropertyChanged(name);
+    }
+
+    internal void RefreshLocalizedText()
+    {
+        foreach (var name in new[]
+        {
+            nameof(Heading),
+            nameof(StateLabel),
+            nameof(ToggleLabel),
+            nameof(Metadata),
+            nameof(TitleHelpText),
+            nameof(NotesHelpText)
+        })
+            OnPropertyChanged(name);
+        if (_validationErrors) Validate();
     }
 
     internal void Load(TaskItemDto? task)
@@ -98,19 +136,22 @@ internal sealed class TaskEditorViewModel : ObservableObject
 
     internal bool Validate()
     {
+        _validationErrors = false;
         TitleError = _constraints.TitleRequired && CountCharacters(Title.Trim()) == 0
-            ? "请输入任务标题。"
+            ? TaskLocalization.Localize("Tasks.Editor.TitleRequiredError", "请输入任务标题。")
             : TitleExceedsLimit
-                ? $"标题最多 {_constraints.TitleMaxCharacters:N0} 个字符。"
+                ? TaskLocalization.Format("Tasks.Editor.TitleMaxError", "标题最多 {0:N0} 个字符。", _constraints.TitleMaxCharacters)
                 : "";
         NotesError = NotesExceedsLimit
-            ? $"备注最多 {_constraints.NotesMaxCharacters:N0} 个字符。"
+            ? TaskLocalization.Format("Tasks.Editor.NotesMaxError", "备注最多 {0:N0} 个字符。", _constraints.NotesMaxCharacters)
             : "";
+        _validationErrors = HasTitleError || HasNotesError;
         return !HasTitleError && !HasNotesError;
     }
 
     internal bool SetFieldError(OperationError error)
     {
+        _validationErrors = false;
         TitleError = "";
         NotesError = "";
         if (error.Field == "Title")

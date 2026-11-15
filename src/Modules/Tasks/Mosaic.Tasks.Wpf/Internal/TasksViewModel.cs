@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
+using Mosaic.Presentation.Wpf;
 using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Tasks.Wpf.Internal;
@@ -38,6 +39,15 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private TaskSortOrder _sortOrder = TaskSortOrder.CreatedDesc;
     private TaskTextSettings _text = TaskTextSettings.Defaults;
     private TasksLayoutSettings _layout = TasksLayoutSettings.Defaults;
+    private TasksFeedbackKind _busyKind = TasksFeedbackKind.None;
+    private TasksFeedbackKind _listErrorKind = TasksFeedbackKind.None;
+    private string? _listErrorApiMessage;
+    private string? _listErrorCorrelationId;
+    private TasksFeedbackKind _errorKind = TasksFeedbackKind.None;
+    private string? _errorApiMessage;
+    private string? _errorCorrelationId;
+    private TasksFeedbackKind _messageKind = TasksFeedbackKind.None;
+    private string? _messageSettingsText;
 
     internal TasksViewModel(
         ITasksApi api,
@@ -64,6 +74,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         ReloadCommand = new AsyncRelayCommand(ReloadAsync, () => !IsBusy && Editor.HasTask);
         Editor.PropertyChanged += OnEditorPropertyChanged;
         Items.CollectionChanged += (_, _) => NotifyListState();
+        MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
@@ -156,9 +167,11 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool ShowListMessage => HasMessage && !IsEditorOpen;
     public string CountLabel => FilterIndex switch
     {
-        1 => $"{Items.Count} 项未完成",
-        2 => $"{Items.Count} 项已完成",
-        _ => $"{Items.Count} 项任务"
+        1 => TaskLocalization.Format("Tasks.Count.Open", "{0} 项未完成", Items.Count),
+        2 => TaskLocalization.Format("Tasks.Count.Completed", "{0} 项已完成", Items.Count),
+        _ => Items.Count == 1
+            ? TaskLocalization.Localize("Tasks.Count.All.One", "1 项任务")
+            : TaskLocalization.Format("Tasks.Count.All", "{0} 项任务", Items.Count)
     };
     public string EmptyTitle => FilterIndex switch { 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
     public string EmptyDescription => FilterIndex switch { 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
@@ -218,6 +231,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         var query = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _query = query;
         ListError = "";
+        _listErrorKind = TasksFeedbackKind.None;
         IsLoading = true;
         try
         {
@@ -238,7 +252,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 if (_disposed || version != _queryVersion) return;
                 ClearList();
-                ListError = $"无法加载任务，请刷新后重试。（诊断编号 {correlationId}）";
+                SetListError(TasksFeedbackKind.LoadFailed, null, correlationId);
             });
         }
         finally
@@ -293,7 +307,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private async Task<bool> SelectAsync(TaskItemDto task)
     {
         if (IsBusy || !await CanLeaveAsync()) return false;
-        EnterBusy("正在读取任务…");
+        EnterBusy(TasksFeedbackKind.Loading);
         try
         {
             var result = await _api.GetAsync(task.Id, _lifetime.Token);
@@ -316,8 +330,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         catch (Exception ex)
         {
             Message = "";
+            _messageKind = TasksFeedbackKind.None;
             HasConflict = false;
-            Error = $"任务加载失败，请重试。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.OpenFailed, null, Report(ex));
             return false;
         }
         finally
@@ -332,7 +347,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (!Editor.IsDirty) return true;
         ClearFeedback();
         if (!Editor.Validate()) return false;
-        EnterBusy("正在保存任务…");
+        EnterBusy(TasksFeedbackKind.Saving);
         try
         {
             var result = Editor.Current is { } current
@@ -355,7 +370,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"保存未完成。请刷新列表确认后再试。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.SaveFailed, null, Report(ex));
             return false;
         }
         finally
@@ -367,7 +382,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private async Task ToggleAsync()
     {
         if (!await CanLeaveAsync() || Editor.Current is not { } current) return;
-        EnterBusy("正在更新任务状态…");
+        EnterBusy(TasksFeedbackKind.Updating);
         ClearFeedback();
         try
         {
@@ -389,7 +404,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"状态修改未完成，请重新加载确认。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.ToggleFailed, null, Report(ex));
         }
         finally
         {
@@ -400,7 +415,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private async Task DeleteAsync()
     {
         if (Editor.Current is not { } current || (_confirmDelete && !await _dialogs.ConfirmDeleteAsync(current.Title))) return;
-        EnterBusy("正在删除任务…");
+        EnterBusy(TasksFeedbackKind.Deleting);
         ClearFeedback();
         try
         {
@@ -423,7 +438,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"删除未完成，请刷新列表确认。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.DeleteFailed, null, Report(ex));
         }
         finally
         {
@@ -446,7 +461,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             if (choice == UnsavedChoice.Cancel || (choice == UnsavedChoice.Save && !await SaveAsync())) return;
             }
         }
-        EnterBusy("正在重新加载任务…");
+        EnterBusy(TasksFeedbackKind.Reloading);
         ClearFeedback();
         try
         {
@@ -454,7 +469,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             if (result.IsSuccess)
             {
                 Editor.Load(result.Value);
-                ShowMessage("已重新加载");
+                ShowReloadedMessage();
             }
             else if (result.Error!.Code == ErrorCodes.NotFound)
             {
@@ -473,7 +488,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"重新加载失败，编辑内容已保留。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.ReloadFailed, null, Report(ex));
         }
         finally
         {
@@ -554,15 +569,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (!visible && _autoSwitchToAllOnHidden) SetFilter(0, load: false);
     }
 
-    private void EnterBusy(string feedback)
+    private void EnterBusy(TasksFeedbackKind kind)
     {
-        BusyFeedback = feedback;
+        _busyKind = kind;
+        BusyFeedback = RenderBusy(kind);
         IsBusy = true;
     }
 
     private void ExitBusy()
     {
         IsBusy = false;
+        _busyKind = TasksFeedbackKind.None;
         BusyFeedback = "";
     }
 
@@ -570,14 +587,45 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         Error = "";
         Message = "";
+        _errorKind = TasksFeedbackKind.None;
+        _messageKind = TasksFeedbackKind.None;
         HasConflict = false;
     }
 
     private void ShowMessage(string message)
     {
         Error = "";
+        _errorKind = TasksFeedbackKind.None;
         HasConflict = false;
+        _messageKind = TasksFeedbackKind.SettingsText;
+        _messageSettingsText = message;
         Message = message;
+    }
+
+    private void ShowReloadedMessage()
+    {
+        Error = "";
+        _errorKind = TasksFeedbackKind.None;
+        HasConflict = false;
+        _messageKind = TasksFeedbackKind.Reloaded;
+        _messageSettingsText = null;
+        Message = TaskLocalization.Localize("Tasks.Message.Reloaded", "已重新加载");
+    }
+
+    private void SetListError(TasksFeedbackKind kind, string? apiMessage, string? correlationId)
+    {
+        _listErrorKind = kind;
+        _listErrorApiMessage = apiMessage;
+        _listErrorCorrelationId = correlationId;
+        ListError = RenderError(kind, apiMessage, correlationId);
+    }
+
+    private void SetError(TasksFeedbackKind kind, string? apiMessage, string? correlationId)
+    {
+        _errorKind = kind;
+        _errorApiMessage = apiMessage;
+        _errorCorrelationId = correlationId;
+        Error = RenderError(kind, apiMessage, correlationId);
     }
 
     private void ApplyListResult(OperationResult<IReadOnlyList<TaskItemDto>> result)
@@ -589,11 +637,12 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             foreach (var task in result.Value) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
             SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
             ListError = "";
+            _listErrorKind = TasksFeedbackKind.None;
             return;
         }
         if (result.Error!.Code == ErrorCodes.Canceled) return;
         ClearList();
-        ListError = result.Error.Message + (result.Error.CorrelationId is null ? "" : $"（诊断编号 {result.Error.CorrelationId}）");
+        SetListError(TasksFeedbackKind.Api, result.Error.Message, result.Error.CorrelationId);
     }
 
     private void ClearList()
@@ -629,8 +678,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private void ShowError(OperationError error)
     {
         Message = "";
+        _messageKind = TasksFeedbackKind.None;
         HasConflict = error.Code == ErrorCodes.Conflict;
-        Error = error.Message + (error.CorrelationId is null ? "" : $"（诊断编号 {error.CorrelationId}）");
+        SetError(TasksFeedbackKind.Api, error.Message, error.CorrelationId);
     }
 
     private string Report(Exception exception)
@@ -639,6 +689,80 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         try { _diagnostics.Report(correlationId, exception); }
         catch { /* A diagnostics failure must not replace the original UI failure. */ }
         return correlationId;
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        RefreshLocalizedText();
+    }
+
+    private void RefreshLocalizedText()
+    {
+        if (IsBusy && _busyKind != TasksFeedbackKind.None)
+            BusyFeedback = RenderBusy(_busyKind);
+        if (_listErrorKind != TasksFeedbackKind.None)
+            ListError = RenderError(_listErrorKind, _listErrorApiMessage, _listErrorCorrelationId);
+        if (_errorKind != TasksFeedbackKind.None)
+            Error = RenderError(_errorKind, _errorApiMessage, _errorCorrelationId);
+        if (_messageKind != TasksFeedbackKind.None)
+            Message = RenderMessage();
+        Editor.RefreshLocalizedText();
+        RebuildListTitles();
+        NotifyListState();
+    }
+
+    private string RenderBusy(TasksFeedbackKind kind) => kind switch
+    {
+        TasksFeedbackKind.Loading => TaskLocalization.Localize("Tasks.Loading", "正在读取任务…"),
+        TasksFeedbackKind.Saving => TaskLocalization.Localize("Tasks.Busy.Saving", "正在保存任务…"),
+        TasksFeedbackKind.Updating => TaskLocalization.Localize("Tasks.Busy.Updating", "正在更新任务状态…"),
+        TasksFeedbackKind.Deleting => TaskLocalization.Localize("Tasks.Busy.Deleting", "正在删除任务…"),
+        TasksFeedbackKind.Reloading => TaskLocalization.Localize("Tasks.Busy.Reloading", "正在重新加载任务…"),
+        _ => string.Empty
+    };
+
+    private string RenderError(TasksFeedbackKind kind, string? apiMessage, string? correlationId)
+    {
+        var message = kind switch
+        {
+            TasksFeedbackKind.Api => apiMessage ?? string.Empty,
+            TasksFeedbackKind.LoadFailed => TaskLocalization.Localize("Tasks.Error.LoadFailed", "无法加载任务，请刷新后重试。"),
+            TasksFeedbackKind.OpenFailed => TaskLocalization.Localize("Tasks.Error.OpenFailed", "任务加载失败，请重试。"),
+            TasksFeedbackKind.SaveFailed => TaskLocalization.Localize("Tasks.Error.SaveFailed", "保存未完成。请刷新列表确认后再试。"),
+            TasksFeedbackKind.ToggleFailed => TaskLocalization.Localize("Tasks.Error.ToggleFailed", "状态修改未完成，请重新加载确认。"),
+            TasksFeedbackKind.DeleteFailed => TaskLocalization.Localize("Tasks.Error.DeleteFailed", "删除未完成，请刷新列表确认。"),
+            TasksFeedbackKind.ReloadFailed => TaskLocalization.Localize("Tasks.Error.ReloadFailed", "重新加载失败，编辑内容已保留。"),
+            _ => string.Empty
+        };
+        return string.IsNullOrEmpty(correlationId)
+            ? message
+            : message + TaskLocalization.Format("Tasks.Error.Diagnostic", "（诊断编号 {0}）", correlationId);
+    }
+
+    private string RenderMessage() => _messageKind switch
+    {
+        TasksFeedbackKind.Reloaded => TaskLocalization.Localize("Tasks.Message.Reloaded", "已重新加载"),
+        TasksFeedbackKind.SettingsText => _messageSettingsText ?? string.Empty,
+        _ => string.Empty
+    };
+
+    private enum TasksFeedbackKind
+    {
+        None,
+        Loading,
+        Saving,
+        Updating,
+        Deleting,
+        Reloading,
+        Api,
+        LoadFailed,
+        OpenFailed,
+        SaveFailed,
+        ToggleFailed,
+        DeleteFailed,
+        ReloadFailed,
+        Reloaded,
+        SettingsText
     }
 
     private void ApplySettings(IReadOnlyDictionary<string, object?> values)
@@ -773,6 +897,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public ValueTask DisposeAsync()
     {
         _disposed = true;
+        MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
         _settingsTarget?.Detach();
         _lifetime.Cancel();
         _query?.Cancel();

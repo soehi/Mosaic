@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mosaic.Presentation.Wpf;
@@ -16,18 +17,24 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private FrameworkElement? _content;
     private string _pageTitle = "工作空间";
     private string? _currentNavigationId;
+    private string? _currentViewId;
+    private string? _currentNavigationLabel;
     private IDisposable? _localizationRegistration;
     private Mosaic.Settings.Contracts.ISettingsApi? _settings;
+    private readonly ObservableCollection<NavigationItem> _navigationItems = [];
     internal IReadOnlyDictionary<string, object?>? InitialValues { get; private set; }
     internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings)
     {
-        _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs; Navigation = registry.Navigation;
+        _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs;
         NavigateCommand = new AsyncRelayCommand<NavigationItem>(NavigateAsync);
         registry.Changed += OnContributionsChanged;
         _settings = settings;
         _localizationRegistration = Application.Current is null ? null : MosaicLocalizationManager.Register(
             "shell",
             language => ShellLocalization.Dictionary(language == MosaicLanguage.English));
+        Navigation = new ReadOnlyObservableCollection<NavigationItem>(_navigationItems);
+        RebuildNavigationItems();
+        MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
     public IReadOnlyList<NavigationItem> Navigation { get; }
     public FrameworkElement? Content { get => _content; private set => SetProperty(ref _content, value); }
@@ -54,17 +61,20 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             if (!await _navigation.NavigateAsync(item.ViewId)) return;
             Content = _navigation.Current!.View;
-            PageTitle = TranslateNavigationLabel(item.Label);
+            _currentViewId = item.ViewId;
+            _currentNavigationLabel = item.Label;
+            PageTitle = TranslateNavigationLabel(item.Label, item.ViewId);
             CurrentNavigationId = item.Id;
         }
         catch (Exception) { await _dialogs.ShowErrorAsync("页面加载失败，请重新启动应用。"); }
     }
     private void OnContributionsChanged(object? sender, EventArgs e)
     {
+        RebuildNavigationItems();
         if (_navigation.CurrentViewId is { } currentViewId && _registry.Find(currentViewId) is null)
         {
             Content = null;
-            PageTitle = Translate("Shell.PageTitle", "工作空间");
+            PageTitle = ShellLocalization.Localize("Shell.PageTitle", "工作空间");
             CurrentNavigationId = null;
             var release = _navigation.ReleaseCurrentAsync();
             _removePage = ReleaseRemovedPageAsync(_removePage, release);
@@ -87,18 +97,35 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _registry.Changed -= OnContributionsChanged;
+        MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
         _localizationRegistration?.Dispose();
         await _removePage;
         await _navigation.DisposeAsync();
     }
 
-    private static string Translate(string key, string fallback) =>
-        Application.Current?.TryFindResource(key) as string ?? fallback;
-
-    private static string TranslateNavigationLabel(string label) => label switch
+    private void OnLanguageChanged(object? sender, EventArgs e)
     {
-        "任务" => Translate("Tasks.Navigation", label),
-        "设置" => Translate("Settings.Navigation", label),
-        _ => Translate("Shell.PageTitle", label)
+        RebuildNavigationItems();
+        if (_currentViewId is { } viewId && _currentNavigationLabel is { } label)
+            PageTitle = TranslateNavigationLabel(label, viewId);
+    }
+
+    private void RebuildNavigationItems()
+    {
+        _navigationItems.Clear();
+        foreach (var item in _registry.Navigation)
+            _navigationItems.Add(new NavigationItem(
+                item.Id,
+                TranslateNavigationLabel(item.Label, item.ViewId),
+                item.IconKey,
+                item.ViewId,
+                item.Order));
+    }
+
+    private static string TranslateNavigationLabel(string label, string viewId) => viewId switch
+    {
+        "tasks.list" => ShellLocalization.Localize("Tasks.Navigation", label),
+        "settings.home" => ShellLocalization.Localize("Settings.Navigation", label),
+        _ => ShellLocalization.Localize("Shell.PageTitle", label)
     };
 }

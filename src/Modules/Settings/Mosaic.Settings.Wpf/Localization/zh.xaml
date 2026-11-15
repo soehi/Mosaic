@@ -20,6 +20,33 @@
     <sys:String x:Key="Settings.Section.Storage">存储与系统</sys:String>
     <sys:String x:Key="Settings.Section.Text">文案</sys:String>
     <sys:String x:Key="Settings.Navigation">设置</sys:String>
+    <sys:String x:Key="Settings.ResetSection.Detail">将把当前分区的设置恢复为默认值，且不可撤销。</sys:String>
+    <sys:String x:Key="Settings.ResetAll.Detail">将清除所有修改过的设置并恢复默认值，且不可撤销。</sys:String>
+    <sys:String x:Key="Settings.Hint.ModuleList">模块 ID 以逗号分隔</sys:String>
+    <sys:String x:Key="Settings.Hint.ProviderMap">每行或分号分隔：capability@version=module-id</sys:String>
+    <sys:String x:Key="Settings.Hint.Text">文本</sys:String>
+    <sys:String x:Key="Settings.Constraint.Boolean">开 / 关</sys:String>
+    <sys:String x:Key="Settings.Constraint.Max200">最多 200 个字符</sys:String>
+    <sys:String x:Key="Settings.Constraint.ModuleList">逗号分隔的模块 ID</sys:String>
+    <sys:String x:Key="Settings.Constraint.ProviderMap">capability=module-id，分号分隔</sys:String>
+    <sys:String x:Key="Settings.Empty.Normal">没有普通设置。打开高级设置查看全部参数。</sys:String>
+    <sys:String x:Key="Settings.Empty.Section">当前分区没有设置。</sys:String>
+    <sys:String x:Key="Settings.Error.Integer">请输入整数。</sys:String>
+    <sys:String x:Key="Settings.Error.InvalidAfterSave">部分设置无效，请修正后再保存。</sys:String>
+    <sys:String x:Key="Settings.Error.InvalidBeforeSave">部分设置格式无效，请修正后再保存。</sys:String>
+    <sys:String x:Key="Settings.Error.Load">无法加载设置，请刷新后重试。</sys:String>
+    <sys:String x:Key="Settings.Error.LoadDefinitions">设置定义加载失败。</sys:String>
+    <sys:String x:Key="Settings.Error.LoadValues">设置值加载失败。</sys:String>
+    <sys:String x:Key="Settings.Error.ProviderMap">格式应为 capability@version=module-id，且不能重复。</sys:String>
+    <sys:String x:Key="Settings.Error.Refresh">设置刷新失败。</sys:String>
+    <sys:String x:Key="Settings.Error.Reset">恢复默认失败。</sys:String>
+    <sys:String x:Key="Settings.Error.ResetRetry">恢复默认失败，请重试。</sys:String>
+    <sys:String x:Key="Settings.Error.Save">设置保存失败。</sys:String>
+    <sys:String x:Key="Settings.Error.SaveRetry">设置保存失败，请重试。</sys:String>
+    <sys:String x:Key="Settings.Error.Unsupported">不支持的设置类型。</sys:String>
+    <sys:String x:Key="Settings.Message.NoChanges">没有需要保存的修改。</sys:String>
+    <sys:String x:Key="Settings.Message.Reset">已恢复默认设置。</sys:String>
+    <sys:String x:Key="Settings.Message.Saved">设置已保存。</sys:String>
     <sys:String x:Key="Setting.Value.FollowSystem">跟随系统</sys:String>
     <sys:String x:Key="Setting.Value.Light">浅色</sys:String>
     <sys:String x:Key="Setting.Value.Dark">深色</sys:String>

@@ -20,6 +20,16 @@ public static class MosaicLocalizationManager
 
     public static event EventHandler? LanguageChanged;
 
+    public static string? TryFindResource(string key)
+    {
+        lock (Gate)
+        {
+            foreach (var dictionary in Owners.Values)
+                if (dictionary.Contains(key)) return dictionary[key] as string;
+            return null;
+        }
+    }
+
     public static IDisposable Register(string owner, Func<MosaicLanguage, ResourceDictionary> dictionaryFactory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
@@ -40,30 +50,35 @@ public static class MosaicLocalizationManager
     {
         var resolved = Resolve(language);
         Dictionary<string, ResourceDictionary> replacements;
+        Dictionary<string, ResourceDictionary> previousOwners;
         lock (Gate)
         {
             if (Current == resolved && Owners.Count == 0) return;
             if (Current == resolved) return;
             Current = resolved;
-            replacements = Owners.ToDictionary(
+            previousOwners = new Dictionary<string, ResourceDictionary>(Owners, StringComparer.Ordinal);
+            replacements = previousOwners.ToDictionary(
                 item => item.Key,
                 item => CreateDictionary(ResolveDictionary(item.Key, resolved)),
                 StringComparer.Ordinal);
+            foreach (var (key, dictionary) in replacements) Owners[key] = dictionary;
         }
 
-        ApplyReplacements(replacements);
+        ApplyReplacements(replacements, previousOwners);
         LanguageChanged?.Invoke(null, EventArgs.Empty);
     }
 
     private static ResourceDictionary ResolveDictionary(string owner, MosaicLanguage language) =>
         Factories[owner](language);
 
-    private static void ApplyReplacements(IReadOnlyDictionary<string, ResourceDictionary> replacements)
+    private static void ApplyReplacements(
+        IReadOnlyDictionary<string, ResourceDictionary> replacements,
+        IReadOnlyDictionary<string, ResourceDictionary> previousOwners)
     {
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is not null && !dispatcher.CheckAccess())
         {
-            _ = dispatcher.BeginInvoke(() => ApplyReplacements(replacements));
+            _ = dispatcher.BeginInvoke(() => ApplyReplacements(replacements, previousOwners));
             return;
         }
 
@@ -73,9 +88,8 @@ public static class MosaicLocalizationManager
         {
             foreach (var (owner, dictionary) in replacements)
             {
-                var previous = Owners.GetValueOrDefault(owner);
+                var previous = previousOwners.GetValueOrDefault(owner);
                 if (previous is not null) resources.MergedDictionaries.Remove(previous);
-                Owners[owner] = dictionary;
                 resources.MergedDictionaries.Add(dictionary);
             }
         }
