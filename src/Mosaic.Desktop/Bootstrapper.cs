@@ -34,8 +34,16 @@ internal sealed class Bootstrapper : IAsyncDisposable
             throw new ConfigurationException("存储位置必须是 local-app-data 或绝对路径。");
         if (!AppConfiguration.IsValidDatabaseFilename(storage.Filename))
             throw new ConfigurationException("存储配置无效，数据库名称必须是合法的单个文件名。");
+        var configuredModules = hostSettings.GetValue("host.modules") as string[] ?? configuration.Modules;
+        var configuredProviders = hostSettings.GetValue("host.providers") as IReadOnlyDictionary<string, string> ?? configuration.Providers;
+        var semantic = await hostSettings.ValidateAsync(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["host.modules"] = configuredModules,
+            ["host.providers"] = configuredProviders
+        });
+        if (!semantic.IsSuccess) throw new ConfigurationException("模块或能力绑定配置无效：" + semantic.Error!.Message);
         IReadOnlyList<ModuleManifest> ordered;
-        try { ordered = ModuleGraph.Resolve(configuration.Modules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(), configuration.Providers); }
+        try { ordered = ModuleGraph.Resolve(configuredModules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(), configuredProviders); }
         catch (InvalidOperationException ex) { throw new ConfigurationException("模块依赖校验失败：" + ex.Message); }
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true, ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();

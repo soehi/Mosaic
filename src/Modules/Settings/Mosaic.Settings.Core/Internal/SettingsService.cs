@@ -88,6 +88,22 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
 
         var userChanges = normalizedChanges.Where(item => Find(item.Key)!.Persistence == SettingPersistence.UserSettings)
             .ToDictionary(item => item.Key, item => item.Value);
+        var hostChanges = normalizedChanges.Where(item => Find(item.Key)!.Persistence == SettingPersistence.HostConfig)
+            .ToDictionary(item => item.Key, item => item.Value);
+        if (hostSource is not null && hostChanges.Count > 0)
+        {
+            var current = await GetValuesAsync(cancellationToken).ConfigureAwait(false);
+            if (!current.IsSuccess) return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(current.Error!);
+            var effective = new Dictionary<string, object?>(current.Value, StringComparer.Ordinal);
+            foreach (var (id, value) in hostChanges) effective[id] = value;
+            var semantic = await hostSource.ValidateAsync(effective, cancellationToken).ConfigureAwait(false);
+            if (!semantic.IsSuccess)
+                return OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(
+                    new Dictionary<string, OperationError>(StringComparer.Ordinal)
+                    {
+                        [semantic.Error!.Field ?? "host.modules"] = semantic.Error
+                    });
+        }
         IReadOnlyDictionary<string, object?>? previousUserValues = null;
         if (userChanges.Count > 0)
         {
@@ -100,8 +116,6 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
 
         if (hostSource is not null)
         {
-            var hostChanges = normalizedChanges.Where(item => Find(item.Key)!.Persistence == SettingPersistence.HostConfig)
-                .ToDictionary(item => item.Key, item => item.Value);
             if (hostChanges.Count > 0)
             {
                 var persisted = await hostSource.PersistAsync(hostChanges, cancellationToken).ConfigureAwait(false);
@@ -207,6 +221,12 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         if (hostIds.Length > 0 && hostSource is not null)
         {
             var defaults = definitions.Where(item => hostIds.Contains(item.Id)).ToDictionary(item => item.Id, item => item.DefaultValue);
+            var current = await GetValuesAsync(cancellationToken).ConfigureAwait(false);
+            if (!current.IsSuccess) return OperationResult.Failure(current.Error!);
+            var effective = new Dictionary<string, object?>(current.Value, StringComparer.Ordinal);
+            foreach (var (id, value) in defaults) effective[id] = value;
+            var semantic = await hostSource.ValidateAsync(effective, cancellationToken).ConfigureAwait(false);
+            if (!semantic.IsSuccess) return semantic;
             var persisted = await hostSource.PersistAsync(defaults, cancellationToken).ConfigureAwait(false);
             if (!persisted.IsSuccess)
             {
