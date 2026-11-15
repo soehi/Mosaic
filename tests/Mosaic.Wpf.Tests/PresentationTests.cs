@@ -311,9 +311,11 @@ public sealed class PresentationTests
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
+        var navigationBar = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
-        Assert.Equal(0, Grid.GetRow(form));
-        Assert.Equal(1, Grid.GetRow(actionBar));
+        Assert.Equal(0, Grid.GetRow(navigationBar));
+        Assert.Equal(1, Grid.GetRow(form));
+        Assert.Equal(2, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
         Assert.True(notes.MinHeight >= 120);
         Assert.True(double.IsPositiveInfinity(notes.MaxHeight));
@@ -450,8 +452,6 @@ public sealed class PresentationTests
         try
         {
             await page.Controller.InitializeAsync();
-            SetProperty(page.View.DataContext, "ShowAdvanced", true);
-            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(Get<object>(page.View.DataContext, "SelectedSection").GetType(), "Appearance"));
             static string RowText(object model, string id, string property)
             {
                 var row = VisibleRows(model).Cast<object>()
@@ -665,7 +665,7 @@ public sealed class PresentationTests
         var definition = new SettingDefinition(
             "tasks.title.maxCharacters", "tasks-core", "Title", "Description",
             SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
+            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
         var row = Activator.CreateInstance(rowType, definition, 200)!;
         var textValue = rowType.GetProperty("TextValue")!;
         var isDirty = rowType.GetProperty("IsDirty")!;
@@ -693,7 +693,7 @@ public sealed class PresentationTests
         await module.ActivateAsync();
         var source = Assert.Single(settings.Sources);
         Assert.Equal("tasks-ui", source.ModuleId);
-        Assert.Equal(25, source.Definitions.Count);
+        Assert.Equal(23, source.Definitions.Count);
         Assert.All(source.Definitions, item => Assert.Equal("tasks-ui", item.ModuleId));
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.emptyAllTitle");
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.restoredSuccess");
@@ -714,17 +714,18 @@ public sealed class PresentationTests
         SetProperty(model, "ShowAdvanced", true);
         SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
         var ids = RowIds(model);
-        Assert.Equal(10, ids.Count);
+        Assert.Equal(12, ids.Count);
         Assert.Contains("appearance.theme", ids);
         Assert.Contains("ui.language", ids);
         Assert.Contains("shell.sidebar.fullWidth", ids);
-        Assert.DoesNotContain("shell.window.minWidth", ids);
+        Assert.Contains("shell.window.minWidth", ids);
+        Assert.Contains("shell.page.marginBottom", ids);
         Assert.DoesNotContain("tasks.confirmDelete", ids);
         Assert.DoesNotContain("startup.width", ids);
     });
 
     [Fact]
-    public Task Show_advanced_reveals_all_rows_in_current_section_and_notifies_visibility() => Sta.Run(async () =>
+    public Task Show_advanced_reveals_all_rows_in_normal_section_and_notifies_visibility() => Sta.Run(async () =>
     {
         var api = new SettingsApi
         {
@@ -734,11 +735,10 @@ public sealed class PresentationTests
         var notified = new List<string>();
         ((INotifyPropertyChanged)model).PropertyChanged += (_, e) => notified.Add(e.PropertyName!);
         await Initialize(model);
-        Assert.Empty(RowIds(model));
+        Assert.Equal(2, RowIds(model).Count);
 
-        SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
         SetProperty(model, "ShowAdvanced", true);
-        Assert.Equal(10, RowIds(model).Count);
+        Assert.Equal(21, RowIds(model).Count);
         Assert.Contains("HasVisibleRows", notified);
         Assert.Contains("HasRows", notified);
         Assert.Contains("EmptyMessage", notified);

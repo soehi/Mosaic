@@ -18,6 +18,9 @@ public partial class TaskEditorView : UserControl
         SizeChanged += OnSizeChanged;
     }
 
+    internal void SetCompactNavigationVisible(bool visible) =>
+        CompactNavigationBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
     private void OnLoaded(object sender, RoutedEventArgs e) =>
         UpdateResponsiveActions(ActualWidth, ActualHeight);
 
@@ -67,8 +70,6 @@ public partial class TaskEditorView : UserControl
 
         if (useCompactActions)
         {
-            EditorActionGrid.ColumnDefinitions[3].Width = new GridLength(0);
-            EditorActionGrid.ColumnDefinitions[4].Width = new GridLength(0);
             EditorActionSecondRow.Height = GridLength.Auto;
             Grid.SetRow(ToggleButton, 0);
             Grid.SetColumn(ToggleButton, 0);
@@ -85,8 +86,6 @@ public partial class TaskEditorView : UserControl
             return;
         }
 
-        EditorActionGrid.ColumnDefinitions[3].Width = new GridLength(7);
-        EditorActionGrid.ColumnDefinitions[4].Width = new GridLength(1, GridUnitType.Star);
         EditorActionSecondRow.Height = new GridLength(0);
         Grid.SetRow(ToggleButton, 0);
         Grid.SetColumn(ToggleButton, 0);

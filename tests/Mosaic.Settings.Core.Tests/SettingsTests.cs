@@ -55,15 +55,15 @@ public sealed class SettingsTests
     private static readonly SettingDefinition[] TaskCoreDefinitions =
     [
         new("tasks.sortOrder", "tasks-core", "Sort order", "Default task sorting", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "TitleAsc"],
-            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
+            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
         new("tasks.title.maxCharacters", "tasks-core", "Title limit", "Maximum title characters", SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private static readonly SettingDefinition[] TaskUiDefinitions =
     [
         new("tasks.confirmDelete", "tasks-ui", "Confirm delete", "Confirm before delete", SettingValueKind.Boolean, true, null, null, null,
-            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private sealed class TaskCoreSource : ISettingSource
@@ -280,7 +280,7 @@ public sealed class SettingsTests
         var storage = new Source("storage-sqlite",
         [
             new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
-                SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
+                SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
         ]);
         await using var module = new SettingsModule(new(repository, host, DeferredSources: [storage]));
 

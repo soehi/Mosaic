@@ -67,6 +67,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
+        BackToListCommand = new AsyncRelayCommand(BackToListAsync, () => !IsBusy && IsEditorOpen);
         SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty);
         ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => !IsBusy && Editor.HasTask);
         DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => !IsBusy && Editor.HasTask);
@@ -81,6 +82,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }
+    public IAsyncRelayCommand BackToListCommand { get; }
     public IAsyncRelayCommand SaveCommand { get; }
     public IAsyncRelayCommand ToggleCommand { get; }
     public IAsyncRelayCommand DeleteCommand { get; }
@@ -108,6 +110,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             if (!SetProperty(ref _editorOpen, value)) return;
             OnPropertyChanged(nameof(ShowListMessage));
+            BackToListCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -155,8 +158,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool HasMessage => !string.IsNullOrEmpty(Message);
     public bool ShowCharacterCount => _showCharacterCount;
     public double CompactBreakpoint => _layout.CompactBreakpoint;
-    public double EditorPaneWidth => _layout.EditorPaneWidth;
-    public double PaneGap => _layout.PaneGap;
     public double CompactActionsWidth => _layout.CompactActionsWidth;
     public double CompactActionsHeight => _layout.CompactActionsHeight;
     public double ListMinColumnWidth => _layout.ListMinColumnWidth;
@@ -495,6 +496,33 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
     }
 
+    private async Task BackToListAsync()
+    {
+        if (IsBusy) await _idle.Task;
+        if (Editor.IsDirty)
+        {
+            if (!_confirmUnsaved)
+            {
+                Editor.Load(Editor.Current);
+                SetSelectedItem(null);
+                IsEditorOpen = false;
+                return;
+            }
+            switch (await _dialogs.AskUnsavedChangesAsync())
+            {
+                case UnsavedChoice.Cancel:
+                    return;
+                case UnsavedChoice.Save when !await SaveAsync():
+                    return;
+                case UnsavedChoice.Discard:
+                    Editor.Load(Editor.Current);
+                    break;
+            }
+        }
+        SetSelectedItem(null);
+        IsEditorOpen = false;
+    }
+
     public async Task<bool> CanLeaveAsync()
     {
         if (IsBusy) await _idle.Task;
@@ -640,6 +668,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         NewCommand.NotifyCanExecuteChanged();
         SelectCommand.NotifyCanExecuteChanged();
+        BackToListCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         ToggleCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();
@@ -780,8 +809,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             ReadString(values, "ui.text.restoredSuccess", TaskTextSettings.Defaults.RestoredSuccess));
         _layout = new(
             ReadDouble(values, "tasks.layout.compactBreakpoint", TasksLayoutSettings.Defaults.CompactBreakpoint),
-            ReadDouble(values, "tasks.layout.editorPaneWidth", TasksLayoutSettings.Defaults.EditorPaneWidth),
-            ReadDouble(values, "tasks.layout.paneGap", TasksLayoutSettings.Defaults.PaneGap),
             ReadDouble(values, "tasks.editor.compactActionsWidth", TasksLayoutSettings.Defaults.CompactActionsWidth),
             ReadDouble(values, "tasks.editor.compactActionsHeight", TasksLayoutSettings.Defaults.CompactActionsHeight),
             ReadDouble(values, "tasks.list.minColumnWidth", TasksLayoutSettings.Defaults.ListMinColumnWidth),
@@ -793,8 +820,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             nameof(ShowCharacterCount),
             nameof(CompactBreakpoint),
-            nameof(EditorPaneWidth),
-            nameof(PaneGap),
             nameof(CompactActionsWidth),
             nameof(CompactActionsHeight),
             nameof(ListMinColumnWidth),
@@ -859,8 +884,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private sealed record TasksLayoutSettings(
         double CompactBreakpoint,
-        double EditorPaneWidth,
-        double PaneGap,
         double CompactActionsWidth,
         double CompactActionsHeight,
         double ListMinColumnWidth,
@@ -868,7 +891,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         double TaskButtonMinWidth,
         double TaskButtonMinHeight)
     {
-        internal static TasksLayoutSettings Defaults { get; } = new(920, 480, 24, 480, 680, 300, 128, 96, 40);
+        internal static TasksLayoutSettings Defaults { get; } = new(920, 480, 680, 300, 128, 96, 40);
     }
 
     public ValueTask DisposeAsync()

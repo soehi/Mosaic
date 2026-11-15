@@ -21,8 +21,8 @@ public partial class ShellWindow : Window, IAsyncDisposable
     private readonly ShellViewModel _model;
     private ShellSidebarMode _sidebarMode = ShellSidebarMode.Expanded;
     private bool _sidebarLayoutInitialized;
-    private double _collapseBelowWidth = 1180;
-    private double _expandAtWidth = 1200;
+    private double _collapseBelowWidth = 1040;
+    private double _expandAtWidth = 1060;
     private double _fullWidth = 190;
     private double _railWidth = 64;
     private Thickness _pageMargin = new(32, 30, 28, 28);
@@ -104,16 +104,10 @@ public partial class ShellWindow : Window, IAsyncDisposable
 
     private void ApplyWindowMetrics(IReadOnlyDictionary<string, object?> values)
     {
+        if (values.TryGetValue("startup.width", out var width) && width is int startupWidth) Width = startupWidth;
+        if (values.TryGetValue("startup.height", out var height) && height is int startupHeight) Height = startupHeight;
         if (values.TryGetValue("shell.window.minWidth", out var minWidth) && minWidth is int windowMinWidth) MinWidth = windowMinWidth;
         if (values.TryGetValue("shell.window.minHeight", out var minHeight) && minHeight is int windowMinHeight) MinHeight = windowMinHeight;
-
-        var workArea = SystemParameters.WorkArea;
-        var startupWidth = values.TryGetValue("startup.width", out var width) && width is int savedWidth ? savedWidth : Width;
-        var startupHeight = values.TryGetValue("startup.height", out var height) && height is int savedHeight ? savedHeight : Height;
-        Width = Math.Clamp(startupWidth, MinWidth, Math.Max(MinWidth, workArea.Width));
-        Height = Math.Clamp(startupHeight, MinHeight, Math.Max(MinHeight, workArea.Height));
-        Left = Math.Max(workArea.Left, Math.Min(Left, workArea.Right - ActualWidth));
-        Top = Math.Max(workArea.Top, Math.Min(Top, workArea.Bottom - ActualHeight));
     }
 
     internal void ApplyLayoutSettings(IReadOnlyDictionary<string, object?> values)

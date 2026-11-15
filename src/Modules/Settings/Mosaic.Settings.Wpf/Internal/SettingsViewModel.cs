@@ -10,6 +10,7 @@ namespace Mosaic.Settings.Wpf.Internal;
 
 internal enum SettingsSection
 {
+    Normal,
     Tasks,
     Appearance,
     Storage,
@@ -44,8 +45,6 @@ internal sealed class SettingDefinitionTranslation
         "shell.page.marginRight" => "Settings.Setting.PageMarginRight",
         "shell.page.marginBottom" => "Settings.Setting.PageMarginBottom",
         "tasks.layout.compactBreakpoint" => "Settings.Setting.TaskCompactBreakpoint",
-        "tasks.layout.editorPaneWidth" => "Settings.Setting.EditorPaneWidth",
-        "tasks.layout.paneGap" => "Settings.Setting.PaneGap",
         "tasks.editor.compactActionsWidth" => "Settings.Setting.ActionsCompactWidth",
         "tasks.editor.compactActionsHeight" => "Settings.Setting.ActionsCompactHeight",
         "tasks.list.minColumnWidth" => "Settings.Setting.ListMinColumnWidth",
@@ -106,8 +105,6 @@ internal sealed class SettingDefinitionTranslation
         "shell.page.marginRight" => "Settings.Setting.PageMarginRight.Description",
         "shell.page.marginBottom" => "Settings.Setting.PageMarginBottom.Description",
         "tasks.layout.compactBreakpoint" => "Settings.Setting.TaskCompactBreakpoint.Description",
-        "tasks.layout.editorPaneWidth" => "Settings.Setting.EditorPaneWidth.Description",
-        "tasks.layout.paneGap" => "Settings.Setting.PaneGap.Description",
         "tasks.editor.compactActionsWidth" => "Settings.Setting.ActionsCompactWidth.Description",
         "tasks.editor.compactActionsHeight" => "Settings.Setting.ActionsCompactHeight.Description",
         "tasks.list.minColumnWidth" => "Settings.Setting.ListMinColumnWidth.Description",
@@ -420,10 +417,8 @@ internal sealed class SettingRow : ObservableObject
     private object? Normalize(object? value)
     {
         if (value is null) return null;
-        return Definition.Kind switch
+        var parsed = Definition.Kind switch
         {
-            SettingValueKind.Integer when value is long => Convert.ToInt64(value),
-            SettingValueKind.Integer => Convert.ToInt64(value),
             SettingValueKind.ModuleList when value is string text => text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
             SettingValueKind.ProviderMap when value is string text => text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Select(item => item.Split('=', 2))
@@ -431,6 +426,7 @@ internal sealed class SettingRow : ObservableObject
                 .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.Ordinal),
             _ => value
         };
+        return SettingValueNormalizer.Normalize(Definition, parsed);
     }
 
     private string GetConstraint()
@@ -456,6 +452,8 @@ internal sealed class SettingRow : ObservableObject
         IReadOnlyDictionary<string, object?> providers when Definition.Kind == SettingValueKind.ProviderMap =>
             String.Join("; ", providers.Select(item => $"{item.Key}={item.Value}")),
         IEnumerable<string> values when Definition.Kind == SettingValueKind.ModuleList => String.Join(", ", values),
+        IEnumerable<object?> values when Definition.Kind == SettingValueKind.ModuleList =>
+            String.Join(", ", values.Select(item => Convert.ToString(item, System.Globalization.CultureInfo.InvariantCulture) ?? String.Empty)),
         _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? String.Empty
     };
 
@@ -471,7 +469,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     private bool _isLoading;
     private bool _isBusy;
     private bool _hasChanges;
-    private SettingsSection _selectedSection = SettingsSection.Tasks;
+    private SettingsSection _selectedSection = SettingsSection.Normal;
     private bool _showAdvanced;
     private string? _message;
     private bool _isError;
@@ -482,11 +480,11 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     {
         _settings = settings;
         _dialogs = dialogs;
-        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy && ShowAdvanced && HasChanges);
-        ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionModuleIds()), () => !IsBusy && ShowAdvanced);
-        ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(null), () => !IsBusy && ShowAdvanced);
-        DiscardCommand = new RelayCommand(DiscardChanges, () => !IsBusy && ShowAdvanced && HasChanges);
-        ResetToDefaultCommand = new RelayCommand<SettingRow>(row => row?.Reset(), _ => !IsBusy && ShowAdvanced);
+        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy && HasChanges);
+        ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionModuleIds()), () => !IsBusy);
+        ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(null), () => !IsBusy);
+        DiscardCommand = new RelayCommand(DiscardChanges, () => HasChanges);
+        ResetToDefaultCommand = new RelayCommand<SettingRow>(row => row?.Reset(), _ => !IsBusy);
         SelectSectionCommand = new RelayCommand<SettingsSection>(section => SelectSection(section), _ => !IsBusy);
         Sections.CollectionChanged += (_, _) => NotifyRowVisibility();
         VisibleRows.CollectionChanged += (_, _) => NotifyRowVisibility();
@@ -494,7 +492,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     }
 
     public ObservableCollection<SettingsSection> Sections { get; } =
-        [SettingsSection.Tasks, SettingsSection.Appearance, SettingsSection.Storage, SettingsSection.Text];
+        [SettingsSection.Normal, SettingsSection.Tasks, SettingsSection.Appearance, SettingsSection.Storage, SettingsSection.Text];
     public ObservableCollection<SettingRow> VisibleRows { get; } = [];
 
     public SettingsSection SelectedSection
@@ -512,13 +510,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         get => _showAdvanced;
         set
         {
-            if (value == _showAdvanced) return;
-            if (!value && HasChanges)
-            {
-                _ = ConfirmAdvancedToggleAsync();
-                return;
-            }
-            SetAdvanced(value);
+            if (SetProperty(ref _showAdvanced, value)) ApplySectionFilter();
         }
     }
 
@@ -563,9 +555,9 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     }
     public bool HasRows => VisibleRows.Count > 0;
     public bool HasMessage => !string.IsNullOrWhiteSpace(Message) && !IsError;
-    public string EmptyMessage => ShowAdvanced
-        ? SettingsLocalization.Localize("Settings.Empty.Section", "当前分区没有设置。")
-        : SettingsLocalization.Localize("Settings.Empty.Advanced", "打开高级设置查看全部参数。");
+    public string EmptyMessage => SelectedSection == SettingsSection.Normal
+        ? SettingsLocalization.Localize("Settings.Empty.Normal", "没有普通设置。打开高级设置查看全部参数。")
+        : SettingsLocalization.Localize("Settings.Empty.Section", "当前分区没有设置。");
     public bool HasVisibleRows => VisibleRows.Count > 0;
     public IAsyncRelayCommand SaveCommand { get; }
     public IRelayCommand ResetSectionCommand { get; }
@@ -642,47 +634,20 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
 
     private bool IsRowVisible(SettingRow row)
     {
-        if (!ShowAdvanced) return false;
+        if (!ShowAdvanced && row.IsAdvanced) return false;
         return SelectedSection switch
         {
-            SettingsSection.Tasks => row.Definition.Group == SettingsGroup.Tasks,
-            SettingsSection.Appearance => row.Definition.Group == SettingsGroup.Appearance,
-            SettingsSection.Storage => row.Definition.Group == SettingsGroup.StorageSystem,
-            SettingsSection.Text => row.Definition.Group == SettingsGroup.Text,
+            SettingsSection.Normal => ShowAdvanced || !row.IsAdvanced,
+            SettingsSection.Tasks => row.Definition.ModuleId.StartsWith("tasks", StringComparison.Ordinal),
+            SettingsSection.Appearance => row.Definition.ModuleId == "shell" ||
+                (row.Definition.ModuleId == "host" && row.Id.StartsWith("shell.", StringComparison.Ordinal)),
+            SettingsSection.Storage => row.Definition.ModuleId is "storage-sqlite" or "host" &&
+                (row.Id.StartsWith("storage.", StringComparison.Ordinal) || row.Id.StartsWith("host.", StringComparison.Ordinal) ||
+                    row.Id.StartsWith("logging.", StringComparison.Ordinal) || row.Id.StartsWith("diagnostics.", StringComparison.Ordinal) ||
+                    row.Id.StartsWith("startup.", StringComparison.Ordinal)),
+            SettingsSection.Text => row.Id.StartsWith("ui.text.", StringComparison.Ordinal),
             _ => false
         };
-    }
-
-    private async Task ConfirmAdvancedToggleAsync()
-    {
-        if (IsBusy)
-        {
-            OnPropertyChanged(nameof(ShowAdvanced));
-            return;
-        }
-
-        var choice = await _dialogs.AskUnsavedChangesAsync();
-        switch (choice)
-        {
-            case UnsavedChoice.Save:
-                if (await SaveCoreAsync()) SetAdvanced(false);
-                else OnPropertyChanged(nameof(ShowAdvanced));
-                break;
-            case UnsavedChoice.Discard:
-                DiscardChanges();
-                SetAdvanced(false);
-                break;
-            default:
-                OnPropertyChanged(nameof(ShowAdvanced));
-                break;
-        }
-    }
-
-    private void SetAdvanced(bool value)
-    {
-        if (!SetProperty(ref _showAdvanced, value)) return;
-        ApplySectionFilter();
-        UpdateCommandStates();
     }
 
     private async Task<bool> SaveCoreAsync()
@@ -812,7 +777,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         SettingsSection.Appearance => ["shell"],
         SettingsSection.Storage => ["storage-sqlite", "host"],
         SettingsSection.Text => ["tasks-ui"],
-        _ => []
+        _ => ["tasks-ui", "tasks-core", "shell"]
     };
 
     private async Task<bool> ConfirmResetAsync(string? scope)
@@ -859,11 +824,9 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
 
     private void UpdateCommandStates()
     {
+        ResetToDefaultCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         DiscardCommand.NotifyCanExecuteChanged();
-        ResetSectionCommand.NotifyCanExecuteChanged();
-        ResetAllCommand.NotifyCanExecuteChanged();
-        ResetToDefaultCommand.NotifyCanExecuteChanged();
     }
 
     private void SelectSection(SettingsSection? section)
@@ -892,6 +855,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         Sections.Clear();
         foreach (var section in new[]
         {
+            SettingsSection.Normal,
             SettingsSection.Tasks,
             SettingsSection.Appearance,
             SettingsSection.Storage,
@@ -990,6 +954,7 @@ internal sealed class SettingsSectionNameConverter : System.Windows.Data.IValueC
 {
     public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => value switch
     {
+        SettingsSection.Normal => SettingsLocalization.Localize("Settings.Section.Normal", "普通"),
         SettingsSection.Tasks => SettingsLocalization.Localize("Settings.Section.Tasks", "任务"),
         SettingsSection.Appearance => SettingsLocalization.Localize("Settings.Section.Appearance", "外观与布局"),
         SettingsSection.Storage => SettingsLocalization.Localize("Settings.Section.Storage", "存储与系统"),

@@ -18,7 +18,7 @@ namespace Mosaic.Wpf.Tests;
 public sealed class ResponsiveLayoutTests
 {
     [Fact]
-    public Task Task_page_uses_fixed_panes_across_compact_thresholds() => Sta.Run(async () =>
+    public Task Task_page_uses_single_page_navigation_on_the_same_view_instances() => Sta.Run(async () =>
     {
         var api = new Api();
         var page = await CreateTaskPage(api, new Dialogs());
@@ -30,38 +30,49 @@ public sealed class ResponsiveLayoutTests
         var editorModel = Get<object>(model, "Editor");
         var list = Assert.IsType<Grid>(view.FindName("TaskListPane"));
         var editor = Assert.IsType<TaskEditorView>(view.FindName("TaskEditorPane"));
+        var compactNavigation = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
+        var actionGrid = Assert.IsType<Grid>(editor.FindName("EditorActionGrid"));
         var deleteButton = Assert.IsType<Button>(editor.FindName("DeleteButton"));
 
         Arrange(view, 920, 780);
         Assert.Equal(Visibility.Visible, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
         Assert.Equal(2, Grid.GetColumn(editor));
-        Assert.True(Assert.IsType<ColumnDefinition>(view.FindName("TaskEditorColumn")).Width.Value > 0);
+        Assert.Equal(Visibility.Collapsed, compactNavigation.Visibility);
 
         Arrange(view, 919, 780);
         Assert.Equal(Visibility.Visible, list.Visibility);
-        Assert.Equal(Visibility.Visible, editor.Visibility);
-        Assert.Equal(2, Grid.GetColumn(editor));
+        Assert.Equal(Visibility.Collapsed, editor.Visibility);
+        Assert.Equal(0, Grid.GetColumn(editor));
+        Assert.Equal(0, Grid.GetRow(editor));
 
         Arrange(view, 839, 620);
         Assert.Equal(Visibility.Visible, list.Visibility);
+        Assert.Equal(Visibility.Collapsed, editor.Visibility);
+
+        await Get<IAsyncRelayCommand<TaskItemDto>>(model, "SelectCommand").ExecuteAsync(api.Item);
+        view.UpdateLayout();
+        Assert.True(Get<bool>(model, "IsEditorOpen"));
+        Assert.Equal(Visibility.Collapsed, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
-        Assert.Equal(2, Grid.GetColumn(editor));
+        Assert.Equal(Visibility.Visible, compactNavigation.Visibility);
 
         Set(editorModel, "Title", "断点往返后仍未保存的标题");
         Arrange(view, 1220, 780);
         Assert.Equal(Visibility.Visible, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
+        Assert.Equal(Visibility.Collapsed, compactNavigation.Visibility);
         Assert.Equal("断点往返后仍未保存的标题", Get<string>(editorModel, "Title"));
 
-        Arrange(view, 900, 620);
-        Assert.Equal(Visibility.Visible, list.Visibility);
+        Arrange(view, 760, 620);
+        Assert.Equal(Visibility.Collapsed, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
+        Assert.Equal(Visibility.Visible, compactNavigation.Visibility);
         Assert.Equal("断点往返后仍未保存的标题", Get<string>(editorModel, "Title"));
         Assert.True(actionBar.ActualHeight > 0);
         Assert.Equal(1, Grid.GetRow(deleteButton));
-        Assert.True(Grid.GetColumnSpan(deleteButton) >= 1);
+        Assert.Equal(actionGrid.ColumnDefinitions.Count, Grid.GetColumnSpan(deleteButton));
         Assert.True(deleteButton.MinHeight >= 40);
         Assert.True(actionBar.TranslatePoint(new Point(0, actionBar.ActualHeight), editor).Y <= editor.ActualHeight + 0.5);
 
@@ -69,7 +80,7 @@ public sealed class ResponsiveLayoutTests
     });
 
     [Fact]
-    public Task Fixed_pane_honors_cancel_discard_and_save_choices() => Sta.Run(async () =>
+    public Task Back_to_list_honors_cancel_discard_and_save_choices() => Sta.Run(async () =>
     {
         var api = new Api();
         var dialogs = new Dialogs();
@@ -82,17 +93,21 @@ public sealed class ResponsiveLayoutTests
         Set(editorModel, "Title", "未保存标题");
 
         dialogs.Choice = UnsavedChoice.Cancel;
-        Assert.False(await page.Controller.CanLeaveAsync());
+        await Get<IAsyncRelayCommand>(model, "BackToListCommand").ExecuteAsync(null);
+        Assert.True(Get<bool>(model, "IsEditorOpen"));
         Assert.Equal("未保存标题", Get<string>(editorModel, "Title"));
 
         dialogs.Choice = UnsavedChoice.Discard;
-        Assert.True(await page.Controller.CanLeaveAsync());
-        Assert.Equal("未保存标题", Get<string>(editorModel, "Title"));
+        await Get<IAsyncRelayCommand>(model, "BackToListCommand").ExecuteAsync(null);
+        Assert.False(Get<bool>(model, "IsEditorOpen"));
+        Assert.Equal(api.Item.Title, Get<string>(editorModel, "Title"));
+        Assert.False(Get<bool>(editorModel, "IsDirty"));
 
         await Get<IAsyncRelayCommand<TaskItemDto>>(model, "SelectCommand").ExecuteAsync(api.Item);
         Set(editorModel, "Title", "保存后返回");
         dialogs.Choice = UnsavedChoice.Save;
-        Assert.True(await page.Controller.CanLeaveAsync());
+        await Get<IAsyncRelayCommand>(model, "BackToListCommand").ExecuteAsync(null);
+        Assert.False(Get<bool>(model, "IsEditorOpen"));
         Assert.Equal(1, api.Updates);
         Assert.False(Get<bool>(editorModel, "IsDirty"));
 
@@ -100,7 +115,7 @@ public sealed class ResponsiveLayoutTests
     });
 
     [Fact]
-    public Task Shell_sidebar_uses_the_1180_rail_and_1200_expand_hysteresis() => Sta.Run(async () =>
+    public Task Shell_sidebar_uses_the_1040_rail_and_1060_expand_hysteresis() => Sta.Run(async () =>
     {
         var registry = new ContributionRegistry();
         var dialogs = new Dialogs();
@@ -120,14 +135,14 @@ public sealed class ResponsiveLayoutTests
         await shell.InitializeAsync();
         shell.Show();
 
-        ResizeShell(shell, 1504, 1012);
+        ResizeShell(shell, 1220, 780);
         Assert.False(shell.IsSidebarCompact);
         Assert.Equal(190, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
-        ResizeShell(shell, 1180, 720);
+        ResizeShell(shell, 1040, 780);
         Assert.False(shell.IsSidebarCompact);
 
-        ResizeShell(shell, 1179, 720);
+        ResizeShell(shell, 1039, 780);
         Assert.True(shell.IsSidebarCompact);
         Assert.Equal(64, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
         await shell.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -142,18 +157,18 @@ public sealed class ResponsiveLayoutTests
             text => text.Name == "NavigationLabel" && text.Text == "任务");
         Assert.Equal(Visibility.Collapsed, navigationLabel.Visibility);
 
-        ResizeShell(shell, 1100, 720);
+        ResizeShell(shell, 839, 620);
         Assert.True(shell.IsSidebarCompact);
         Assert.Equal(64, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
-        ResizeShell(shell, 1199, 720);
+        ResizeShell(shell, 1059, 780);
         Assert.True(shell.IsSidebarCompact);
 
-        ResizeShell(shell, 1200, 720);
+        ResizeShell(shell, 1060, 780);
         Assert.False(shell.IsSidebarCompact);
         Assert.Equal(190, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
-        ResizeShell(shell, 1100, 720);
+        ResizeShell(shell, 760, 620);
         Assert.True(shell.IsSidebarCompact);
         Assert.Equal(64, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
@@ -231,7 +246,7 @@ public sealed class ResponsiveLayoutTests
         Arrange(view, 420, 480);
         Assert.True(view.ActualWidth <= 420);
         Assert.Equal(Visibility.Visible, list.Visibility);
-        Assert.Equal(Visibility.Visible, editor.Visibility);
+        Assert.Equal(Visibility.Collapsed, editor.Visibility);
         var newTask = Assert.IsType<Button>(view.FindName("NewTaskButton"));
         Assert.True(newTask.ActualWidth >= 96);
         Assert.True(newTask.ActualHeight >= 40);

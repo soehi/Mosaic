@@ -39,7 +39,6 @@ Mosaic.Settings.Contracts.SettingDefinition
 Mosaic.Settings.Contracts.SettingOption
 Mosaic.Settings.Contracts.SettingPersistence
 Mosaic.Settings.Contracts.SettingValueKind
-Mosaic.Settings.Contracts.SettingsGroup
 Mosaic.Settings.Contracts.IHostSettingSource
 Mosaic.Settings.Contracts.ISettingSource
 Mosaic.Settings.Contracts.ISettingsApi

@@ -99,7 +99,7 @@
     <sys:String x:Key="Settings.Setting.SidebarCollapseWidth">侧栏折叠宽度</sys:String>
     <sys:String x:Key="Settings.Setting.SidebarCollapseWidth.Description">窗口小于该宽度时折叠侧栏</sys:String>
     <sys:String x:Key="Settings.Setting.SidebarExpandWidth">侧栏展开宽度</sys:String>
-    <sys:String x:Key="Settings.Setting.SidebarExpandWidth.Description">窗口达到该宽度时重新展开侧栏，建议大于折叠宽度 20 DIP</sys:String>
+    <sys:String x:Key="Settings.Setting.SidebarExpandWidth.Description">窗口达到该宽度时重新展开</sys:String>
     <sys:String x:Key="Settings.Setting.SidebarFullWidth">完整侧栏宽度</sys:String>
     <sys:String x:Key="Settings.Setting.SidebarFullWidth.Description">展开状态的侧栏宽度</sys:String>
     <sys:String x:Key="Settings.Setting.SidebarRailWidth">图标栏宽度</sys:String>
@@ -117,11 +117,7 @@
     <sys:String x:Key="Settings.Setting.PageMarginBottom">页面下边距</sys:String>
     <sys:String x:Key="Settings.Setting.PageMarginBottom.Description">任务等内容页底部边距</sys:String>
     <sys:String x:Key="Settings.Setting.TaskCompactBreakpoint">任务窄屏断点</sys:String>
-    <sys:String x:Key="Settings.Setting.TaskCompactBreakpoint.Description">低于该宽度时压缩间距并允许页头动作换行，保持左右双栏</sys:String>
-    <sys:String x:Key="Settings.Setting.EditorPaneWidth">编辑栏宽度</sys:String>
-    <sys:String x:Key="Settings.Setting.EditorPaneWidth.Description">右侧新建与编辑栏的首选宽度，空间不足时最低保留 360 DIP</sys:String>
-    <sys:String x:Key="Settings.Setting.PaneGap">双栏间距</sys:String>
-    <sys:String x:Key="Settings.Setting.PaneGap.Description">任务列表与右侧编辑栏之间的间距</sys:String>
+    <sys:String x:Key="Settings.Setting.TaskCompactBreakpoint.Description">低于该宽度时列表与详情单页切换</sys:String>
     <sys:String x:Key="Settings.Setting.ActionsCompactWidth">操作栏窄宽断点</sys:String>
     <sys:String x:Key="Settings.Setting.ActionsCompactWidth.Description">低于该宽度时操作栏换行</sys:String>
     <sys:String x:Key="Settings.Setting.ActionsCompactHeight">操作栏矮窗断点</sys:String>

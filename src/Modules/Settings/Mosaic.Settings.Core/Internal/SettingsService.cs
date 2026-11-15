@@ -62,11 +62,11 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         foreach (var definition in Definitions)
         {
             if (definition.Persistence == SettingPersistence.HostConfig && hostSource?.GetValue(definition.Id) is { } hostValue)
-                values[definition.Id] = hostValue;
+                values[definition.Id] = SettingValueNormalizer.Normalize(definition, hostValue);
             else if (stored.Value.TryGetValue(definition.Id, out var value))
-                values[definition.Id] = value;
+                values[definition.Id] = SettingValueNormalizer.Normalize(definition, value);
             else
-                values[definition.Id] = definition.DefaultValue;
+                values[definition.Id] = SettingValueNormalizer.Normalize(definition, definition.DefaultValue);
         }
         return OperationResult<IReadOnlyDictionary<string, object?>>.Success(values);
     }
@@ -75,15 +75,18 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
         IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default)
     {
         var errors = new Dictionary<string, OperationError>(StringComparer.Ordinal);
+        var normalizedChanges = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var (id, value) in changes)
         {
             var definition = Definitions.FirstOrDefault(item => item.Id == id);
             if (definition is null) { errors[id] = new(ErrorCodes.InvalidRequest, "未知设置项。", id); continue; }
-            if (Validate(definition, value) is { } error) errors[id] = error;
+            var normalized = SettingValueNormalizer.Normalize(definition, value);
+            normalizedChanges[id] = normalized;
+            if (Validate(definition, normalized) is { } error) errors[id] = error;
         }
         if (errors.Count > 0) return OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(errors);
 
-        var userChanges = changes.Where(item => Find(item.Key)!.Persistence == SettingPersistence.UserSettings)
+        var userChanges = normalizedChanges.Where(item => Find(item.Key)!.Persistence == SettingPersistence.UserSettings)
             .ToDictionary(item => item.Key, item => item.Value);
         IReadOnlyDictionary<string, object?>? previousUserValues = null;
         if (userChanges.Count > 0)
@@ -97,7 +100,7 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
 
         if (hostSource is not null)
         {
-            var hostChanges = changes.Where(item => Find(item.Key)!.Persistence == SettingPersistence.HostConfig)
+            var hostChanges = normalizedChanges.Where(item => Find(item.Key)!.Persistence == SettingPersistence.HostConfig)
                 .ToDictionary(item => item.Key, item => item.Value);
             if (hostChanges.Count > 0)
             {
@@ -111,7 +114,7 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
             }
         }
 
-        var immediate = changes.Where(item => Find(item.Key)!.ApplyMode == SettingApplyMode.Immediate)
+        var immediate = normalizedChanges.Where(item => Find(item.Key)!.ApplyMode == SettingApplyMode.Immediate)
             .ToDictionary(item => item.Key, item => item.Value);
         if (immediate.Count > 0)
         {

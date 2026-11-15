@@ -31,7 +31,6 @@
             </Grid.RowDefinitions>
             <StackPanel x:Name="HeaderText" MaxWidth="620" HorizontalAlignment="Left">
                 <TextBlock Text="{DynamicResource Tasks.Header}"
-                           TextWrapping="Wrap"
                            Style="{DynamicResource {x:Static theme:MosaicTheme.HeaderTextKey}}"/>
                 <TextBlock Text="{DynamicResource Tasks.Subheader}"
                            Margin="0,8,0,0"
@@ -53,12 +52,14 @@
 
         <Grid x:Name="ContentGrid" Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="TaskListColumn" Width="*" MinWidth="300"/>
+                <ColumnDefinition x:Name="TaskListColumn" Width="5*" MinWidth="300"/>
                 <ColumnDefinition x:Name="ContentGapColumn" Width="24"/>
-                <ColumnDefinition x:Name="TaskEditorColumn" Width="480"/>
+                <ColumnDefinition x:Name="TaskEditorColumn" Width="3*"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
+                <RowDefinition x:Name="TaskListRow" Height="*"/>
+                <RowDefinition x:Name="ContentGapRow" Height="0"/>
+                <RowDefinition x:Name="TaskEditorRow" Height="0"/>
             </Grid.RowDefinitions>
 
             <Grid x:Name="TaskListPane" MinWidth="0">
