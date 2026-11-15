@@ -4,19 +4,18 @@ using Mosaic.Settings.Core.Internal;
 
 namespace Mosaic.Settings.Core;
 
-public sealed record SettingsDependencies(ISettingRepository Repository, IHostSettingSource? HostSource = null, IModuleExecutionGate? Gate = null, IDiagnosticSink? Diagnostics = null);
-
-public interface ISettingRepository
-{
-    Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default);
-    Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
-    Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
-}
+public sealed record SettingsDependencies(
+    ISettingRepository Repository,
+    IHostSettingSource? HostSource = null,
+    IModuleExecutionGate? Gate = null,
+    IDiagnosticSink? Diagnostics = null,
+    IReadOnlyList<ISettingSource>? DeferredSources = null);
 
 public sealed class SettingsModule : IModuleActivation
 {
     private readonly IModuleExecutionGate? _gate;
     private readonly SettingsService _service;
+    private readonly IReadOnlyList<ISettingSource>? _deferredSources;
 
     public SettingsModule(SettingsDependencies dependencies)
         : this(dependencies, new(dependencies.Repository, dependencies.HostSource)) { }
@@ -25,6 +24,7 @@ public sealed class SettingsModule : IModuleActivation
     {
         _gate = dependencies.Gate;
         _service = service;
+        _deferredSources = dependencies.DeferredSources;
         Api = new GuardedSettingsApi(service, dependencies.Gate, dependencies.Diagnostics);
     }
 
@@ -40,6 +40,8 @@ public sealed class SettingsModule : IModuleActivation
     {
         cancellationToken.ThrowIfCancellationRequested();
         _gate?.Activate();
+        if (_deferredSources is not null)
+            foreach (var source in _deferredSources) _service.Register(source);
         return Task.CompletedTask;
     }
     public Task StopAsync() => _gate?.StopAsync() ?? Task.CompletedTask;

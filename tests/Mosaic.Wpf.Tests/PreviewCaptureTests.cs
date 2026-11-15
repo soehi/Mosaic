@@ -147,6 +147,7 @@ public sealed class PreviewCaptureTests
 
     private sealed class Dialogs : IUserDialogService
     {
+        public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(false);
         public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(false);
         public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(UnsavedChoice.Cancel);
         public Task ShowErrorAsync(string message) => Task.CompletedTask;

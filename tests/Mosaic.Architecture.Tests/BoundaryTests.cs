@@ -86,7 +86,46 @@ public sealed class BoundaryTests
             if (!file.Contains("Mosaic.Desktop")) Assert.False(Regex.IsMatch(source, @"IServiceProvider|IHost\b|GetRequiredService|GetService<"), file);
             if (!file.Contains("Mosaic.Storage.Sqlite") && !file.Contains("Mosaic.Tasks.Sqlite") && !file.Contains("Mosaic.Settings.Sqlite"))
                 Assert.False(Regex.IsMatch(source, @"(?i)\b(SELECT .+ FROM|INSERT INTO|UPDATE .+ SET|CREATE TABLE|DELETE FROM)\b"), file);
+            if (!file.Contains("Mosaic.Settings.Sqlite"))
+                Assert.False(Regex.IsMatch(source, @"(?i)\b(from|into|update|create table)\s+settings\b"), file);
             if (file.Contains("Mosaic.Tasks.Core") || file.Contains("Mosaic.Kernel")) Assert.DoesNotContain("System.Windows", source);
         }
+    }
+    [Fact]
+    public void Setting_definitions_are_owned_by_the_module_that_declares_them()
+    {
+        var ownership = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["host"] = "Mosaic.Settings.Core",
+            ["tasks-core"] = "Mosaic.Tasks.Core",
+            ["tasks-ui"] = "Mosaic.Tasks.Wpf",
+            ["shell"] = "Mosaic.Shell.Wpf",
+            ["storage-sqlite"] = "Mosaic.Storage.Sqlite"
+        };
+        var pattern = new Regex(@"(?:new|Definition)\(\s*""([a-z][a-z0-9.]*)"",\s*""([a-z][a-z0-9-]*)""");
+        foreach (var file in Directory.GetFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)))
+        {
+            var project = ProjectOf(file);
+            foreach (var line in File.ReadAllLines(file).Where(line => line.Contains("SettingValueKind")))
+            {
+                foreach (Match match in pattern.Matches(line))
+                {
+                    Assert.True(ownership.TryGetValue(match.Groups[2].Value, out var owner), $"Unknown setting module '{match.Groups[2].Value}' for '{match.Groups[1].Value}' in {file}");
+                    Assert.True(project == owner, $"Setting '{match.Groups[1].Value}' belongs to {owner} but is declared in {file}");
+                }
+            }
+        }
+    }
+    private static string ProjectOf(string file)
+    {
+        var directory = new DirectoryInfo(Path.GetDirectoryName(file)!);
+        while (directory is not null)
+        {
+            var project = directory.GetFiles("*.csproj").SingleOrDefault();
+            if (project is not null) return Path.GetFileNameWithoutExtension(project.Name);
+            directory = directory.Parent;
+        }
+        throw new InvalidOperationException("Project not found for " + file);
     }
 }

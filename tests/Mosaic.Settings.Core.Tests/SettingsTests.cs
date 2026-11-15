@@ -55,15 +55,15 @@ public sealed class SettingsTests
     private static readonly SettingDefinition[] TaskCoreDefinitions =
     [
         new("tasks.sortOrder", "tasks-core", "Sort order", "Default task sorting", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "TitleAsc"],
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
         new("tasks.title.maxCharacters", "tasks-core", "Title limit", "Maximum title characters", SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private static readonly SettingDefinition[] TaskUiDefinitions =
     [
         new("tasks.confirmDelete", "tasks-ui", "Confirm delete", "Confirm before delete", SettingValueKind.Boolean, true, null, null, null,
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private sealed class TaskCoreSource : ISettingSource
@@ -87,6 +87,18 @@ public sealed class SettingsTests
         Assert.Equal(11, SettingCatalog.Definitions.Select(item => item.Id).Distinct().Count());
         Assert.Contains(SettingCatalog.Definitions, item => item.Id == "startup.width");
         Assert.Contains(SettingCatalog.Definitions, item => item.Id == "diagnostics.singleInstanceRetryMilliseconds");
+    }
+
+    [Fact]
+    public async Task Host_modules_default_matches_the_canonical_boot_configuration()
+    {
+        var modules = (string[]?)SettingCatalog.Definitions.Single(item => item.Id == "host.modules").DefaultValue;
+        Assert.NotNull(modules);
+        Assert.Equal(7, modules.Length);
+        Assert.Contains("settings-sqlite", modules);
+        Assert.Contains("settings-core", modules);
+        Assert.Contains("settings-ui", modules);
+        Assert.Equal("storage-sqlite", modules[0]);
     }
 
     [Fact]
@@ -180,5 +192,111 @@ public sealed class SettingsTests
         ((ISettingsCore)module.Api).Register(new TaskUiSource());
         var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.confirmDelete"] = false });
         Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
+    }
+
+    [Fact]
+    public async Task Host_persist_failure_rolls_back_user_settings()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        Assert.True((await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.confirmDelete"] = false })).IsSuccess);
+
+        host.Failure = new(ErrorCodes.StorageUnavailable, "disk full");
+        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.confirmDelete"] = true,
+            ["logging.level"] = "Warning"
+        });
+        Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
+        Assert.Empty(host.Values);
+    }
+
+    [Fact]
+    public async Task Reset_rolls_back_user_values_when_host_persist_fails()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.confirmDelete"] = false,
+            ["logging.level"] = "Warning"
+        });
+
+        host.Failure = new(ErrorCodes.StorageUnavailable, "disk full");
+        var result = await module.Api.ResetAsync();
+        Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
+        Assert.Equal("Warning", host.Values["logging.level"]);
+    }
+
+    [Fact]
+    public async Task Rejects_malformed_module_list_provider_map_and_database_filename()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        var api = module.Api;
+
+        var modules = await api.ProposeChangesAsync(new Dictionary<string, object?> { ["host.modules"] = new[] { "Bad Module" } });
+        Assert.Equal(ErrorCodes.ValidationFailed, modules.Value!["host.modules"].Code);
+        var duplicate = await api.ProposeChangesAsync(new Dictionary<string, object?> { ["host.modules"] = new[] { "tasks-core", "tasks-core" } });
+        Assert.Equal(ErrorCodes.ValidationFailed, duplicate.Value!["host.modules"].Code);
+
+        var providers = await api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["host.providers"] = new Dictionary<string, string> { ["sqlite.session"] = "storage-sqlite" }
+        });
+        Assert.Equal(ErrorCodes.ValidationFailed, providers.Value!["host.providers"].Code);
+        var providerModule = await api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["host.providers"] = new Dictionary<string, string> { ["sqlite.session@1"] = "Storage Sqlite" }
+        });
+        Assert.Equal(ErrorCodes.ValidationFailed, providerModule.Value!["host.providers"].Code);
+
+        var filename = await api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.filename"] = "../escape.sqlite" });
+        Assert.Equal(ErrorCodes.ValidationFailed, filename.Value!["storage.filename"].Code);
+        var valid = await api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["host.modules"] = new[] { "storage-sqlite", "tasks-core" },
+            ["host.providers"] = new Dictionary<string, string> { ["sqlite.session@1"] = "storage-sqlite" },
+            ["storage.filename"] = "mosaic.sqlite"
+        });
+        Assert.True(valid.IsSuccess);
+    }
+
+    [Fact]
+    public async Task Deferred_sources_register_at_activation_and_their_values_are_validated_and_persisted()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        var storage = new Source("storage-sqlite",
+        [
+            new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
+                SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
+        ]);
+        await using var module = new SettingsModule(new(repository, host, DeferredSources: [storage]));
+
+        var unknown = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Bogus" });
+        Assert.Equal(ErrorCodes.InvalidRequest, unknown.Value!["storage.journalMode"].Code);
+
+        await module.ActivateAsync();
+        var definitions = await module.Api.ListDefinitionsAsync();
+        Assert.Contains(definitions.Value!, definition => definition.Id == "storage.journalMode");
+        Assert.Equal("storage-sqlite", definitions.Value!.Single(definition => definition.Id == "storage.journalMode").ModuleId);
+
+        var invalid = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Bogus" });
+        Assert.Equal(ErrorCodes.ValidationFailed, invalid.Value!["storage.journalMode"].Code);
+
+        var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Wal" });
+        Assert.True(proposed.IsSuccess);
+        Assert.Equal("Wal", host.Values["storage.journalMode"]);
     }
 }

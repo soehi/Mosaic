@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Mosaic.Contracts;
 using Mosaic.Kernel;
 using Mosaic.Presentation.Contracts;
+using Mosaic.Settings.Contracts;
 using Mosaic.Shell.Wpf;
 
 namespace Mosaic.Desktop;
@@ -13,6 +14,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
     private readonly ModuleRuntime _runtime = new();
     private readonly ContributionRegistry _contributions = new();
     private readonly Dictionary<IModuleActivation, IDisposable> _uiRegistrations = [];
+    private IDisposable? _shellSettingsRegistration;
     private IHost? _host;
     private bool _disposed;
     internal Bootstrapper()
@@ -24,11 +26,20 @@ internal sealed class Bootstrapper : IAsyncDisposable
     {
         var configuration = AppConfiguration.Load(paths);
         var hostSettings = new HostSettingSource(paths, new HostSettingsOverrides(configuration.Settings));
+        var storage = new StorageConfiguration(
+            "sqlite",
+            hostSettings.GetValue("storage.location") as string ?? configuration.Storage.Location,
+            hostSettings.GetValue("storage.filename") as string ?? configuration.Storage.Filename);
+        if (storage.Location != "local-app-data" && !Path.IsPathFullyQualified(storage.Location))
+            throw new ConfigurationException("存储位置必须是 local-app-data 或绝对路径。");
+        if (!AppConfiguration.IsValidDatabaseFilename(storage.Filename))
+            throw new ConfigurationException("存储配置无效，数据库名称必须是合法的单个文件名。");
         IReadOnlyList<ModuleManifest> ordered;
         try { ordered = ModuleGraph.Resolve(configuration.Modules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(), configuration.Providers); }
         catch (InvalidOperationException ex) { throw new ConfigurationException("模块依赖校验失败：" + ex.Message); }
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true, ContentRootPath = AppContext.BaseDirectory });
-        builder.Logging.ClearProviders(); builder.Logging.AddProvider(new FileLoggerProvider(paths.Logs));
+        builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(new FileLoggerProvider(paths.Logs, ResolveLogLevel(hostSettings), ResolveLogRetention(hostSettings)));
         builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
         builder.Services.AddSingleton<IIdGenerator, IdGenerator>();
         builder.Services.AddSingleton<IDiagnosticSink, DiagnosticSink>();
@@ -36,7 +47,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
         var diagnostics = _host.Services.GetRequiredService<IDiagnosticSink>();
         var context = new ModuleRuntimeContext(
             paths,
-            configuration.Storage,
+            storage,
             _host.Services.GetRequiredService<TimeProvider>(),
             _host.Services.GetRequiredService<IIdGenerator>(),
             diagnostics,
@@ -48,7 +59,9 @@ internal sealed class Bootstrapper : IAsyncDisposable
         try
         {
             await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest));
-            return new ShellWindow(_contributions, dialogs, context.Settings?.Api);
+            var settingsApi = context.Settings?.Api;
+            _shellSettingsRegistration = settingsApi?.Register(new ShellSettingSource());
+            return new ShellWindow(_contributions, dialogs, settingsApi);
         }
         catch (Exception)
         {
@@ -65,6 +78,8 @@ internal sealed class Bootstrapper : IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _shellSettingsRegistration?.Dispose();
+        _shellSettingsRegistration = null;
         foreach (var registration in _uiRegistrations.Values) registration.Dispose();
         _uiRegistrations.Clear();
         _contributions.Clear();
@@ -86,5 +101,16 @@ internal sealed class Bootstrapper : IAsyncDisposable
     {
         if (_uiRegistrations.Remove(module, out var registration)) registration.Dispose();
     }
+    private static LogLevel ResolveLogLevel(IHostSettingSource hostSettings) =>
+        (hostSettings.GetValue("logging.level") as string) switch
+        {
+            "Debug" => LogLevel.Debug,
+            "Warning" => LogLevel.Warning,
+            "Error" => LogLevel.Error,
+            "None" => LogLevel.None,
+            _ => LogLevel.Information
+        };
+    private static int ResolveLogRetention(IHostSettingSource hostSettings) =>
+        hostSettings.GetValue("logging.retentionDays") is int days ? days : 0;
     private sealed class IdGenerator : IIdGenerator { public Guid NewId() => Guid.NewGuid(); }
 }

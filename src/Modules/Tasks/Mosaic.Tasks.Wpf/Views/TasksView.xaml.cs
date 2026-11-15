@@ -31,21 +31,18 @@ public partial class TasksView : UserControl
         if (_model is not null)
             _model.PropertyChanged += OnModelPropertyChanged;
 
-        UpdatePaneVisibility();
+        _isCompact = null;
+        UpdateResponsiveLayout(ActualWidth);
     }
 
     private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(TasksViewModel.IsEditorOpen))
-            UpdatePaneVisibility();
-        else if (e.PropertyName == nameof(TasksViewModel.CompactBreakpoint))
+        if (e.PropertyName is nameof(TasksViewModel.CompactBreakpoint) or
+            nameof(TasksViewModel.ListMinColumnWidth) or nameof(TasksViewModel.EditorPaneWidth) or
+            nameof(TasksViewModel.PaneGap))
         {
             _isCompact = null;
             UpdateResponsiveLayout(ActualWidth);
-        }
-        else if (e.PropertyName == nameof(TasksViewModel.ListMinColumnWidth))
-        {
-            if (_isCompact == false) TaskListColumn.MinWidth = _model?.ListMinColumnWidth ?? 300;
         }
     }
 
@@ -55,83 +52,45 @@ public partial class TasksView : UserControl
 
         var breakpoint = _model?.CompactBreakpoint ?? 920;
         var useCompactLayout = width < breakpoint;
-        if (_isCompact == useCompactLayout) return;
-
-        _isCompact = useCompactLayout;
-        if (useCompactLayout)
-            ApplyCompactLayout();
-        else
-            ApplyWideLayout();
+        if (_isCompact != useCompactLayout)
+        {
+            _isCompact = useCompactLayout;
+            ApplyHeaderLayout(useCompactLayout);
+        }
+        UpdatePaneWidths(width);
     }
 
-    private void ApplyWideLayout()
+    private void ApplyHeaderLayout(bool compact)
     {
-        LayoutRoot.Margin = new Thickness(32, 30, 28, 28);
-        HeaderPanel.Visibility = Visibility.Visible;
-        HeaderContentGapRow.Height = new GridLength(22);
+        LayoutRoot.Margin = compact ? new Thickness(18, 16, 18, 16) : new Thickness(32, 30, 28, 28);
+        HeaderContentGapRow.Height = new GridLength(compact ? 18 : 22);
         HeaderTextColumn.Width = new GridLength(1, GridUnitType.Star);
-        HeaderActionColumn.Width = GridLength.Auto;
-        HeaderActionRow.Height = new GridLength(0);
-        Grid.SetColumn(NewTaskButton, 1);
-        Grid.SetRow(NewTaskButton, 0);
+        HeaderActionColumn.Width = compact ? new GridLength(0) : GridLength.Auto;
+        HeaderActionRow.Height = compact ? GridLength.Auto : new GridLength(0);
+        Grid.SetColumn(NewTaskButton, compact ? 0 : 1);
+        Grid.SetRow(NewTaskButton, compact ? 1 : 0);
         NewTaskButton.HorizontalAlignment = HorizontalAlignment.Right;
-        NewTaskButton.Margin = new Thickness(24, 0, 0, 0);
-
-        TaskListColumn.Width = new GridLength(5, GridUnitType.Star);
-        TaskListColumn.MinWidth = _model?.ListMinColumnWidth ?? 300;
-        ContentGapColumn.Width = new GridLength(24);
-        TaskEditorColumn.Width = new GridLength(3, GridUnitType.Star);
-        TaskListRow.Height = new GridLength(1, GridUnitType.Star);
-        ContentGapRow.Height = new GridLength(0);
-        TaskEditorRow.Height = new GridLength(0);
-        Grid.SetColumn(TaskListPane, 0);
-        Grid.SetRow(TaskListPane, 0);
-        Grid.SetColumn(TaskEditorPane, 2);
-        Grid.SetRow(TaskEditorPane, 0);
-        TaskEditorPane.SetCompactNavigationVisible(false);
-        UpdatePaneVisibility();
+        NewTaskButton.Margin = compact ? new Thickness(0, 12, 0, 0) : new Thickness(24, 0, 0, 0);
     }
 
-    private void ApplyCompactLayout()
+    private void UpdatePaneWidths(double width)
     {
-        LayoutRoot.Margin = new Thickness(18, 16, 18, 16);
-        HeaderTextColumn.Width = new GridLength(1, GridUnitType.Star);
-        HeaderActionColumn.Width = new GridLength(0);
-        HeaderActionRow.Height = GridLength.Auto;
-        Grid.SetColumn(NewTaskButton, 0);
-        Grid.SetRow(NewTaskButton, 1);
-        NewTaskButton.HorizontalAlignment = HorizontalAlignment.Left;
-        NewTaskButton.Margin = new Thickness(0, 16, 0, 0);
+        var available = Math.Max(0, width - LayoutRoot.Margin.Left - LayoutRoot.Margin.Right);
+        var listMinimum = _model?.ListMinColumnWidth ?? 300;
+        var editorWidth = Math.Clamp(_model?.EditorPaneWidth ?? 480, 360, 720);
+        var gap = Math.Clamp(_model?.PaneGap ?? 24, 0, 64);
+        var deficit = Math.Max(0, listMinimum + editorWidth + gap - available);
+
+        // Keep both panes usable by giving up empty space before shrinking the editor.
+        var gapReduction = Math.Min(gap, deficit);
+        gap -= gapReduction;
+        deficit -= gapReduction;
+        editorWidth -= Math.Min(editorWidth - 360, deficit);
+        editorWidth = Math.Min(editorWidth, available);
 
         TaskListColumn.Width = new GridLength(1, GridUnitType.Star);
-        TaskListColumn.MinWidth = 0;
-        ContentGapColumn.Width = new GridLength(0);
-        TaskEditorColumn.Width = new GridLength(0);
-        TaskListRow.Height = new GridLength(1, GridUnitType.Star);
-        ContentGapRow.Height = new GridLength(0);
-        TaskEditorRow.Height = new GridLength(0);
-        Grid.SetColumn(TaskListPane, 0);
-        Grid.SetRow(TaskListPane, 0);
-        Grid.SetColumn(TaskEditorPane, 0);
-        Grid.SetRow(TaskEditorPane, 0);
-        TaskEditorPane.SetCompactNavigationVisible(true);
-        UpdatePaneVisibility();
-    }
-
-    private void UpdatePaneVisibility()
-    {
-        if (_isCompact != true)
-        {
-            TaskListPane.Visibility = Visibility.Visible;
-            TaskEditorPane.Visibility = Visibility.Visible;
-            HeaderPanel.Visibility = Visibility.Visible;
-            return;
-        }
-
-        var showEditor = _model?.IsEditorOpen == true;
-        HeaderPanel.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
-        HeaderContentGapRow.Height = showEditor ? new GridLength(0) : new GridLength(18);
-        TaskListPane.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
-        TaskEditorPane.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
+        TaskListColumn.MinWidth = Math.Min(listMinimum, Math.Max(0, available - editorWidth - gap));
+        ContentGapColumn.Width = new GridLength(gap);
+        TaskEditorColumn.Width = new GridLength(editorWidth);
     }
 }

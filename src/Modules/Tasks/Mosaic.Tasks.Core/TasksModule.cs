@@ -11,13 +11,14 @@ public sealed record TasksDependencies(
     IIdGenerator Ids,
     IModuleExecutionGate Gate,
     IDiagnosticSink Diagnostics,
-    Mosaic.Settings.Contracts.ISettingsApi? Settings = null);
+    Mosaic.Settings.Contracts.ISettingsCore? Settings = null);
 
 public sealed class TasksModule : IModuleActivation
 {
     private readonly IModuleExecutionGate _gate;
     private readonly TaskRules _rules = new();
-    private readonly Mosaic.Settings.Contracts.ISettingsApi? _settings;
+    private readonly Mosaic.Settings.Contracts.ISettingsCore? _settings;
+    private IDisposable? _settingsRegistration;
     public TasksModule(TasksDependencies dependencies)
     {
         _gate = dependencies.Gate;
@@ -36,12 +37,23 @@ public sealed class TasksModule : IModuleActivation
         cancellationToken.ThrowIfCancellationRequested();
         if (_settings is not null)
         {
+            _settingsRegistration ??= _settings.Register(new TaskSettingsSource(_rules));
             var values = await _settings.GetValuesAsync(cancellationToken).ConfigureAwait(false);
             if (!values.IsSuccess) throw new InvalidOperationException("Task settings could not be loaded.", new Exception(values.Error?.Message));
             _rules.Apply(values.Value);
         }
         _gate.Activate();
     }
-    public Task StopAsync() => _gate.StopAsync();
-    public async ValueTask DisposeAsync() => await _gate.StopAsync().ConfigureAwait(false);
+    public async Task StopAsync()
+    {
+        _settingsRegistration?.Dispose();
+        _settingsRegistration = null;
+        await _gate.StopAsync().ConfigureAwait(false);
+    }
+    public async ValueTask DisposeAsync()
+    {
+        _settingsRegistration?.Dispose();
+        _settingsRegistration = null;
+        await _gate.StopAsync().ConfigureAwait(false);
+    }
 }

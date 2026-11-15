@@ -10,12 +10,14 @@
         <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
         <local:SettingsSectionNameConverter x:Key="SectionName"/>
         <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolVisibility"/>
+        <local:SettingOptionDisplayConverter x:Key="OptionDisplay"/>
+        <local:SectionSelectedHighlightConverter x:Key="SectionSelected"/>
         <DataTemplate x:Key="SettingOptionTemplate">
-            <TextBlock Text="{Binding DisplayName}"/>
+            <TextBlock Text="{Binding Converter={StaticResource OptionDisplay}}"/>
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Margin="32,30,28,28">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -77,7 +79,13 @@
                                     Margin="0,0,0,7"
                                     Padding="13,0"
                                     MinHeight="42">
-                                <TextBlock Text="{Binding Converter={StaticResource SectionName}}"/>
+                                <Button.Background>
+                                    <MultiBinding Converter="{StaticResource SectionSelected}">
+                                        <Binding/>
+                                        <Binding Path="DataContext.SelectedSection" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                    </MultiBinding>
+                                </Button.Background>
+                                <TextBlock Text="{Binding Converter={StaticResource SectionName}}" FontWeight="SemiBold"/>
                             </Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

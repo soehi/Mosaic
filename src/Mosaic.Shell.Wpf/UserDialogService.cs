@@ -5,6 +5,12 @@ namespace Mosaic.Shell.Wpf;
 
 public sealed class UserDialogService : IUserDialogService
 {
+    public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(MessageBox.Show(
+        Application.Current.MainWindow,
+        message,
+        title,
+        MessageBoxButton.YesNo,
+        MessageBoxImage.Question) == MessageBoxResult.Yes);
     public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(MessageBox.Show(
         Application.Current.MainWindow,
         $"确定永久删除「{title}」？",

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using Mosaic.Presentation.Contracts;
 
 namespace Mosaic.Shell.Wpf;
@@ -11,9 +12,6 @@ internal enum ShellSidebarMode
 
 public partial class ShellWindow : Window, IAsyncDisposable
 {
-    private const double CollapseBelowWidth = 1040;
-    private const double ExpandAtWidth = 1060;
-
     public static readonly DependencyProperty IsSidebarCompactProperty = DependencyProperty.Register(
         nameof(IsSidebarCompact),
         typeof(bool),
@@ -23,10 +21,17 @@ public partial class ShellWindow : Window, IAsyncDisposable
     private readonly ShellViewModel _model;
     private ShellSidebarMode _sidebarMode = ShellSidebarMode.Expanded;
     private bool _sidebarLayoutInitialized;
+    private double _collapseBelowWidth = 1180;
+    private double _expandAtWidth = 1200;
+    private double _fullWidth = 190;
+    private double _railWidth = 64;
+    private Thickness _pageMargin = new(32, 30, 28, 28);
 
-    public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsCore? settings = null)
+    public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings = null)
     {
         InitializeComponent(); _model = new(contributions, dialogs, settings); DataContext = _model;
+        ShellSettingsApplier.Attach(this);
+        Closed += (_, _) => ShellSettingsApplier.Detach(this);
     }
 
     public bool IsSidebarCompact
@@ -37,7 +42,11 @@ public partial class ShellWindow : Window, IAsyncDisposable
 
     internal ShellSidebarMode SidebarMode => _sidebarMode;
 
-    public Task InitializeAsync() => _model.InitializeAsync();
+    public async Task InitializeAsync()
+    {
+        await _model.InitializeAsync();
+        if (_model.InitialValues is { } values) ApplyWindowMetrics(values);
+    }
     public Task<bool> CanCloseAsync() => _model.CanCloseAsync();
     public async ValueTask DisposeAsync() => await _model.DisposeAsync();
 
@@ -50,9 +59,9 @@ public partial class ShellWindow : Window, IAsyncDisposable
         if (width <= 0) return;
 
         var next = _sidebarMode;
-        if (_sidebarMode == ShellSidebarMode.Expanded && width < CollapseBelowWidth)
+        if (_sidebarMode == ShellSidebarMode.Expanded && width < _collapseBelowWidth)
             next = ShellSidebarMode.Rail;
-        else if (_sidebarMode == ShellSidebarMode.Rail && width >= ExpandAtWidth)
+        else if (_sidebarMode == ShellSidebarMode.Rail && width >= _expandAtWidth)
             next = ShellSidebarMode.Expanded;
 
         if (_sidebarLayoutInitialized && next == _sidebarMode) return;
@@ -65,7 +74,7 @@ public partial class ShellWindow : Window, IAsyncDisposable
     {
         var compact = _sidebarMode == ShellSidebarMode.Rail;
         IsSidebarCompact = compact;
-        SidebarColumn.Width = new GridLength(compact ? 64 : 190);
+        SidebarColumn.Width = new GridLength(compact ? _railWidth : _fullWidth);
         SidebarContent.Margin = compact ? new Thickness(10, 20, 10, 18) : new Thickness(20, 28, 16, 22);
         BrandPanel.Margin = compact ? new Thickness(0, 0, 0, 28) : new Thickness(2, 0, 0, 42);
         BrandLockup.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
@@ -90,5 +99,39 @@ public partial class ShellWindow : Window, IAsyncDisposable
             : (System.Windows.Media.Brush?)TryFindResource(Mosaic.Presentation.Wpf.MosaicTheme.BorderBrushKey) ?? System.Windows.Media.Brushes.Transparent;
         WorkspaceStatusCard.BorderThickness = compact ? new Thickness(0) : new Thickness(1);
         TopBar.Padding = compact ? new Thickness(20, 0, 20, 0) : new Thickness(32, 0, 32, 0);
+        PageContent.Margin = _pageMargin;
+    }
+
+    private void ApplyWindowMetrics(IReadOnlyDictionary<string, object?> values)
+    {
+        if (values.TryGetValue("shell.window.minWidth", out var minWidth) && minWidth is int windowMinWidth) MinWidth = windowMinWidth;
+        if (values.TryGetValue("shell.window.minHeight", out var minHeight) && minHeight is int windowMinHeight) MinHeight = windowMinHeight;
+
+        var workArea = SystemParameters.WorkArea;
+        var startupWidth = values.TryGetValue("startup.width", out var width) && width is int savedWidth ? savedWidth : Width;
+        var startupHeight = values.TryGetValue("startup.height", out var height) && height is int savedHeight ? savedHeight : Height;
+        Width = Math.Clamp(startupWidth, MinWidth, Math.Max(MinWidth, workArea.Width));
+        Height = Math.Clamp(startupHeight, MinHeight, Math.Max(MinHeight, workArea.Height));
+        Left = Math.Max(workArea.Left, Math.Min(Left, workArea.Right - ActualWidth));
+        Top = Math.Max(workArea.Top, Math.Min(Top, workArea.Bottom - ActualHeight));
+    }
+
+    internal void ApplyLayoutSettings(IReadOnlyDictionary<string, object?> values)
+    {
+        if (values.TryGetValue("shell.sidebar.collapseBelowWidth", out var collapse) && collapse is int collapseWidth)
+            _collapseBelowWidth = collapseWidth;
+        if (values.TryGetValue("shell.sidebar.expandAtWidth", out var expand) && expand is int expandWidth)
+            _expandAtWidth = expandWidth;
+        if (values.TryGetValue("shell.sidebar.fullWidth", out var full) && full is int fullWidth)
+            _fullWidth = fullWidth;
+        if (values.TryGetValue("shell.sidebar.railWidth", out var rail) && rail is int railWidth)
+            _railWidth = railWidth;
+        if (values.TryGetValue("shell.page.marginLeft", out var left) && left is int marginLeft &&
+            values.TryGetValue("shell.page.marginTop", out var top) && top is int marginTop &&
+            values.TryGetValue("shell.page.marginRight", out var right) && right is int marginRight &&
+            values.TryGetValue("shell.page.marginBottom", out var bottom) && bottom is int marginBottom)
+            _pageMargin = new Thickness(marginLeft, marginTop, marginRight, marginBottom);
+        UpdateSidebarLayout(ActualWidth);
+        ApplySidebarLayout();
     }
 }

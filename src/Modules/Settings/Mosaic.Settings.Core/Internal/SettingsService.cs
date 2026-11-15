@@ -5,6 +5,13 @@ namespace Mosaic.Settings.Core.Internal;
 
 internal sealed class SettingsService(ISettingRepository repository, IHostSettingSource? hostSource) : ISettingsCore
 {
+    private static readonly System.Text.RegularExpressions.Regex ModuleIdPattern = new(
+        "^[a-z][a-z0-9-]*$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex CapabilityPattern = new(
+        "^[a-z][a-z0-9.]*@[0-9]+$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private readonly List<ISettingSource> _sources = [];
     private readonly object _gate = new();
 
@@ -78,8 +85,15 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
 
         var userChanges = changes.Where(item => Find(item.Key)!.Persistence == SettingPersistence.UserSettings)
             .ToDictionary(item => item.Key, item => item.Value);
-        if (userChanges.Count > 0 && !(await repository.SaveAsync(userChanges, cancellationToken).ConfigureAwait(false)).IsSuccess)
-            return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(new(ErrorCodes.StorageUnavailable, "设置保存失败。"));
+        IReadOnlyDictionary<string, object?>? previousUserValues = null;
+        if (userChanges.Count > 0)
+        {
+            var loaded = await repository.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (!loaded.IsSuccess) return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(loaded.Error!);
+            previousUserValues = loaded.Value;
+            if (!(await repository.SaveAsync(userChanges, cancellationToken).ConfigureAwait(false)).IsSuccess)
+                return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(new(ErrorCodes.StorageUnavailable, "设置保存失败。"));
+        }
 
         if (hostSource is not null)
         {
@@ -88,7 +102,12 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
             if (hostChanges.Count > 0)
             {
                 var persisted = await hostSource.PersistAsync(hostChanges, cancellationToken).ConfigureAwait(false);
-                if (!persisted.IsSuccess) return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(persisted.Error!);
+                if (!persisted.IsSuccess)
+                {
+                    if (previousUserValues is not null)
+                        _ = await repository.SaveAsync(previousUserValues, cancellationToken).ConfigureAwait(false);
+                    return OperationResult<IReadOnlyDictionary<string, OperationError>>.Failure(persisted.Error!);
+                }
             }
         }
 
@@ -117,10 +136,49 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
             SettingValueKind.Double when value is not double && value is not int && value is not long => new(ErrorCodes.ValidationFailed, "设置值必须是数字。", definition.Id),
             SettingValueKind.Enum when value is not string || definition.AllowedValues?.Contains((string)value, StringComparer.Ordinal) != true => new(ErrorCodes.ValidationFailed, "设置值不在允许范围内。", definition.Id),
             SettingValueKind.String when value is string text && text.EnumerateRunes().Count() > 200 => new(ErrorCodes.ValidationFailed, "文字最多 200 个字符。", definition.Id),
+            SettingValueKind.String when definition.Id == "storage.filename" && value is string filename && !IsValidDatabaseFilename(filename) =>
+                new(ErrorCodes.ValidationFailed, "数据库名称必须是合法的单个文件名。", definition.Id),
+            SettingValueKind.String when definition.Id == "storage.location" && value is string location && !IsValidStorageLocation(location) =>
+                new(ErrorCodes.ValidationFailed, "存储位置必须是 local-app-data 或绝对路径。", definition.Id),
+            SettingValueKind.ModuleList when value is not string[] modules || !IsValidModuleList(modules) =>
+                new(ErrorCodes.ValidationFailed, "模块列表格式无效：应为逗号分隔的模块 ID，且不能重复。", definition.Id),
+            SettingValueKind.ProviderMap when value is not IReadOnlyDictionary<string, string> providers || !IsValidProviderMap(providers) =>
+                new(ErrorCodes.ValidationFailed, "能力绑定格式无效：应为 capability@version=module-id。", definition.Id),
             SettingValueKind.Integer when value is int integer && !InRange(definition, integer) => new(ErrorCodes.ValidationFailed, $"设置值必须在 {definition.Min} 到 {definition.Max} 之间。", definition.Id),
             SettingValueKind.Integer when value is long longValue && !InRange(definition, longValue) => new(ErrorCodes.ValidationFailed, $"设置值必须在 {definition.Min} 到 {definition.Max} 之间。", definition.Id),
             _ => null
         };
+    }
+
+    private static bool IsValidModuleList(string[] modules) =>
+        modules.Length <= 64 &&
+        modules.All(item => !string.IsNullOrWhiteSpace(item) && ModuleIdPattern.IsMatch(item)) &&
+        modules.Distinct(StringComparer.Ordinal).Count() == modules.Length;
+
+    private static bool IsValidProviderMap(IReadOnlyDictionary<string, string> providers) =>
+        providers.Count <= 32 &&
+        providers.All(item =>
+            !string.IsNullOrWhiteSpace(item.Key) && CapabilityPattern.IsMatch(item.Key) &&
+            !string.IsNullOrWhiteSpace(item.Value) && ModuleIdPattern.IsMatch(item.Value));
+
+    private static bool IsValidDatabaseFilename(string filename)
+    {
+        if (string.IsNullOrWhiteSpace(filename) || filename is "." or "..") return false;
+        if (filename != Path.GetFileName(filename)) return false;
+        if (filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
+        if (filename.EndsWith('.') || filename.EndsWith(' ')) return false;
+        return !IsReservedDatabaseName(filename);
+    }
+
+    private static bool IsValidStorageLocation(string location) =>
+        location == "local-app-data" ||
+        (Path.IsPathFullyQualified(location) && location.IndexOfAny(Path.GetInvalidPathChars()) < 0);
+
+    private static bool IsReservedDatabaseName(string filename)
+    {
+        var name = filename.Split('.')[0].ToUpperInvariant();
+        return name is "CON" or "PRN" or "AUX" or "NUL" ||
+            (name.Length == 4 && (name.StartsWith("COM", StringComparison.Ordinal) || name.StartsWith("LPT", StringComparison.Ordinal)) && name[3] is >= '1' and <= '9');
     }
 
     private static bool InRange(SettingDefinition definition, long value) =>
@@ -133,14 +191,26 @@ internal sealed class SettingsService(ISettingRepository repository, IHostSettin
     {
         var definitions = Definitions.Where(item => moduleId is null || item.ModuleId == moduleId).ToArray();
         var ids = definitions.Where(item => item.Persistence == SettingPersistence.UserSettings).Select(item => item.Id).ToArray();
-        if (ids.Length > 0 && !(await repository.DeleteAsync(ids, cancellationToken).ConfigureAwait(false)).IsSuccess)
-            return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "恢复默认失败。"));
+        IReadOnlyDictionary<string, object?>? previousUserValues = null;
+        if (ids.Length > 0)
+        {
+            var loaded = await repository.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (!loaded.IsSuccess) return OperationResult.Failure(loaded.Error!);
+            previousUserValues = loaded.Value;
+            if (!(await repository.DeleteAsync(ids, cancellationToken).ConfigureAwait(false)).IsSuccess)
+                return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "恢复默认失败。"));
+        }
         var hostIds = definitions.Where(item => item.Persistence == SettingPersistence.HostConfig).Select(item => item.Id).ToArray();
         if (hostIds.Length > 0 && hostSource is not null)
         {
             var defaults = definitions.Where(item => hostIds.Contains(item.Id)).ToDictionary(item => item.Id, item => item.DefaultValue);
             var persisted = await hostSource.PersistAsync(defaults, cancellationToken).ConfigureAwait(false);
-            if (!persisted.IsSuccess) return persisted;
+            if (!persisted.IsSuccess)
+            {
+                if (previousUserValues is not null)
+                    _ = await repository.SaveAsync(previousUserValues, cancellationToken).ConfigureAwait(false);
+                return persisted;
+            }
         }
         var values = (await GetValuesAsync(cancellationToken).ConfigureAwait(false)).Value;
         foreach (var source in _sources.Where(item => moduleId is null || item.ModuleId == moduleId))

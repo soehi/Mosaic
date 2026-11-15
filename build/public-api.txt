@@ -29,6 +29,7 @@ Mosaic.Presentation.Wpf.MosaicLocalizationManager
 Mosaic.Presentation.Wpf.MosaicThemeManager
 Mosaic.Presentation.Wpf.MosaicThemeVariant
 Mosaic.Shell.Wpf.ContributionRegistry
+Mosaic.Shell.Wpf.ShellSettingSource
 Mosaic.Shell.Wpf.ShellWindow
 Mosaic.Shell.Wpf.UiDispatcher
 Mosaic.Shell.Wpf.UserDialogService
@@ -38,16 +39,17 @@ Mosaic.Settings.Contracts.SettingDefinition
 Mosaic.Settings.Contracts.SettingOption
 Mosaic.Settings.Contracts.SettingPersistence
 Mosaic.Settings.Contracts.SettingValueKind
+Mosaic.Settings.Contracts.SettingsGroup
 Mosaic.Settings.Contracts.IHostSettingSource
 Mosaic.Settings.Contracts.ISettingSource
 Mosaic.Settings.Contracts.ISettingsApi
 Mosaic.Settings.Contracts.ISettingsCore
+Mosaic.Settings.Contracts.ISettingRepository
 Mosaic.Settings.Sqlite.SettingsSqliteModule
 Mosaic.Settings.Sqlite.SettingsSqliteDependencies
 Mosaic.Settings.Core.SettingsModule
 Mosaic.Settings.Core.SettingsDependencies
 Mosaic.Settings.Core.SettingCatalog
-Mosaic.Settings.Core.ISettingRepository
 Mosaic.Settings.Wpf.SettingsUiDependencies
 Mosaic.Settings.Wpf.SettingsUiModule
 Mosaic.Settings.Wpf.Views.SettingsView
@@ -58,6 +60,9 @@ Mosaic.Storage.Contracts.SqlRow
 Mosaic.Storage.Contracts.SqlStatement
 Mosaic.Storage.Sqlite.SqliteModule
 Mosaic.Storage.Sqlite.SqliteOptions
+Mosaic.Storage.Sqlite.SqliteConnectionMode
+Mosaic.Storage.Sqlite.SqliteJournalMode
+Mosaic.Storage.Sqlite.StorageSettingSource
 Mosaic.Tasks.Contracts.CreateTaskRequest
 Mosaic.Tasks.Contracts.TaskConstraintsDto
 Mosaic.Tasks.Contracts.TaskSortOrder

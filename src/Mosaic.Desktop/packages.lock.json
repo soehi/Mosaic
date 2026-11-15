@@ -373,8 +373,7 @@
           "Mosaic.Contracts": "[0.1.0, )",
           "Mosaic.Presentation.Contracts": "[0.1.0, )",
           "Mosaic.Presentation.Wpf": "[0.1.0, )",
-          "Mosaic.Settings.Contracts": "[0.1.0, )",
-          "Mosaic.Settings.Core": "[0.1.0, )"
+          "Mosaic.Settings.Contracts": "[0.1.0, )"
         }
       },
       "mosaic.storage.contracts": {
@@ -388,6 +387,7 @@
         "dependencies": {
           "Microsoft.Data.Sqlite": "[10.0.9, )",
           "Mosaic.Contracts": "[0.1.0, )",
+          "Mosaic.Settings.Contracts": "[0.1.0, )",
           "Mosaic.Storage.Contracts": "[0.1.0, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
         }
@@ -431,7 +431,6 @@
           "Mosaic.Presentation.Contracts": "[0.1.0, )",
           "Mosaic.Presentation.Wpf": "[0.1.0, )",
           "Mosaic.Settings.Contracts": "[0.1.0, )",
-          "Mosaic.Settings.Core": "[0.1.0, )",
           "Mosaic.Tasks.Contracts": "[0.1.0, )"
         }
       },

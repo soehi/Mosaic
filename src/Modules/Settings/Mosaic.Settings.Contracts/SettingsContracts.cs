@@ -6,6 +6,7 @@ public enum SettingValueKind { Boolean, Integer, Double, Enum, String, ModuleLis
 public enum SettingCategory { Normal, Advanced }
 public enum SettingApplyMode { Immediate, Restart }
 public enum SettingPersistence { UserSettings, HostConfig }
+public enum SettingsGroup { Tasks, Appearance, StorageSystem, Text }
 
 public sealed record SettingDefinition(
     string Id,
@@ -17,6 +18,7 @@ public sealed record SettingDefinition(
     object? Min,
     object? Max,
     IReadOnlyList<string>? AllowedValues,
+    SettingsGroup Group,
     SettingCategory Category,
     SettingApplyMode ApplyMode,
     SettingPersistence Persistence,
@@ -49,4 +51,11 @@ public interface ISettingsApi
 public interface ISettingsCore : ISettingsApi
 {
     IDisposable Register(ISettingSource source);
+}
+
+public interface ISettingRepository
+{
+    Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default);
+    Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
 }

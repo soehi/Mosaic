@@ -14,12 +14,14 @@ internal sealed class SingleInstance : IAsyncDisposable
     private readonly FileStream? _lock;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Action<Exception>? _reportFailure;
+    private readonly int _retryMilliseconds;
     private Task? _listener;
     private int _disposed;
 
-    internal SingleInstance(string root, Action<Exception>? reportFailure = null)
+    internal SingleInstance(string root, Action<Exception>? reportFailure = null, int retryMilliseconds = 250)
     {
         _reportFailure = reportFailure;
+        _retryMilliseconds = retryMilliseconds > 0 ? retryMilliseconds : 250;
         Directory.CreateDirectory(root);
         var lockPath = Path.Combine(root, ".mosaic.instance.lock");
         FileStream? owned = null;
@@ -64,7 +66,7 @@ internal sealed class SingleInstance : IAsyncDisposable
             catch (Exception ex)
             {
                 Report(ex);
-                try { await Task.Delay(TimeSpan.FromMilliseconds(250), _stopping.Token).ConfigureAwait(false); }
+                try { await Task.Delay(TimeSpan.FromMilliseconds(_retryMilliseconds), _stopping.Token).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { break; }
             }
         }

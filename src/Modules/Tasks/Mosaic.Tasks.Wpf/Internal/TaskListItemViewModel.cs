@@ -9,7 +9,12 @@ internal sealed class TaskListItemViewModel(TaskItemDto item, string untitledTit
     public string Title => string.IsNullOrWhiteSpace(Item.Title) ? untitledTitle : Item.Title;
     public bool IsCompleted => Item.IsCompleted;
     public string CompletionGlyph => IsCompleted ? "✓" : "○";
-    public string CreatedLabel => $"创建于 {Item.CreatedAtUtc.LocalDateTime:MM-dd HH:mm}";
-    public string CompletionLabel => IsCompleted ? "已完成" : "未完成";
+    public string CreatedLabel => TaskLocalization.Format(
+        "Tasks.List.Created",
+        "创建于 {0}",
+        Item.CreatedAtUtc.LocalDateTime.ToString("MM-dd HH:mm"));
+    public string CompletionLabel => TaskLocalization.Localize(
+        IsCompleted ? "Tasks.FilterCompleted" : "Tasks.FilterOpen",
+        IsCompleted ? "已完成" : "未完成");
     public string AccessibilityLabel => $"{Title}，{CompletionLabel}，{CreatedLabel}";
 }

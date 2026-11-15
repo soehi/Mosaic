@@ -18,6 +18,30 @@ public sealed class TaskTests
     private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => new(2026, 11, 13, 0, 0, 0, TimeSpan.Zero); }
     private sealed class Ids : IIdGenerator { public Guid NewId() => Guid.NewGuid(); }
     private sealed class Diagnostics : IDiagnosticSink { public void Report(string correlationId, Exception exception) { } }
+    private sealed class Settings : Mosaic.Settings.Contracts.ISettingsCore
+    {
+        public Dictionary<string, object?> Values { get; } = [];
+        public List<string> RegisteredModules { get; } = [];
+        public Task<OperationResult<IReadOnlyList<Mosaic.Settings.Contracts.SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<Mosaic.Settings.Contracts.SettingDefinition>>.Success([]));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(Values, StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+        public IDisposable Register(Mosaic.Settings.Contracts.ISettingSource source)
+        {
+            RegisteredModules.Add(source.ModuleId);
+            return new Registration(() => RegisteredModules.Remove(source.ModuleId));
+        }
+        private sealed class Registration(Action onDispose) : IDisposable
+        {
+            private int _disposed;
+            public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) onDispose(); }
+        }
+    }
     private static async Task<TasksModule> Start(MemoryTaskRepository repository, Gate? gate = null)
     {
         var module = new TasksModule(new(repository, new Clock(), new Ids(), gate ?? new Gate(), new Diagnostics()));
@@ -74,6 +98,31 @@ public sealed class TaskTests
         Assert.True((await module.Api.CreateAsync(new("a", ""))).IsSuccess);
         await module.StopAsync();
         Assert.Equal(ErrorCodes.CapabilityUnavailable, (await module.Api.ListAsync(new())).Error?.Code);
+    }
+
+    [Fact]
+    public async Task Activation_registers_its_source_before_reading_settings_and_revokes_on_stop()
+    {
+        var settings = new Settings
+        {
+            Values =
+            {
+                ["tasks.title.maxCharacters"] = 50,
+                ["tasks.notes.maxCharacters"] = 5000,
+                ["tasks.title.required"] = false,
+                ["tasks.defaultCompleted"] = true
+            }
+        };
+        await using var module = new TasksModule(new(new MemoryTaskRepository(), new Clock(), new Ids(), new Gate(), new Diagnostics(), settings));
+        await module.ActivateAsync();
+        Assert.Contains("tasks-core", settings.RegisteredModules);
+        var constraints = (await module.Api.GetConstraintsAsync()).Value!;
+        Assert.Equal(50, constraints.TitleMaxCharacters);
+        Assert.Equal(5000, constraints.NotesMaxCharacters);
+        Assert.False(constraints.TitleRequired);
+        Assert.True(constraints.DefaultCompleted);
+        await module.StopAsync();
+        Assert.DoesNotContain("tasks-core", settings.RegisteredModules);
     }
     [Fact]
     public async Task Stale_revision_and_deleted_targets_are_conflicts()

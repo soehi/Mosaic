@@ -5,13 +5,11 @@ using Mosaic.Contracts;
 using Mosaic.Presentation.Wpf;
 using Mosaic.Settings.Contracts;
 using Mosaic.Presentation.Contracts;
-using Mosaic.Settings.Core;
 
 namespace Mosaic.Settings.Wpf.Internal;
 
 internal enum SettingsSection
 {
-    Normal,
     Tasks,
     Appearance,
     Storage,
@@ -46,6 +44,8 @@ internal sealed class SettingDefinitionTranslation
         "shell.page.marginRight" => "Settings.Setting.PageMarginRight",
         "shell.page.marginBottom" => "Settings.Setting.PageMarginBottom",
         "tasks.layout.compactBreakpoint" => "Settings.Setting.TaskCompactBreakpoint",
+        "tasks.layout.editorPaneWidth" => "Settings.Setting.EditorPaneWidth",
+        "tasks.layout.paneGap" => "Settings.Setting.PaneGap",
         "tasks.editor.compactActionsWidth" => "Settings.Setting.ActionsCompactWidth",
         "tasks.editor.compactActionsHeight" => "Settings.Setting.ActionsCompactHeight",
         "tasks.list.minColumnWidth" => "Settings.Setting.ListMinColumnWidth",
@@ -106,6 +106,8 @@ internal sealed class SettingDefinitionTranslation
         "shell.page.marginRight" => "Settings.Setting.PageMarginRight.Description",
         "shell.page.marginBottom" => "Settings.Setting.PageMarginBottom.Description",
         "tasks.layout.compactBreakpoint" => "Settings.Setting.TaskCompactBreakpoint.Description",
+        "tasks.layout.editorPaneWidth" => "Settings.Setting.EditorPaneWidth.Description",
+        "tasks.layout.paneGap" => "Settings.Setting.PaneGap.Description",
         "tasks.editor.compactActionsWidth" => "Settings.Setting.ActionsCompactWidth.Description",
         "tasks.editor.compactActionsHeight" => "Settings.Setting.ActionsCompactHeight.Description",
         "tasks.list.minColumnWidth" => "Settings.Setting.ListMinColumnWidth.Description",
@@ -147,6 +149,8 @@ internal sealed class SettingRow : ObservableObject
     private object? _proposedValue;
     private string _textValue;
     private string? _error;
+    private RowErrorKind _errorKind;
+    private string? _apiErrorMessage;
     public event EventHandler? Changed;
 
     private void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
@@ -170,7 +174,7 @@ internal sealed class SettingRow : ObservableObject
     public string Warning => Definition.Warning ?? string.Empty;
     public bool IsDefault => Equals(NormalizedCurrent, Definition.DefaultValue);
     public bool IsDirty => !Equals(NormalizedProposed, NormalizedCurrent);
-    public IReadOnlyList<SettingOption> Choices => SettingCatalog.OptionsFor(Id) is { Count: > 0 } options
+    public IReadOnlyList<SettingOption> Choices => SettingOptionCatalog.OptionsFor(Id) is { Count: > 0 } options
         ? options
         : (Definition.AllowedValues ?? []).Select(value => new SettingOption(value, value)).ToArray();
     public bool IsBoolean => Definition.Kind == SettingValueKind.Boolean;
@@ -267,7 +271,17 @@ internal sealed class SettingRow : ObservableObject
         {
             if (!SetProperty(ref _textValue, value)) return;
             Error = null;
-            if (IsText) ProposedValue = value;
+            if (IsText)
+            {
+                ProposedValue = value;
+            }
+            else if (IsInteger)
+            {
+                if (long.TryParse(value.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                    ProposedValue = parsed;
+                else
+                    SetLocalizedError(RowErrorKind.Integer);
+            }
             OnPropertyChanged(nameof(IsDirty));
             OnPropertyChanged(nameof(IsDefault));
             NotifyChanged();
@@ -314,7 +328,47 @@ internal sealed class SettingRow : ObservableObject
         PreviewImmediateSetting();
     }
 
-    public void SetError(string? message) => Error = message;
+    public void SetError(string? message)
+    {
+        _errorKind = RowErrorKind.Api;
+        _apiErrorMessage = message;
+        Error = message;
+    }
+
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(Description));
+        OnPropertyChanged(nameof(Constraint));
+        OnPropertyChanged(nameof(TextHint));
+        if (_errorKind != RowErrorKind.Api && _errorKind != RowErrorKind.None)
+            Error = RenderError(_errorKind);
+    }
+
+    private string SetLocalizedError(RowErrorKind kind)
+    {
+        _errorKind = kind;
+        _apiErrorMessage = null;
+        Error = RenderError(kind);
+        return Error ?? string.Empty;
+    }
+
+    private string? RenderError(RowErrorKind kind) => kind switch
+    {
+        RowErrorKind.Integer => SettingsLocalization.Localize("Settings.Error.Integer", "请输入整数。"),
+        RowErrorKind.ProviderMap => SettingsLocalization.Localize("Settings.Error.ProviderMap", "格式应为 capability@version=module-id，且不能重复。"),
+        RowErrorKind.Unsupported => SettingsLocalization.Localize("Settings.Error.Unsupported", "不支持的设置类型。"),
+        _ => null
+    };
+
+    private enum RowErrorKind
+    {
+        None,
+        Integer,
+        ProviderMap,
+        Unsupported,
+        Api
+    }
 
     public object? NormalizedProposed => Normalize(ProposedValue);
     public object? NormalizedCurrent => Normalize(CurrentValue);
@@ -333,10 +387,7 @@ internal sealed class SettingRow : ObservableObject
         {
             case SettingValueKind.Integer:
                 if (!long.TryParse(TextValue.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var integer))
-                {
-                    error = SettingsLocalization.Localize("Settings.Error.Integer", "请输入整数。");
-                    return false;
-                }
+                { error = SetLocalizedError(RowErrorKind.Integer); return false; }
                 value = integer;
                 return true;
             case SettingValueKind.ModuleList:
@@ -350,7 +401,7 @@ internal sealed class SettingRow : ObservableObject
                     if (pieces.Length != 2 || string.IsNullOrWhiteSpace(pieces[0]) || string.IsNullOrWhiteSpace(pieces[1]) ||
                         !providers.TryAdd(pieces[0], pieces[1]))
                     {
-                        error = SettingsLocalization.Localize("Settings.Error.ProviderMap", "格式应为 capability@version=module-id，且不能重复。");
+                        error = SetLocalizedError(RowErrorKind.ProviderMap);
                         return false;
                     }
                 }
@@ -361,7 +412,7 @@ internal sealed class SettingRow : ObservableObject
                 value = string.IsNullOrWhiteSpace(text) ? Definition.DefaultValue : text;
                 return true;
             default:
-                error = SettingsLocalization.Localize("Settings.Error.Unsupported", "不支持的设置类型。");
+                error = SetLocalizedError(RowErrorKind.Unsupported);
                 return false;
         }
     }
@@ -384,7 +435,7 @@ internal sealed class SettingRow : ObservableObject
 
     private string GetConstraint()
     {
-        if (SettingCatalog.OptionsFor(Id) is { Count: > 0 } localizedOptions) return string.Join(" / ", localizedOptions.Select(item => SettingsLocalization.Localize(item.DisplayNameKey, item.Value)));
+        if (SettingOptionCatalog.OptionsFor(Id) is { Count: > 0 } localizedOptions) return string.Join(" / ", localizedOptions.Select(item => SettingsLocalization.Localize(item.DisplayNameKey, item.Value)));
         if (Definition.AllowedValues is { Count: > 0 }) return string.Join(" / ", Definition.AllowedValues);
         if (Definition.Min is not null || Definition.Max is not null) return $"{Definition.Min} – {Definition.Max}";
         if (Definition.Kind == SettingValueKind.String) return SettingsLocalization.Localize("Settings.Constraint.Max200", "最多 200 个字符");
@@ -420,27 +471,30 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     private bool _isLoading;
     private bool _isBusy;
     private bool _hasChanges;
-    private SettingsSection _selectedSection = SettingsSection.Normal;
+    private SettingsSection _selectedSection = SettingsSection.Tasks;
     private bool _showAdvanced;
     private string? _message;
     private bool _isError;
+    private SettingsFeedbackKind _feedbackKind = SettingsFeedbackKind.None;
+    private string? _feedbackApiMessage;
 
     public SettingsViewModel(ISettingsApi settings, IUserDialogService dialogs)
     {
         _settings = settings;
         _dialogs = dialogs;
-        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy && HasChanges);
-        ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionModuleIds()), () => !IsBusy);
-        ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(null), () => !IsBusy);
-        DiscardCommand = new RelayCommand(DiscardChanges, () => HasChanges);
-        ResetToDefaultCommand = new RelayCommand<SettingRow>(row => row?.Reset(), _ => !IsBusy);
+        SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => !IsBusy && ShowAdvanced && HasChanges);
+        ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(SectionModuleIds()), () => !IsBusy && ShowAdvanced);
+        ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(null), () => !IsBusy && ShowAdvanced);
+        DiscardCommand = new RelayCommand(DiscardChanges, () => !IsBusy && ShowAdvanced && HasChanges);
+        ResetToDefaultCommand = new RelayCommand<SettingRow>(row => row?.Reset(), _ => !IsBusy && ShowAdvanced);
         SelectSectionCommand = new RelayCommand<SettingsSection>(section => SelectSection(section), _ => !IsBusy);
-        Sections.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRows));
-        VisibleRows.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRows));
+        Sections.CollectionChanged += (_, _) => NotifyRowVisibility();
+        VisibleRows.CollectionChanged += (_, _) => NotifyRowVisibility();
+        MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
 
     public ObservableCollection<SettingsSection> Sections { get; } =
-        [SettingsSection.Normal, SettingsSection.Tasks, SettingsSection.Appearance, SettingsSection.Storage, SettingsSection.Text];
+        [SettingsSection.Tasks, SettingsSection.Appearance, SettingsSection.Storage, SettingsSection.Text];
     public ObservableCollection<SettingRow> VisibleRows { get; } = [];
 
     public SettingsSection SelectedSection
@@ -458,12 +512,25 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         get => _showAdvanced;
         set
         {
-            if (SetProperty(ref _showAdvanced, value)) ApplySectionFilter();
+            if (value == _showAdvanced) return;
+            if (!value && HasChanges)
+            {
+                _ = ConfirmAdvancedToggleAsync();
+                return;
+            }
+            SetAdvanced(value);
         }
     }
 
     public bool IsLoading { get => _isLoading; private set => SetProperty(ref _isLoading, value); }
-    public bool IsBusy { get => _isBusy; private set => SetProperty(ref _isBusy, value); }
+    public bool IsBusy
+    {
+        get => _isBusy;
+        private set
+        {
+            if (SetProperty(ref _isBusy, value)) OnPropertyChanged(nameof(IsNotBusy));
+        }
+    }
     public bool IsNotBusy => !IsBusy;
     public bool HasChanges
     {
@@ -478,13 +545,27 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             }
         }
     }
-    public string? Message { get => _message; private set => SetProperty(ref _message, value); }
-    public bool IsError { get => _isError; private set => SetProperty(ref _isError, value); }
+    public string? Message
+    {
+        get => _message;
+        private set
+        {
+            if (SetProperty(ref _message, value)) OnPropertyChanged(nameof(HasMessage));
+        }
+    }
+    public bool IsError
+    {
+        get => _isError;
+        private set
+        {
+            if (SetProperty(ref _isError, value)) OnPropertyChanged(nameof(HasMessage));
+        }
+    }
     public bool HasRows => VisibleRows.Count > 0;
     public bool HasMessage => !string.IsNullOrWhiteSpace(Message) && !IsError;
-    public string EmptyMessage => SelectedSection == SettingsSection.Normal
-        ? SettingsLocalization.Localize("Settings.Empty.Normal", "没有普通设置。打开高级设置查看全部参数。")
-        : SettingsLocalization.Localize("Settings.Empty.Section", "当前分区没有设置。");
+    public string EmptyMessage => ShowAdvanced
+        ? SettingsLocalization.Localize("Settings.Empty.Section", "当前分区没有设置。")
+        : SettingsLocalization.Localize("Settings.Empty.Advanced", "打开高级设置查看全部参数。");
     public bool HasVisibleRows => VisibleRows.Count > 0;
     public IAsyncRelayCommand SaveCommand { get; }
     public IRelayCommand ResetSectionCommand { get; }
@@ -504,12 +585,23 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         IsLoading = true;
         Message = null;
         IsError = false;
+        _feedbackKind = SettingsFeedbackKind.None;
         try
         {
             var definitions = await _settings.ListDefinitionsAsync();
             var values = await _settings.GetValuesAsync();
-            if (!definitions.IsSuccess) throw new InvalidOperationException(definitions.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.LoadDefinitions", "设置定义加载失败。"));
-            if (!values.IsSuccess) throw new InvalidOperationException(values.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.LoadValues", "设置值加载失败。"));
+            if (!definitions.IsSuccess)
+            {
+                SetFeedback(SettingsFeedbackKind.LoadDefinitions, definitions.Error?.Message);
+                IsError = true;
+                return;
+            }
+            if (!values.IsSuccess)
+            {
+                SetFeedback(SettingsFeedbackKind.LoadValues, values.Error?.Message);
+                IsError = true;
+                return;
+            }
 
             var source = values.Value!;
             _rows.Clear();
@@ -522,9 +614,9 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             ApplySectionFilter();
             HasChanges = false;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Message = exception is InvalidOperationException ? exception.Message : SettingsLocalization.Localize("Settings.Error.Load", "无法加载设置，请刷新后重试。");
+            SetFeedback(SettingsFeedbackKind.Load);
             IsError = true;
         }
         finally
@@ -538,24 +630,59 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         VisibleRows.Clear();
         foreach (var row in _rows.Values.Where(IsRowVisible).OrderBy(row => row.Id, StringComparer.Ordinal))
             VisibleRows.Add(row);
+        NotifyRowVisibility();
+    }
+
+    private void NotifyRowVisibility()
+    {
+        OnPropertyChanged(nameof(HasRows));
+        OnPropertyChanged(nameof(HasVisibleRows));
         OnPropertyChanged(nameof(EmptyMessage));
     }
 
     private bool IsRowVisible(SettingRow row)
     {
-        if (!ShowAdvanced && row.IsAdvanced) return false;
+        if (!ShowAdvanced) return false;
         return SelectedSection switch
         {
-            SettingsSection.Normal => !row.IsAdvanced,
-            SettingsSection.Tasks => row.Definition.ModuleId.StartsWith("tasks", StringComparison.Ordinal),
-            SettingsSection.Appearance => row.Definition.ModuleId is "shell" or "host" && row.Id.StartsWith("shell.", StringComparison.Ordinal),
-            SettingsSection.Storage => row.Definition.ModuleId is "storage-sqlite" or "host" &&
-                (row.Id.StartsWith("storage.", StringComparison.Ordinal) || row.Id.StartsWith("host.", StringComparison.Ordinal) ||
-                    row.Id.StartsWith("logging.", StringComparison.Ordinal) || row.Id.StartsWith("diagnostics.", StringComparison.Ordinal) ||
-                    row.Id.StartsWith("startup.", StringComparison.Ordinal)),
-            SettingsSection.Text => row.Id.StartsWith("ui.text.", StringComparison.Ordinal),
+            SettingsSection.Tasks => row.Definition.Group == SettingsGroup.Tasks,
+            SettingsSection.Appearance => row.Definition.Group == SettingsGroup.Appearance,
+            SettingsSection.Storage => row.Definition.Group == SettingsGroup.StorageSystem,
+            SettingsSection.Text => row.Definition.Group == SettingsGroup.Text,
             _ => false
         };
+    }
+
+    private async Task ConfirmAdvancedToggleAsync()
+    {
+        if (IsBusy)
+        {
+            OnPropertyChanged(nameof(ShowAdvanced));
+            return;
+        }
+
+        var choice = await _dialogs.AskUnsavedChangesAsync();
+        switch (choice)
+        {
+            case UnsavedChoice.Save:
+                if (await SaveCoreAsync()) SetAdvanced(false);
+                else OnPropertyChanged(nameof(ShowAdvanced));
+                break;
+            case UnsavedChoice.Discard:
+                DiscardChanges();
+                SetAdvanced(false);
+                break;
+            default:
+                OnPropertyChanged(nameof(ShowAdvanced));
+                break;
+        }
+    }
+
+    private void SetAdvanced(bool value)
+    {
+        if (!SetProperty(ref _showAdvanced, value)) return;
+        ApplySectionFilter();
+        UpdateCommandStates();
     }
 
     private async Task<bool> SaveCoreAsync()
@@ -571,8 +698,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             {
                 if (!row.TryGetProposedValue(out var value, out var fieldError))
                 {
-                    row.SetError(fieldError);
-                    Message = SettingsLocalization.Localize("Settings.Error.InvalidBeforeSave", "部分设置格式无效，请修正后再保存。");
+                    SetFeedback(SettingsFeedbackKind.InvalidBeforeSave);
                     IsError = true;
                     return false;
                 }
@@ -582,34 +708,42 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             if (changes.Count == 0)
             {
                 HasChanges = false;
-                Message = SettingsLocalization.Localize("Settings.Message.NoChanges", "没有需要保存的修改。");
+                SetFeedback(SettingsFeedbackKind.NoChanges);
                 return true;
             }
 
             foreach (var row in _rows.Values) row.SetError(null);
             var proposed = await _settings.ProposeChangesAsync(changes);
             if (!proposed.IsSuccess)
-                throw new InvalidOperationException(proposed.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.Save", "设置保存失败。"));
+            {
+                SetFeedback(SettingsFeedbackKind.Save, proposed.Error?.Message);
+                IsError = true;
+                return false;
+            }
             if (proposed.Value!.Count > 0)
             {
                 foreach (var (id, error) in proposed.Value)
                     _rows.GetValueOrDefault(id)?.SetError(error.Message);
-                Message = SettingsLocalization.Localize("Settings.Error.InvalidAfterSave", "部分设置无效，请修正后再保存。");
+                SetFeedback(SettingsFeedbackKind.InvalidAfterSave);
                 IsError = true;
                 return false;
             }
 
             var values = await _settings.GetValuesAsync();
             if (!values.IsSuccess)
-                throw new InvalidOperationException(values.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.Refresh", "设置刷新失败。"));
+            {
+                SetFeedback(SettingsFeedbackKind.Refresh, values.Error?.Message);
+                IsError = true;
+                return false;
+            }
             foreach (var row in _rows.Values) row.SetValue(values.Value!.GetValueOrDefault(row.Id));
             HasChanges = false;
-            Message = SettingsLocalization.Localize("Settings.Message.Saved", "设置已保存。");
+            SetFeedback(SettingsFeedbackKind.Saved);
             return true;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Message = exception is InvalidOperationException ? exception.Message : SettingsLocalization.Localize("Settings.Error.SaveRetry", "设置保存失败，请重试。");
+            SetFeedback(SettingsFeedbackKind.SaveRetry);
             IsError = true;
             return false;
         }
@@ -631,27 +765,39 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             if (moduleIds is null)
             {
                 if (!(await _settings.ResetAsync()).IsSuccess)
-                    throw new InvalidOperationException(SettingsLocalization.Localize("Settings.Error.Reset", "恢复默认失败。"));
+                {
+                    SetFeedback(SettingsFeedbackKind.ResetFailed);
+                    IsError = true;
+                    return;
+                }
             }
             else
             {
                 foreach (var moduleId in moduleIds)
                 {
                     if (!(await _settings.ResetAsync(moduleId)).IsSuccess)
-                        throw new InvalidOperationException(SettingsLocalization.Localize("Settings.Error.Reset", "恢复默认失败。"));
+                    {
+                        SetFeedback(SettingsFeedbackKind.ResetFailed);
+                        IsError = true;
+                        return;
+                    }
                 }
             }
 
             var values = await _settings.GetValuesAsync();
             if (!values.IsSuccess)
-                throw new InvalidOperationException(values.Error?.Message ?? SettingsLocalization.Localize("Settings.Error.Refresh", "设置刷新失败。"));
+            {
+                SetFeedback(SettingsFeedbackKind.Refresh, values.Error?.Message);
+                IsError = true;
+                return;
+            }
             foreach (var row in _rows.Values) row.SetValue(values.Value!.GetValueOrDefault(row.Id));
             HasChanges = false;
-            Message = SettingsLocalization.Localize("Settings.Message.Reset", "已恢复默认设置。");
+            SetFeedback(SettingsFeedbackKind.Reset);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Message = exception is InvalidOperationException ? exception.Message : SettingsLocalization.Localize("Settings.Error.ResetRetry", "恢复默认失败，请重试。");
+            SetFeedback(SettingsFeedbackKind.ResetRetry);
             IsError = true;
         }
         finally
@@ -666,7 +812,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         SettingsSection.Appearance => ["shell"],
         SettingsSection.Storage => ["storage-sqlite", "host"],
         SettingsSection.Text => ["tasks-ui"],
-        _ => ["tasks-ui", "tasks-core", "shell"]
+        _ => []
     };
 
     private async Task<bool> ConfirmResetAsync(string? scope)
@@ -674,14 +820,17 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         var title = scope is null
             ? SettingsLocalization.Localize("Settings.ResetAll", "恢复全部默认")
             : $"{SettingsLocalization.Localize("Settings.ResetSection", "恢复当前分区默认")}：{scope}";
-        var confirmed = await _dialogs.ConfirmDeleteAsync(title);
-        return confirmed;
+        var message = scope is null
+            ? SettingsLocalization.Localize("Settings.ResetAll.Detail", "将清除所有修改过的设置并恢复默认值，且不可撤销。")
+            : SettingsLocalization.Localize("Settings.ResetSection.Detail", "将把当前分区的设置恢复为默认值，且不可撤销。");
+        return await _dialogs.ConfirmAsync(title, message);
     }
 
     private void DiscardChanges()
     {
         foreach (var row in _rows.Values) row.RestoreSaved();
         HasChanges = false;
+        PreviewDiscardedAppearance();
     }
 
     private void PreviewDiscardedAppearance()
@@ -710,9 +859,11 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
 
     private void UpdateCommandStates()
     {
-        ResetToDefaultCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         DiscardCommand.NotifyCanExecuteChanged();
+        ResetSectionCommand.NotifyCanExecuteChanged();
+        ResetAllCommand.NotifyCanExecuteChanged();
+        ResetToDefaultCommand.NotifyCanExecuteChanged();
     }
 
     private void SelectSection(SettingsSection? section)
@@ -725,84 +876,113 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         HasChanges = _rows.Values.Any(row => row.IsDirty);
     }
 
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshLocalizedText();
+
+    private void RefreshLocalizedText()
+    {
+        foreach (var row in _rows.Values) row.RefreshLocalizedText();
+        if (_feedbackKind != SettingsFeedbackKind.None && _feedbackKind != SettingsFeedbackKind.Api)
+            SetFeedback(_feedbackKind, _feedbackApiMessage);
+        OnPropertyChanged(nameof(EmptyMessage));
+        RefreshSections();
+    }
+
+    private void RefreshSections()
+    {
+        Sections.Clear();
+        foreach (var section in new[]
+        {
+            SettingsSection.Tasks,
+            SettingsSection.Appearance,
+            SettingsSection.Storage,
+            SettingsSection.Text
+        })
+            Sections.Add(section);
+    }
+
+    private void SetFeedback(SettingsFeedbackKind kind, string? apiMessage = null)
+    {
+        _feedbackKind = kind;
+        _feedbackApiMessage = apiMessage;
+        Message = RenderFeedback(kind, apiMessage);
+    }
+
+    private static string? RenderFeedback(SettingsFeedbackKind kind, string? apiMessage) => kind switch
+    {
+        SettingsFeedbackKind.Api => apiMessage,
+        SettingsFeedbackKind.Load => SettingsLocalization.Localize("Settings.Error.Load", "无法加载设置，请刷新后重试。"),
+        SettingsFeedbackKind.LoadDefinitions => SettingsLocalization.Localize("Settings.Error.LoadDefinitions", "设置定义加载失败。"),
+        SettingsFeedbackKind.LoadValues => SettingsLocalization.Localize("Settings.Error.LoadValues", "设置值加载失败。"),
+        SettingsFeedbackKind.InvalidBeforeSave => SettingsLocalization.Localize("Settings.Error.InvalidBeforeSave", "部分设置格式无效，请修正后再保存。"),
+        SettingsFeedbackKind.NoChanges => SettingsLocalization.Localize("Settings.Message.NoChanges", "没有需要保存的修改。"),
+        SettingsFeedbackKind.Save => SettingsLocalization.Localize("Settings.Error.Save", "设置保存失败。"),
+        SettingsFeedbackKind.InvalidAfterSave => SettingsLocalization.Localize("Settings.Error.InvalidAfterSave", "部分设置无效，请修正后再保存。"),
+        SettingsFeedbackKind.Refresh => SettingsLocalization.Localize("Settings.Error.Refresh", "设置刷新失败。"),
+        SettingsFeedbackKind.Saved => SettingsLocalization.Localize("Settings.Message.Saved", "设置已保存。"),
+        SettingsFeedbackKind.Reset => SettingsLocalization.Localize("Settings.Message.Reset", "已恢复默认设置。"),
+        SettingsFeedbackKind.ResetFailed => SettingsLocalization.Localize("Settings.Error.Reset", "恢复默认失败。"),
+        SettingsFeedbackKind.ResetRetry => SettingsLocalization.Localize("Settings.Error.ResetRetry", "恢复默认失败，请重试。"),
+        SettingsFeedbackKind.SaveRetry => SettingsLocalization.Localize("Settings.Error.SaveRetry", "设置保存失败，请重试。"),
+        _ => null
+    };
+
+    private enum SettingsFeedbackKind
+    {
+        None,
+        Api,
+        Load,
+        LoadDefinitions,
+        LoadValues,
+        InvalidBeforeSave,
+        NoChanges,
+        Save,
+        InvalidAfterSave,
+        Refresh,
+        Saved,
+        Reset,
+        ResetFailed,
+        ResetRetry,
+        SaveRetry
+    }
+
     public async Task<bool> CanLeaveAsync()
     {
         if (!HasChanges) return true;
         return await _dialogs.AskUnsavedChangesAsync() switch
         {
             UnsavedChoice.Save => await SaveCoreAsync(),
-            UnsavedChoice.Discard => true,
+            UnsavedChoice.Discard => DiscardWithPreviewRollback(),
             _ => false
         };
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    private bool DiscardWithPreviewRollback()
+    {
+        foreach (var row in _rows.Values) row.RestoreSaved();
+        HasChanges = false;
+        PreviewDiscardedAppearance();
+        return true;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
+        return ValueTask.CompletedTask;
+    }
 }
 
 internal static class SettingsLocalization
 {
     public static string Localize(string key, string fallback) =>
-        System.Windows.Application.Current?.TryFindResource(key) as string ?? fallback;
+        MosaicLocalizationManager.TryFindResource(key) ?? fallback;
 }
 
 internal static class SettingsLocalizationDictionaries
 {
     public static System.Windows.ResourceDictionary Dictionary(bool english)
     {
-        var dictionary = new System.Windows.ResourceDictionary();
-        Add(dictionary, english);
-        AddValues(dictionary, english);
-        return dictionary;
-    }
-
-    private static void Add(System.Windows.ResourceDictionary dictionary, bool english)
-    {
-        dictionary["Settings.Title"] = english ? "Settings" : "设置";
-        dictionary["Settings.Subtitle"] = english ? "Adjust local behavior. Theme and language preview before saving." : "调整本地行为。主题和语言可先预览，再保存。";
-        dictionary["Settings.Advanced"] = english ? "Advanced" : "高级设置";
-        dictionary["Settings.ShowAll"] = english ? "Show all parameters" : "显示全部参数";
-        dictionary["Settings.Discard"] = english ? "Discard changes" : "放弃修改";
-        dictionary["Settings.Save"] = english ? "Save settings" : "保存设置";
-        dictionary["Settings.ResetSection"] = english ? "Reset this section" : "恢复当前分区默认";
-        dictionary["Settings.ResetAll"] = english ? "Reset all settings" : "恢复全部默认";
-        dictionary["Settings.Loading"] = english ? "Loading settings…" : "正在加载设置…";
-        dictionary["Settings.RequiresRestart"] = english ? "Takes effect on restart" : "下次启动生效";
-        dictionary["Settings.Risk"] = english ? "Risk" : "风险";
-        dictionary["Settings.Enabled"] = english ? "Enabled" : "启用";
-        dictionary["Settings.ResetRow"] = english ? "Reset default" : "恢复默认";
-        dictionary["Settings.Section.Normal"] = english ? "General" : "普通";
-        dictionary["Settings.Section.Tasks"] = english ? "Tasks" : "任务";
-        dictionary["Settings.Section.Appearance"] = english ? "Appearance and layout" : "外观与布局";
-        dictionary["Settings.Section.Storage"] = english ? "Storage and system" : "存储与系统";
-        dictionary["Settings.Section.Text"] = english ? "Text" : "文案";
-        dictionary["Settings.Navigation"] = english ? "Settings" : "设置";
-    }
-
-    private static void AddValues(System.Windows.ResourceDictionary dictionary, bool english)
-    {
-        dictionary["Setting.Value.FollowSystem"] = english ? "Follow system" : "跟随系统";
-        dictionary["Setting.Value.Light"] = english ? "Light" : "浅色";
-        dictionary["Setting.Value.Dark"] = english ? "Dark" : "深色";
-        dictionary["Setting.Value.HighContrast"] = english ? "High contrast" : "高对比度";
-        dictionary["Setting.Value.FollowSystemLanguage"] = english ? "Follow system language" : "跟随系统语言";
-        dictionary["Setting.Value.Chinese"] = "中文";
-        dictionary["Setting.Value.English"] = "English";
-        dictionary["Setting.Value.All"] = english ? "All" : "全部";
-        dictionary["Setting.Value.Open"] = english ? "Open" : "未完成";
-        dictionary["Setting.Value.Completed"] = english ? "Completed" : "已完成";
-        dictionary["Setting.Value.CreatedDesc"] = english ? "Newest first" : "按创建时间倒序";
-        dictionary["Setting.Value.CreatedAsc"] = english ? "Oldest first" : "按创建时间正序";
-        dictionary["Setting.Value.TitleAsc"] = english ? "Title A–Z" : "按标题正序";
-        dictionary["Setting.Value.TitleDesc"] = english ? "Title Z–A" : "按标题倒序";
-        dictionary["Setting.Value.Delete"] = english ? "Delete (rollback journal)" : "Delete（回滚日志）";
-        dictionary["Setting.Value.Wal"] = "WAL";
-        dictionary["Setting.Value.ReusedSingle"] = english ? "Reused single connection" : "复用单连接";
-        dictionary["Setting.Value.PooledPerOperation"] = english ? "Pooled per operation" : "每次操作池化";
-        dictionary["Setting.Value.Debug"] = english ? "Debug" : "调试";
-        dictionary["Setting.Value.Information"] = english ? "Information" : "信息";
-        dictionary["Setting.Value.Warning"] = english ? "Warning" : "警告";
-        dictionary["Setting.Value.Error"] = english ? "Error" : "错误";
-        dictionary["Setting.Value.None"] = english ? "Disabled" : "关闭";
+        var uri = new Uri($"/Mosaic.Settings.Wpf;component/Localization/{(english ? "en" : "zh")}.xaml", UriKind.Relative);
+        return (System.Windows.ResourceDictionary)System.Windows.Application.LoadComponent(uri);
     }
 }
 
@@ -810,7 +990,6 @@ internal sealed class SettingsSectionNameConverter : System.Windows.Data.IValueC
 {
     public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => value switch
     {
-        SettingsSection.Normal => SettingsLocalization.Localize("Settings.Section.Normal", "普通"),
         SettingsSection.Tasks => SettingsLocalization.Localize("Settings.Section.Tasks", "任务"),
         SettingsSection.Appearance => SettingsLocalization.Localize("Settings.Section.Appearance", "外观与布局"),
         SettingsSection.Storage => SettingsLocalization.Localize("Settings.Section.Storage", "存储与系统"),
@@ -828,6 +1007,28 @@ internal sealed class InverseBooleanToVisibilityConverter : System.Windows.Data.
         value is bool enabled && enabled ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+internal sealed class SettingOptionDisplayConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
+        value is SettingOption option ? SettingsLocalization.Localize(option.DisplayNameKey, option.Value) : value ?? string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+internal sealed class SectionSelectedHighlightConverter : System.Windows.Data.IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+    {
+        if (values is [SettingsSection section, SettingsSection selected] && section == selected)
+            return System.Windows.Application.Current?.TryFindResource(MosaicTheme.AccentSoftBrushKey) ?? System.Windows.Media.Brushes.Transparent;
+        return System.Windows.Media.Brushes.Transparent;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, System.Globalization.CultureInfo culture) =>
         throw new NotSupportedException();
 }
 

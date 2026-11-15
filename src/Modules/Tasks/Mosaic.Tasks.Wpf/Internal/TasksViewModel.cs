@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
+using Mosaic.Presentation.Wpf;
 using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Tasks.Wpf.Internal;
@@ -13,14 +14,14 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private readonly IUiDispatcher _dispatcher;
     private readonly IUserDialogService _dialogs;
     private readonly IDiagnosticSink _diagnostics;
-    private readonly Mosaic.Settings.Contracts.ISettingsCore? _settings;
+    private readonly Mosaic.Settings.Contracts.ISettingsApi? _settings;
+    private readonly TaskUiSettingsTarget? _settingsTarget;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _query;
     private long _queryVersion;
     private bool _busy;
     private string _busyFeedback = "";
     private TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private IDisposable? _settingsRegistration;
     private bool _loading;
     private bool _disposed;
     private int _filter;
@@ -38,35 +39,41 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private TaskSortOrder _sortOrder = TaskSortOrder.CreatedDesc;
     private TaskTextSettings _text = TaskTextSettings.Defaults;
     private TasksLayoutSettings _layout = TasksLayoutSettings.Defaults;
+    private TasksFeedbackKind _busyKind = TasksFeedbackKind.None;
+    private TasksFeedbackKind _listErrorKind = TasksFeedbackKind.None;
+    private string? _listErrorApiMessage;
+    private string? _listErrorCorrelationId;
+    private TasksFeedbackKind _errorKind = TasksFeedbackKind.None;
+    private string? _errorApiMessage;
+    private string? _errorCorrelationId;
+    private TasksFeedbackKind _messageKind = TasksFeedbackKind.None;
+    private string? _messageSettingsText;
 
     internal TasksViewModel(
         ITasksApi api,
         IUiDispatcher dispatcher,
         IUserDialogService dialogs,
         IDiagnosticSink diagnostics,
-        Mosaic.Settings.Contracts.ISettingsCore? settings = null)
+        Mosaic.Settings.Contracts.ISettingsApi? settings = null,
+        TaskUiSettingsTarget? settingsTarget = null)
     {
         _api = api;
         _dispatcher = dispatcher;
         _dialogs = dialogs;
         _diagnostics = diagnostics;
         _settings = settings;
+        _settingsTarget = settingsTarget;
+        settingsTarget?.Attach(ApplySettings);
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
-        BackToListCommand = new AsyncRelayCommand(BackToListAsync, () => !IsBusy && IsEditorOpen);
         SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty);
         ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => !IsBusy && Editor.HasTask);
         DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => !IsBusy && Editor.HasTask);
         ReloadCommand = new AsyncRelayCommand(ReloadAsync, () => !IsBusy && Editor.HasTask);
         Editor.PropertyChanged += OnEditorPropertyChanged;
         Items.CollectionChanged += (_, _) => NotifyListState();
-        if (settings is not null)
-        {
-            _settingsRegistration = new CompositeRegistration(
-                settings.Register(new TaskSettingSource("tasks-ui", dispatcher, ApplySettings)),
-                settings.Register(new TaskSettingSource("tasks-core", dispatcher, ApplySettings)));
-        }
+        MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
@@ -74,7 +81,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }
-    public IAsyncRelayCommand BackToListCommand { get; }
     public IAsyncRelayCommand SaveCommand { get; }
     public IAsyncRelayCommand ToggleCommand { get; }
     public IAsyncRelayCommand DeleteCommand { get; }
@@ -102,7 +108,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             if (!SetProperty(ref _editorOpen, value)) return;
             OnPropertyChanged(nameof(ShowListMessage));
-            BackToListCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -150,6 +155,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool HasMessage => !string.IsNullOrEmpty(Message);
     public bool ShowCharacterCount => _showCharacterCount;
     public double CompactBreakpoint => _layout.CompactBreakpoint;
+    public double EditorPaneWidth => _layout.EditorPaneWidth;
+    public double PaneGap => _layout.PaneGap;
     public double CompactActionsWidth => _layout.CompactActionsWidth;
     public double CompactActionsHeight => _layout.CompactActionsHeight;
     public double ListMinColumnWidth => _layout.ListMinColumnWidth;
@@ -159,9 +166,11 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool ShowListMessage => HasMessage && !IsEditorOpen;
     public string CountLabel => FilterIndex switch
     {
-        1 => $"{Items.Count} 项未完成",
-        2 => $"{Items.Count} 项已完成",
-        _ => $"{Items.Count} 项任务"
+        1 => TaskLocalization.Format("Tasks.Count.Open", "{0} 项未完成", Items.Count),
+        2 => TaskLocalization.Format("Tasks.Count.Completed", "{0} 项已完成", Items.Count),
+        _ => Items.Count == 1
+            ? TaskLocalization.Localize("Tasks.Count.All.One", "1 项任务")
+            : TaskLocalization.Format("Tasks.Count.All", "{0} 项任务", Items.Count)
     };
     public string EmptyTitle => FilterIndex switch { 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
     public string EmptyDescription => FilterIndex switch { 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
@@ -221,6 +230,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         var query = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _query = query;
         ListError = "";
+        _listErrorKind = TasksFeedbackKind.None;
         IsLoading = true;
         try
         {
@@ -241,7 +251,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             {
                 if (_disposed || version != _queryVersion) return;
                 ClearList();
-                ListError = $"无法加载任务，请刷新后重试。（诊断编号 {correlationId}）";
+                SetListError(TasksFeedbackKind.LoadFailed, null, correlationId);
             });
         }
         finally
@@ -296,7 +306,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private async Task<bool> SelectAsync(TaskItemDto task)
     {
         if (IsBusy || !await CanLeaveAsync()) return false;
-        EnterBusy("正在读取任务…");
+        EnterBusy(TasksFeedbackKind.Loading);
         try
         {
             var result = await _api.GetAsync(task.Id, _lifetime.Token);
@@ -319,8 +329,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         catch (Exception ex)
         {
             Message = "";
+            _messageKind = TasksFeedbackKind.None;
             HasConflict = false;
-            Error = $"任务加载失败，请重试。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.OpenFailed, null, Report(ex));
             return false;
         }
         finally
@@ -335,7 +346,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (!Editor.IsDirty) return true;
         ClearFeedback();
         if (!Editor.Validate()) return false;
-        EnterBusy("正在保存任务…");
+        EnterBusy(TasksFeedbackKind.Saving);
         try
         {
             var result = Editor.Current is { } current
@@ -358,7 +369,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"保存未完成。请刷新列表确认后再试。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.SaveFailed, null, Report(ex));
             return false;
         }
         finally
@@ -370,7 +381,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private async Task ToggleAsync()
     {
         if (!await CanLeaveAsync() || Editor.Current is not { } current) return;
-        EnterBusy("正在更新任务状态…");
+        EnterBusy(TasksFeedbackKind.Updating);
         ClearFeedback();
         try
         {
@@ -392,7 +403,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"状态修改未完成，请重新加载确认。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.ToggleFailed, null, Report(ex));
         }
         finally
         {
@@ -403,7 +414,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private async Task DeleteAsync()
     {
         if (Editor.Current is not { } current || (_confirmDelete && !await _dialogs.ConfirmDeleteAsync(current.Title))) return;
-        EnterBusy("正在删除任务…");
+        EnterBusy(TasksFeedbackKind.Deleting);
         ClearFeedback();
         try
         {
@@ -426,7 +437,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"删除未完成，请刷新列表确认。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.DeleteFailed, null, Report(ex));
         }
         finally
         {
@@ -449,7 +460,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             if (choice == UnsavedChoice.Cancel || (choice == UnsavedChoice.Save && !await SaveAsync())) return;
             }
         }
-        EnterBusy("正在重新加载任务…");
+        EnterBusy(TasksFeedbackKind.Reloading);
         ClearFeedback();
         try
         {
@@ -457,7 +468,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             if (result.IsSuccess)
             {
                 Editor.Load(result.Value);
-                ShowMessage("已重新加载");
+                ShowReloadedMessage();
             }
             else if (result.Error!.Code == ErrorCodes.NotFound)
             {
@@ -476,39 +487,12 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         catch (Exception ex)
         {
-            Error = $"重新加载失败，编辑内容已保留。（诊断编号 {Report(ex)}）";
+            SetError(TasksFeedbackKind.ReloadFailed, null, Report(ex));
         }
         finally
         {
             ExitBusy();
         }
-    }
-
-    private async Task BackToListAsync()
-    {
-        if (IsBusy) await _idle.Task;
-        if (Editor.IsDirty)
-        {
-            if (!_confirmUnsaved)
-            {
-                Editor.Load(Editor.Current);
-                SetSelectedItem(null);
-                IsEditorOpen = false;
-                return;
-            }
-            switch (await _dialogs.AskUnsavedChangesAsync())
-            {
-                case UnsavedChoice.Cancel:
-                    return;
-                case UnsavedChoice.Save when !await SaveAsync():
-                    return;
-                case UnsavedChoice.Discard:
-                    Editor.Load(Editor.Current);
-                    break;
-            }
-        }
-        SetSelectedItem(null);
-        IsEditorOpen = false;
     }
 
     public async Task<bool> CanLeaveAsync()
@@ -557,15 +541,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (!visible && _autoSwitchToAllOnHidden) SetFilter(0, load: false);
     }
 
-    private void EnterBusy(string feedback)
+    private void EnterBusy(TasksFeedbackKind kind)
     {
-        BusyFeedback = feedback;
+        _busyKind = kind;
+        BusyFeedback = RenderBusy(kind);
         IsBusy = true;
     }
 
     private void ExitBusy()
     {
         IsBusy = false;
+        _busyKind = TasksFeedbackKind.None;
         BusyFeedback = "";
     }
 
@@ -573,14 +559,45 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         Error = "";
         Message = "";
+        _errorKind = TasksFeedbackKind.None;
+        _messageKind = TasksFeedbackKind.None;
         HasConflict = false;
     }
 
     private void ShowMessage(string message)
     {
         Error = "";
+        _errorKind = TasksFeedbackKind.None;
         HasConflict = false;
+        _messageKind = TasksFeedbackKind.SettingsText;
+        _messageSettingsText = message;
         Message = message;
+    }
+
+    private void ShowReloadedMessage()
+    {
+        Error = "";
+        _errorKind = TasksFeedbackKind.None;
+        HasConflict = false;
+        _messageKind = TasksFeedbackKind.Reloaded;
+        _messageSettingsText = null;
+        Message = TaskLocalization.Localize("Tasks.Message.Reloaded", "已重新加载");
+    }
+
+    private void SetListError(TasksFeedbackKind kind, string? apiMessage, string? correlationId)
+    {
+        _listErrorKind = kind;
+        _listErrorApiMessage = apiMessage;
+        _listErrorCorrelationId = correlationId;
+        ListError = RenderError(kind, apiMessage, correlationId);
+    }
+
+    private void SetError(TasksFeedbackKind kind, string? apiMessage, string? correlationId)
+    {
+        _errorKind = kind;
+        _errorApiMessage = apiMessage;
+        _errorCorrelationId = correlationId;
+        Error = RenderError(kind, apiMessage, correlationId);
     }
 
     private void ApplyListResult(OperationResult<IReadOnlyList<TaskItemDto>> result)
@@ -592,11 +609,12 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             foreach (var task in result.Value) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
             SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
             ListError = "";
+            _listErrorKind = TasksFeedbackKind.None;
             return;
         }
         if (result.Error!.Code == ErrorCodes.Canceled) return;
         ClearList();
-        ListError = result.Error.Message + (result.Error.CorrelationId is null ? "" : $"（诊断编号 {result.Error.CorrelationId}）");
+        SetListError(TasksFeedbackKind.Api, result.Error.Message, result.Error.CorrelationId);
     }
 
     private void ClearList()
@@ -622,7 +640,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         NewCommand.NotifyCanExecuteChanged();
         SelectCommand.NotifyCanExecuteChanged();
-        BackToListCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         ToggleCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();
@@ -632,8 +649,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private void ShowError(OperationError error)
     {
         Message = "";
+        _messageKind = TasksFeedbackKind.None;
         HasConflict = error.Code == ErrorCodes.Conflict;
-        Error = error.Message + (error.CorrelationId is null ? "" : $"（诊断编号 {error.CorrelationId}）");
+        SetError(TasksFeedbackKind.Api, error.Message, error.CorrelationId);
     }
 
     private string Report(Exception exception)
@@ -642,6 +660,80 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         try { _diagnostics.Report(correlationId, exception); }
         catch { /* A diagnostics failure must not replace the original UI failure. */ }
         return correlationId;
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        RefreshLocalizedText();
+    }
+
+    private void RefreshLocalizedText()
+    {
+        if (IsBusy && _busyKind != TasksFeedbackKind.None)
+            BusyFeedback = RenderBusy(_busyKind);
+        if (_listErrorKind != TasksFeedbackKind.None)
+            ListError = RenderError(_listErrorKind, _listErrorApiMessage, _listErrorCorrelationId);
+        if (_errorKind != TasksFeedbackKind.None)
+            Error = RenderError(_errorKind, _errorApiMessage, _errorCorrelationId);
+        if (_messageKind != TasksFeedbackKind.None)
+            Message = RenderMessage();
+        Editor.RefreshLocalizedText();
+        RebuildListTitles();
+        NotifyListState();
+    }
+
+    private string RenderBusy(TasksFeedbackKind kind) => kind switch
+    {
+        TasksFeedbackKind.Loading => TaskLocalization.Localize("Tasks.Loading", "正在读取任务…"),
+        TasksFeedbackKind.Saving => TaskLocalization.Localize("Tasks.Busy.Saving", "正在保存任务…"),
+        TasksFeedbackKind.Updating => TaskLocalization.Localize("Tasks.Busy.Updating", "正在更新任务状态…"),
+        TasksFeedbackKind.Deleting => TaskLocalization.Localize("Tasks.Busy.Deleting", "正在删除任务…"),
+        TasksFeedbackKind.Reloading => TaskLocalization.Localize("Tasks.Busy.Reloading", "正在重新加载任务…"),
+        _ => string.Empty
+    };
+
+    private string RenderError(TasksFeedbackKind kind, string? apiMessage, string? correlationId)
+    {
+        var message = kind switch
+        {
+            TasksFeedbackKind.Api => apiMessage ?? string.Empty,
+            TasksFeedbackKind.LoadFailed => TaskLocalization.Localize("Tasks.Error.LoadFailed", "无法加载任务，请刷新后重试。"),
+            TasksFeedbackKind.OpenFailed => TaskLocalization.Localize("Tasks.Error.OpenFailed", "任务加载失败，请重试。"),
+            TasksFeedbackKind.SaveFailed => TaskLocalization.Localize("Tasks.Error.SaveFailed", "保存未完成。请刷新列表确认后再试。"),
+            TasksFeedbackKind.ToggleFailed => TaskLocalization.Localize("Tasks.Error.ToggleFailed", "状态修改未完成，请重新加载确认。"),
+            TasksFeedbackKind.DeleteFailed => TaskLocalization.Localize("Tasks.Error.DeleteFailed", "删除未完成，请刷新列表确认。"),
+            TasksFeedbackKind.ReloadFailed => TaskLocalization.Localize("Tasks.Error.ReloadFailed", "重新加载失败，编辑内容已保留。"),
+            _ => string.Empty
+        };
+        return string.IsNullOrEmpty(correlationId)
+            ? message
+            : message + TaskLocalization.Format("Tasks.Error.Diagnostic", "（诊断编号 {0}）", correlationId);
+    }
+
+    private string RenderMessage() => _messageKind switch
+    {
+        TasksFeedbackKind.Reloaded => TaskLocalization.Localize("Tasks.Message.Reloaded", "已重新加载"),
+        TasksFeedbackKind.SettingsText => _messageSettingsText ?? string.Empty,
+        _ => string.Empty
+    };
+
+    private enum TasksFeedbackKind
+    {
+        None,
+        Loading,
+        Saving,
+        Updating,
+        Deleting,
+        Reloading,
+        Api,
+        LoadFailed,
+        OpenFailed,
+        SaveFailed,
+        ToggleFailed,
+        DeleteFailed,
+        ReloadFailed,
+        Reloaded,
+        SettingsText
     }
 
     private void ApplySettings(IReadOnlyDictionary<string, object?> values)
@@ -688,6 +780,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             ReadString(values, "ui.text.restoredSuccess", TaskTextSettings.Defaults.RestoredSuccess));
         _layout = new(
             ReadDouble(values, "tasks.layout.compactBreakpoint", TasksLayoutSettings.Defaults.CompactBreakpoint),
+            ReadDouble(values, "tasks.layout.editorPaneWidth", TasksLayoutSettings.Defaults.EditorPaneWidth),
+            ReadDouble(values, "tasks.layout.paneGap", TasksLayoutSettings.Defaults.PaneGap),
             ReadDouble(values, "tasks.editor.compactActionsWidth", TasksLayoutSettings.Defaults.CompactActionsWidth),
             ReadDouble(values, "tasks.editor.compactActionsHeight", TasksLayoutSettings.Defaults.CompactActionsHeight),
             ReadDouble(values, "tasks.list.minColumnWidth", TasksLayoutSettings.Defaults.ListMinColumnWidth),
@@ -699,6 +793,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         {
             nameof(ShowCharacterCount),
             nameof(CompactBreakpoint),
+            nameof(EditorPaneWidth),
+            nameof(PaneGap),
             nameof(CompactActionsWidth),
             nameof(CompactActionsHeight),
             nameof(ListMinColumnWidth),
@@ -734,52 +830,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private static string ReadString(IReadOnlyDictionary<string, object?> values, string id, string fallback) =>
         values.TryGetValue(id, out var value) && value is string text && !string.IsNullOrWhiteSpace(text) ? text : fallback;
 
-    private sealed class TaskSettingSource(
-        string moduleId,
-        IUiDispatcher dispatcher,
-        Action<IReadOnlyDictionary<string, object?>> apply) : Mosaic.Settings.Contracts.ISettingSource
-    {
-        public string ModuleId => moduleId;
-        public IReadOnlyList<Mosaic.Settings.Contracts.SettingDefinition> Definitions { get; } =
-            moduleId == "tasks-ui"
-                ? [
-                    new("tasks.confirmDelete", "tasks-ui", "删除前确认", "删除任务前显示确认框", Mosaic.Settings.Contracts.SettingValueKind.Boolean, true, null, null, null, Mosaic.Settings.Contracts.SettingCategory.Normal, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.confirmUnsaved", "tasks-ui", "未保存离开确认", "离开编辑器前确认未保存内容", Mosaic.Settings.Contracts.SettingValueKind.Boolean, true, null, null, null, Mosaic.Settings.Contracts.SettingCategory.Normal, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.defaultFilter", "tasks-ui", "默认筛选", "打开任务页时使用的筛选", Mosaic.Settings.Contracts.SettingValueKind.Enum, "All", null, null, ["All", "Open", "Completed"], Mosaic.Settings.Contracts.SettingCategory.Normal, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.showCharacterCount", "tasks-ui", "显示字符计数", "在任务编辑器中显示字符数", Mosaic.Settings.Contracts.SettingValueKind.Boolean, true, null, null, null, Mosaic.Settings.Contracts.SettingCategory.Normal, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.autoSwitchToAllOnHidden", "tasks-ui", "隐藏任务自动切回全部", "当前筛选下任务不可见时自动切回全部", Mosaic.Settings.Contracts.SettingValueKind.Boolean, true, null, null, null, Mosaic.Settings.Contracts.SettingCategory.Normal, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.layout.compactBreakpoint", "tasks-ui", "任务窄屏断点", "低于该宽度时列表与详情单页切换", Mosaic.Settings.Contracts.SettingValueKind.Integer, 920, 600, 1400, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.editor.compactActionsWidth", "tasks-ui", "操作栏窄宽断点", "低于该宽度时操作栏换行", Mosaic.Settings.Contracts.SettingValueKind.Integer, 480, 360, 900, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.editor.compactActionsHeight", "tasks-ui", "操作栏矮窗断点", "低于该高度时操作栏换行", Mosaic.Settings.Contracts.SettingValueKind.Integer, 680, 480, 1000, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.list.minColumnWidth", "tasks-ui", "列表最小列宽", "并排布局中任务列表最小宽度", Mosaic.Settings.Contracts.SettingValueKind.Integer, 300, 220, 500, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.editor.notesMinHeight", "tasks-ui", "备注最小高度", "任务备注输入框最小高度", Mosaic.Settings.Contracts.SettingValueKind.Integer, 128, 96, 360, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.button.minWidth", "tasks-ui", "按钮最小宽度", "任务操作按钮最小宽度", Mosaic.Settings.Contracts.SettingValueKind.Integer, 96, 72, 160, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.button.minHeight", "tasks-ui", "按钮最小高度", "任务操作按钮最小高度", Mosaic.Settings.Contracts.SettingValueKind.Integer, 40, 32, 56, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings)
-                  ]
-                : [
-                    new("tasks.sortOrder", "tasks-core", "任务排序", "任务列表默认排序方式", Mosaic.Settings.Contracts.SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "CreatedAsc", "TitleAsc", "TitleDesc"], Mosaic.Settings.Contracts.SettingCategory.Normal, Mosaic.Settings.Contracts.SettingApplyMode.Immediate, Mosaic.Settings.Contracts.SettingPersistence.UserSettings),
-                    new("tasks.title.maxCharacters", "tasks-core", "标题上限", "任务标题允许的最大字符数", Mosaic.Settings.Contracts.SettingValueKind.Integer, 200, 1, 1000, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Restart, Mosaic.Settings.Contracts.SettingPersistence.UserSettings, "收紧后旧任务仍可读，编辑超限需截断"),
-                    new("tasks.notes.maxCharacters", "tasks-core", "备注上限", "任务备注允许的最大字符数", Mosaic.Settings.Contracts.SettingValueKind.Integer, 20000, 1000, 200000, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Restart, Mosaic.Settings.Contracts.SettingPersistence.UserSettings, "过大会增加编辑与保存负担"),
-                    new("tasks.title.required", "tasks-core", "标题必填", "新建任务是否必须填写标题", Mosaic.Settings.Contracts.SettingValueKind.Boolean, true, null, null, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Restart, Mosaic.Settings.Contracts.SettingPersistence.UserSettings, "关闭后允许空标题"),
-                    new("tasks.defaultCompleted", "tasks-core", "新任务默认完成", "新建任务是否直接标记完成", Mosaic.Settings.Contracts.SettingValueKind.Boolean, false, null, null, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Restart, Mosaic.Settings.Contracts.SettingPersistence.UserSettings, "新任务可能不在“未完成”筛选出现"),
-                    new("tasks.revisionStart", "tasks-core", "版本起点", "新建任务的初始版本号", Mosaic.Settings.Contracts.SettingValueKind.Integer, 1, 1, 1000000, null, Mosaic.Settings.Contracts.SettingCategory.Advanced, Mosaic.Settings.Contracts.SettingApplyMode.Restart, Mosaic.Settings.Contracts.SettingPersistence.UserSettings, "仅影响新任务初始版本")
-                  ];
-        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>
-            dispatcher.CheckAccess() ? ApplyCore(values) : dispatcher.InvokeAsync(() => ApplyCore(values));
-
-        private Task ApplyCore(IReadOnlyDictionary<string, object?> values) { apply(values); return Task.CompletedTask; }
-    }
-
-    private sealed class CompositeRegistration(params IDisposable[] registrations) : IDisposable
-    {
-        private int _disposed;
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            foreach (var registration in registrations) registration.Dispose();
-        }
-    }
-
     private sealed record TaskTextSettings(
         string EmptyAllTitle,
         string EmptyAllDescription,
@@ -809,6 +859,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private sealed record TasksLayoutSettings(
         double CompactBreakpoint,
+        double EditorPaneWidth,
+        double PaneGap,
         double CompactActionsWidth,
         double CompactActionsHeight,
         double ListMinColumnWidth,
@@ -816,13 +868,14 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         double TaskButtonMinWidth,
         double TaskButtonMinHeight)
     {
-        internal static TasksLayoutSettings Defaults { get; } = new(920, 480, 680, 300, 128, 96, 40);
+        internal static TasksLayoutSettings Defaults { get; } = new(920, 480, 24, 480, 680, 300, 128, 96, 40);
     }
 
     public ValueTask DisposeAsync()
     {
         _disposed = true;
-        _settingsRegistration?.Dispose();
+        MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
+        _settingsTarget?.Detach();
         _lifetime.Cancel();
         _query?.Cancel();
         _lifetime.Dispose();

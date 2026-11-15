@@ -1,4 +1,5 @@
 using System.Collections;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -8,6 +9,9 @@ using CommunityToolkit.Mvvm.Input;
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
+using Mosaic.Settings.Core;
+using Mosaic.Settings.Contracts;
+using Mosaic.Settings.Wpf;
 using Mosaic.Shell.Wpf;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf;
@@ -20,6 +24,7 @@ public sealed class PresentationTests
     {
         internal UnsavedChoice Choice = UnsavedChoice.Cancel;
         internal bool Delete = false;
+        public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(Delete);
         public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(Delete);
         public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(Choice);
         public Task ShowErrorAsync(string message) => Task.CompletedTask;
@@ -46,6 +51,52 @@ public sealed class PresentationTests
         internal List<(string CorrelationId, Exception Exception)> Reports { get; } = [];
         public void Report(string correlationId, Exception exception) => Reports.Add((correlationId, exception));
     }
+    private sealed class SettingsCore : ISettingsCore
+    {
+        public List<ISettingSource> Sources { get; } = [];
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success([]));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+        public IDisposable Register(ISettingSource source)
+        {
+            Sources.Add(source);
+            return new Registration(() => Sources.Remove(source));
+        }
+        private sealed class Registration(Action onDispose) : IDisposable
+        {
+            private int _disposed;
+            public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) onDispose(); }
+        }
+    }
+    private sealed class SettingsApi : ISettingsApi
+    {
+        public IReadOnlyList<SettingDefinition> Definitions { get; init; } = [];
+        public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));
+        public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(
+                Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
+        public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
+            IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
+        public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+    }
+    private static object CreateSettingsViewModel(ISettingsApi api, Dialogs dialogs)
+    {
+        var type = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingsViewModel")!;
+        return Activator.CreateInstance(type, api, dialogs)!;
+    }
+    private static Task Initialize(object model) => (Task)model.GetType().GetMethod("InitializeAsync")!.Invoke(model, null)!;
+    private static void SetProperty(object model, string property, object value) => model.GetType().GetProperty(property)!.SetValue(model, value);
+    private static IList VisibleRows(object model) => (IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!;
+    private static IList<string> RowIds(object model) => VisibleRows(model).Cast<object>().Select(row => (string)row.GetType().GetProperty("Id")!.GetValue(row)!).ToList();
     private static T Get<T>(object model, string property) => (T)model.GetType().GetProperty(property)!.GetValue(model)!;
     private static void Set(object model, string property, object value) => model.GetType().GetProperty(property)!.SetValue(model, value);
     private static IReadOnlyList<object> Items(object model) => ((IEnumerable)Get<object>(model, "Items")).Cast<object>().ToArray();
@@ -260,14 +311,13 @@ public sealed class PresentationTests
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
-        var navigationBar = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
-        Assert.Equal(0, Grid.GetRow(navigationBar));
-        Assert.Equal(1, Grid.GetRow(form));
-        Assert.Equal(2, Grid.GetRow(actionBar));
+        Assert.Equal(0, Grid.GetRow(form));
+        Assert.Equal(1, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
         Assert.True(notes.MinHeight >= 120);
         Assert.True(double.IsPositiveInfinity(notes.MaxHeight));
+        await page.Controller.DisposeAsync();
     });
     [Fact]
     public Task Muted_text_meets_readability_targets_and_all_system_palettes_load() => Sta.Run(() =>
@@ -329,6 +379,99 @@ public sealed class PresentationTests
         await shell.DisposeAsync();
         registration.Dispose();
         shell.Close();
+    });
+    [Fact]
+    public Task Shell_navigation_labels_and_page_title_follow_the_ui_language() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var registry = new ContributionRegistry();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        using var registration = registry.Register(module.Navigation, module.Views);
+        var shell = new ShellWindow(registry, new Dialogs());
+        try
+        {
+            await shell.InitializeAsync();
+            Assert.Equal("任务", Get<string>(shell.DataContext, "PageTitle"));
+            var navigation = (IReadOnlyList<NavigationItem>)Get<object>(shell.DataContext, "Navigation");
+            Assert.Equal("任务", Assert.Single(navigation).Label);
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+
+            Assert.Equal("Tasks", Get<string>(shell.DataContext, "PageTitle"));
+            Assert.Equal("Tasks", Assert.Single(navigation).Label);
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await shell.DisposeAsync();
+            registration.Dispose();
+        }
+    });
+    [Fact]
+    public Task Task_editor_and_count_text_follow_the_ui_language() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var api = new Api();
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([api.Item]));
+        var page = await Page(api, new());
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var select = Assert.IsAssignableFrom<IAsyncRelayCommand<TaskItemDto>>(
+                page.View.DataContext.GetType().GetProperty("SelectCommand")!.GetValue(page.View.DataContext));
+            await select.ExecuteAsync(api.Item);
+            var editor = Get<object>(page.View.DataContext, "Editor");
+            Assert.Equal("任务详情", Get<string>(editor, "Heading"));
+            Assert.Equal("1 项任务", Get<string>(page.View.DataContext, "CountLabel"));
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+
+            Assert.Equal("Task details", Get<string>(editor, "Heading"));
+            Assert.Equal("1 task", Get<string>(page.View.DataContext, "CountLabel"));
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await page.Controller.DisposeAsync();
+        }
+    });
+    [Fact]
+    public Task Settings_row_text_follows_the_ui_language() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var module = new SettingsUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var page = Assert.Single(module.Views).Factory.Create();
+        try
+        {
+            await page.Controller.InitializeAsync();
+            SetProperty(page.View.DataContext, "ShowAdvanced", true);
+            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(Get<object>(page.View.DataContext, "SelectedSection").GetType(), "Appearance"));
+            static string RowText(object model, string id, string property)
+            {
+                var row = VisibleRows(model).Cast<object>()
+                    .Single(item => (string)item.GetType().GetProperty("Id")!.GetValue(item)! == id);
+                return (string)row.GetType().GetProperty(property)!.GetValue(row)!;
+            }
+
+            Assert.Equal("主题", RowText(page.View.DataContext, "appearance.theme", "DisplayName"));
+            Assert.Equal("界面语言", RowText(page.View.DataContext, "ui.language", "DisplayName"));
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+
+            Assert.Equal("Theme", RowText(page.View.DataContext, "appearance.theme", "DisplayName"));
+            Assert.Equal("Interface language", RowText(page.View.DataContext, "ui.language", "DisplayName"));
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await page.Controller.DisposeAsync();
+        }
     });
     [Fact]
     public Task Empty_state_copy_and_count_follow_the_active_filter() => Sta.Run(async () =>
@@ -514,4 +657,90 @@ public sealed class PresentationTests
             foreach (var descendant in FindVisualChildren<T>(child)) yield return descendant;
         }
     }
+
+    [Fact]
+    public Task Integer_row_typing_marks_dirty_and_invalid_text_reports_error() => Sta.Run(() =>
+    {
+        var rowType = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingRow")!;
+        var definition = new SettingDefinition(
+            "tasks.title.maxCharacters", "tasks-core", "Title", "Description",
+            SettingValueKind.Integer, 200, 1, 1000, null,
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
+        var row = Activator.CreateInstance(rowType, definition, 200)!;
+        var textValue = rowType.GetProperty("TextValue")!;
+        var isDirty = rowType.GetProperty("IsDirty")!;
+        var error = rowType.GetProperty("Error")!;
+
+        textValue.SetValue(row, "50");
+        Assert.True((bool)isDirty.GetValue(row)!);
+        Assert.Null(error.GetValue(row));
+
+        textValue.SetValue(row, "12a");
+        Assert.Equal("请输入整数。", error.GetValue(row));
+        Assert.True((bool)isDirty.GetValue(row)!);
+
+        textValue.SetValue(row, "200");
+        Assert.Null(error.GetValue(row));
+        Assert.False((bool)isDirty.GetValue(row)!);
+        return Task.CompletedTask;
+    });
+
+    [Fact]
+    public Task Tasks_ui_module_registers_definitions_including_text_overrides() => Sta.Run(async () =>
+    {
+        var settings = new SettingsCore();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics(), settings));
+        await module.ActivateAsync();
+        var source = Assert.Single(settings.Sources);
+        Assert.Equal("tasks-ui", source.ModuleId);
+        Assert.Equal(25, source.Definitions.Count);
+        Assert.All(source.Definitions, item => Assert.Equal("tasks-ui", item.ModuleId));
+        Assert.Contains(source.Definitions, item => item.Id == "ui.text.emptyAllTitle");
+        Assert.Contains(source.Definitions, item => item.Id == "ui.text.restoredSuccess");
+        Assert.Contains(source.Definitions, item => item.Id == "tasks.button.minHeight");
+        await module.StopAsync();
+        Assert.Empty(settings.Sources);
+    });
+
+    [Fact]
+    public Task Appearance_section_lists_theme_language_and_shell_layout_rows() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs());
+        await Initialize(model);
+        SetProperty(model, "ShowAdvanced", true);
+        SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
+        var ids = RowIds(model);
+        Assert.Equal(10, ids.Count);
+        Assert.Contains("appearance.theme", ids);
+        Assert.Contains("ui.language", ids);
+        Assert.Contains("shell.sidebar.fullWidth", ids);
+        Assert.DoesNotContain("shell.window.minWidth", ids);
+        Assert.DoesNotContain("tasks.confirmDelete", ids);
+        Assert.DoesNotContain("startup.width", ids);
+    });
+
+    [Fact]
+    public Task Show_advanced_reveals_all_rows_in_current_section_and_notifies_visibility() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi
+        {
+            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs());
+        var notified = new List<string>();
+        ((INotifyPropertyChanged)model).PropertyChanged += (_, e) => notified.Add(e.PropertyName!);
+        await Initialize(model);
+        Assert.Empty(RowIds(model));
+
+        SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
+        SetProperty(model, "ShowAdvanced", true);
+        Assert.Equal(10, RowIds(model).Count);
+        Assert.Contains("HasVisibleRows", notified);
+        Assert.Contains("HasRows", notified);
+        Assert.Contains("EmptyMessage", notified);
+    });
 }

@@ -1,7 +1,6 @@
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Settings.Contracts;
-using Mosaic.Settings.Core;
 using Mosaic.Settings.Wpf.Internal;
 
 namespace Mosaic.Settings.Wpf;

@@ -14,16 +14,19 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly Dictionary<string, JsonElement> _runtimeOverrides = new(
+        startupValues.Values ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+        StringComparer.Ordinal);
 
     public string ModuleId => "host";
     public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.ForHost();
 
     public object? GetValue(string id)
     {
-        if (startupValues.Values is { } overrides && overrides.TryGetValue(id, out var startupValue))
+        if (_runtimeOverrides.TryGetValue(id, out var runtimeValue))
         {
-            if (startupValue.ValueKind == JsonValueKind.Null) return null;
-            return JsonNodeToObject(JsonNode.Parse(startupValue.GetRawText())!);
+            if (runtimeValue.ValueKind == JsonValueKind.Null) return null;
+            return JsonNodeToObject(JsonNode.Parse(runtimeValue.GetRawText())!);
         }
         var node = ReadJson()["settings"]?[id];
         return node is null ? null : JsonNodeToObject(node);
@@ -47,22 +50,38 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
             var directory = Path.GetDirectoryName(paths.ConfigPath)!;
             Directory.CreateDirectory(directory);
             var temporaryPath = paths.ConfigPath + ".tmp";
-            await File.WriteAllTextAsync(temporaryPath, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
-            File.Replace(temporaryPath, paths.ConfigPath, null);
+            try
+            {
+                await File.WriteAllTextAsync(temporaryPath, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
+                File.Replace(temporaryPath, paths.ConfigPath, null);
+                foreach (var (id, value) in values)
+                {
+                    using var document = JsonDocument.Parse(value is null ? "null" : JsonSerializer.Serialize(value, JsonOptions));
+                    _runtimeOverrides[id] = document.RootElement.Clone();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                TryDeleteTemporary(temporaryPath);
+                throw;
+            }
+            catch (Exception exception)
+            {
+                TryDeleteTemporary(temporaryPath);
+                return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "宿主配置保存失败：" + exception.Message));
+            }
             return OperationResult.Success();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "宿主配置保存失败：" + exception.Message));
         }
         finally
         {
             _lock.Release();
         }
+    }
+
+    private static void TryDeleteTemporary(string temporaryPath)
+    {
+        try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+        catch { /* A leftover temporary file must not mask the original failure. */ }
     }
 
     public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>
