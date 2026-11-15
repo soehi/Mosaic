@@ -417,10 +417,8 @@ internal sealed class SettingRow : ObservableObject
     private object? Normalize(object? value)
     {
         if (value is null) return null;
-        return Definition.Kind switch
+        var parsed = Definition.Kind switch
         {
-            SettingValueKind.Integer when value is long => Convert.ToInt64(value),
-            SettingValueKind.Integer => Convert.ToInt64(value),
             SettingValueKind.ModuleList when value is string text => text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
             SettingValueKind.ProviderMap when value is string text => text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Select(item => item.Split('=', 2))
@@ -428,6 +426,7 @@ internal sealed class SettingRow : ObservableObject
                 .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.Ordinal),
             _ => value
         };
+        return SettingValueNormalizer.Normalize(Definition, parsed);
     }
 
     private string GetConstraint()
@@ -453,6 +452,8 @@ internal sealed class SettingRow : ObservableObject
         IReadOnlyDictionary<string, object?> providers when Definition.Kind == SettingValueKind.ProviderMap =>
             String.Join("; ", providers.Select(item => $"{item.Key}={item.Value}")),
         IEnumerable<string> values when Definition.Kind == SettingValueKind.ModuleList => String.Join(", ", values),
+        IEnumerable<object?> values when Definition.Kind == SettingValueKind.ModuleList =>
+            String.Join(", ", values.Select(item => Convert.ToString(item, System.Globalization.CultureInfo.InvariantCulture) ?? String.Empty)),
         _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? String.Empty
     };
 

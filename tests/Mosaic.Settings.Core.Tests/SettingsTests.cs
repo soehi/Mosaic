@@ -102,6 +102,31 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public async Task Values_are_normalized_to_definition_kinds_on_read_and_write()
+    {
+        var repository = new MemoryRepository();
+        repository.Values["tasks.title.maxCharacters"] = 250L;
+        var host = new HostSource();
+        host.Values["host.modules"] = new object?[] { "storage-sqlite", "tasks-core" };
+        host.Values["host.providers"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
+        host.Values["logging.retentionDays"] = 7L;
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
+
+        var values = (await module.Api.GetValuesAsync()).Value!;
+        Assert.Equal(250, values["tasks.title.maxCharacters"]);
+        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(values["host.modules"]));
+        var providers = Assert.IsType<Dictionary<string, string>>(values["host.providers"]);
+        Assert.Equal("tasks-core", providers["tasks.api@1"]);
+        Assert.Equal(7, values["logging.retentionDays"]);
+
+        var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.title.maxCharacters"] = 300L });
+        Assert.True(proposed.IsSuccess);
+        Assert.Equal(300, repository.Values["tasks.title.maxCharacters"]);
+    }
+
+    [Fact]
     public async Task Rejects_duplicate_and_cross_module_definitions()
     {
         var repository = new MemoryRepository();

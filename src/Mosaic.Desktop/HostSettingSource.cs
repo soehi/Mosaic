@@ -23,14 +23,18 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
 
     public object? GetValue(string id)
     {
+        var definition = Definitions.FirstOrDefault(item => item.Id == id);
         if (_runtimeOverrides.TryGetValue(id, out var runtimeValue))
         {
             if (runtimeValue.ValueKind == JsonValueKind.Null) return null;
-            return JsonNodeToObject(JsonNode.Parse(runtimeValue.GetRawText())!);
+            return Normalize(definition, JsonNodeToObject(JsonNode.Parse(runtimeValue.GetRawText())!));
         }
         var node = ReadJson()["settings"]?[id];
-        return node is null ? null : JsonNodeToObject(node);
+        return node is null ? null : Normalize(definition, JsonNodeToObject(node));
     }
+
+    private static object? Normalize(SettingDefinition? definition, object? value) =>
+        definition is null ? value : SettingValueNormalizer.Normalize(definition, value);
 
     public async Task<OperationResult> PersistAsync(
         IReadOnlyDictionary<string, object?> values,
