@@ -65,7 +65,9 @@ public sealed class PresenceTests
         internal CompanionViewOptions Options => options;
         internal bool Closed;
         internal bool Disposed;
-        public FrameworkElement View { get; } = new TextBlock { Text = "只读任务摘要 · 未完成 / 已完成", Margin = new Thickness(16) };
+        public FrameworkElement View { get; } = new TextBlock { Text = "只读任务摘要 · 未完成 / 已完成", TextWrapping = TextWrapping.Wrap };
+        public event EventHandler? LayoutInvalidated;
+        internal void UpdateText(string text) { ((TextBlock)View).Text = text; LayoutInvalidated?.Invoke(this, EventArgs.Empty); }
         public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task CloseAsync() { Closed = true; return Task.CompletedTask; }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
@@ -83,30 +85,26 @@ public sealed class PresenceTests
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
     private static TaskItemDto Item(string title, bool completed = false) => new(Guid.NewGuid(), title, "", completed, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
-    private static string[] Texts(FrameworkElement view) => ReadTexts(view).ToArray();
-    private static IEnumerable<string> ReadTexts(DependencyObject element)
+    private static string[] Texts(FrameworkElement view)
     {
-        if (element is TextBlock text) yield return text.Text;
-        IEnumerable<DependencyObject> children = element switch
-        {
-            Panel panel => panel.Children.Cast<DependencyObject>(),
-            Decorator decorator when decorator.Child is { } child => [child],
-            ContentControl control when control.Content is DependencyObject child => [child],
-            _ => []
-        };
-        foreach (var child in children) foreach (var contentText in ReadTexts(child)) yield return contentText;
+        view.Measure(new Size(380, 560)); view.Arrange(new Rect(0, 0, 380, 560)); view.UpdateLayout();
+        return Descendants(view).OfType<TextBlock>().Select(text => text.Text).ToArray();
     }
 
     [Fact]
-    public Task Settings_register_17_rows_project_3_normal_validate_save_and_revoke() => Sta.Run(async () =>
+    public Task Settings_register_26_rows_project_3_normal_validate_save_and_revoke() => Sta.Run(async () =>
     {
         await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
         await using var module = new DesktopPresenceModule(new(new Host(), new EmptyFactory(), settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
         await module.ActivateAsync();
         var definitions = (await settings.Api.ListDefinitionsAsync()).Value;
-        Assert.Equal(17, definitions.Count);
+        Assert.Equal(26, definitions.Count);
         Assert.Equal(3, definitions.Count(item => item.Category == SettingCategory.Normal));
         Assert.All(definitions, item => Assert.Equal(SettingsGroup.DesktopPresence, item.Group));
+        Assert.All(definitions.Where(item => item.Id is "desktop.popup.fitContent" or "desktop.popup.padding" or
+            "desktop.popup.cornerRadius" or "desktop.popup.rowGap" or "desktop.popup.rowPaddingY" or
+            "desktop.popup.titleFontSize" or "desktop.popup.titleMaxLines" or "desktop.popup.showStatusText" or "desktop.popup.showHints"),
+            item => { Assert.Equal(SettingCategory.Advanced, item.Category); Assert.Equal(SettingPreviewMode.Reversible, item.PreviewMode); });
         var invalid = await settings.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["desktop.edge.visibleDepth"] = 64 });
         Assert.Contains("desktop.edge.visibleDepth", invalid.Value.Keys);
         invalid = await settings.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["desktop.popup.openColor"] = "red" });
@@ -125,7 +123,7 @@ public sealed class PresenceTests
             combo.DataContext.GetType().GetProperty("Id")!.GetValue(combo.DataContext) as string == "desktop.edge.activation");
         Assert.Equal("SingleClick", activation.SelectedValue);
         model.GetType().GetProperty("ShowAdvanced")!.SetValue(model, true);
-        Assert.Equal(17, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(26, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         await page.Controller.DisposeAsync(); await ui.DisposeAsync();
         await module.StopAsync();
         Assert.Empty((await settings.Api.ListDefinitionsAsync()).Value);
@@ -166,6 +164,51 @@ public sealed class PresenceTests
         Assert.All(factory.Sessions, session => Assert.True(session.Disposed));
         await module.StopAsync();
         Assert.Null(WindowField("_edge"));
+    });
+
+    [Fact]
+    public Task Popup_measures_generic_content_clamps_height_and_ignores_closed_session_notifications() => Sta.Run(async () =>
+    {
+        await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
+        var factory = new Factory();
+        await using var module = new DesktopPresenceModule(new(new Host(), factory, settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
+        await module.ActivateAsync();
+        var surface = typeof(DesktopPresenceModule).GetField("_surface", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
+        Window Popup() => (Window)surface.GetType().GetField("_popup", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(surface)!;
+        await module.Api.RequestParkAsync(); await module.Api.RequestPopupAsync();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        var shortHeight = Popup().Height;
+        Assert.InRange(shortHeight, 80, 300);
+        factory.Sessions[0].UpdateText(string.Concat(Enumerable.Repeat("一段足够长的通用内容，用于验证容器测量。\n", 100)));
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Assert.InRange(Popup().Height, shortHeight + 1, 560);
+        await module.Api.RequestRefreshAsync();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        var replacement = Popup(); var replacementHeight = replacement.Height;
+        factory.Sessions[0].UpdateText("旧会话");
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Assert.Same(replacement, Popup()); Assert.Equal(replacementHeight, Popup().Height);
+        await module.StopAsync();
+    });
+
+    [Fact]
+    public Task Popup_more_menu_belongs_to_interaction_region_and_escape_closes_it_first() => Sta.Run(async () =>
+    {
+        await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
+        await using var module = new DesktopPresenceModule(new(new Host(), new Factory(), settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
+        await module.ActivateAsync(); await module.Api.RequestParkAsync(); await module.Api.RequestPopupAsync();
+        var surface = typeof(DesktopPresenceModule).GetField("_surface", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
+        var popup = (Window)surface.GetType().GetField("_popup", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(surface)!;
+        var view = (FrameworkElement)popup.Content;
+        var more = Descendants(view).OfType<Button>().Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "PresenceMore");
+        more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var menu = Assert.IsType<ContextMenu>(more.ContextMenu);
+        Assert.True(menu.IsOpen);
+        Assert.True((bool)surface.GetType().GetMethod("Inside", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(surface, null)!);
+        Assert.True((bool)view.GetType().GetMethod("CloseMenuForEscape", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, null)!);
+        Assert.False(menu.IsOpen); Assert.True(popup.IsVisible);
+        Assert.False((bool)view.GetType().GetMethod("CloseMenuForEscape", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, null)!);
+        await module.StopAsync();
     });
 
     [Fact]
@@ -249,7 +292,9 @@ public sealed class PresenceTests
         {
             await session.InitializeAsync(); var texts = Texts(session.View);
             Assert.Contains("Open title", texts); Assert.Contains("Done title", texts); Assert.DoesNotContain("More", texts);
-            Assert.Contains(texts, text => text == "✓"); Assert.Contains(texts, text => text == "○");
+            Assert.Equal(2, Descendants(session.View).OfType<System.Windows.Shapes.Path>().Count());
+            Assert.Contains("未完成", texts); Assert.Contains("已完成", texts);
+            Assert.DoesNotContain(Descendants(session.View), element => element is CheckBox or TextBox);
             Assert.Contains(texts, text => text.Contains('3'));
         }
         await using (var second = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"))) await second.InitializeAsync();
@@ -272,5 +317,26 @@ public sealed class PresenceTests
         await session.CloseAsync(); Assert.True(token.IsCancellationRequested);
         first.SetResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("Stale")])); await old;
         Assert.DoesNotContain("Stale", Texts(session.View));
+    });
+
+    [Fact]
+    public Task Companion_visual_options_keep_full_accessible_status_and_bound_title_height() => Sta.Run(async () =>
+    {
+        var title = string.Concat(Enumerable.Repeat("非常长的中英文标题 Long task title ", 12));
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item(title, true)])) };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme",
+            RowGap: 4, RowPaddingY: 6, TitleFontSize: 20, TitleMaxLines: 1, ShowStatusText: false));
+        var layoutChanges = 0; session.LayoutInvalidated += (_, _) => layoutChanges++;
+        await session.InitializeAsync(); Texts(session.View);
+        var titleText = Descendants(session.View).OfType<TextBlock>().Single(text => text.Text == title);
+        Assert.Equal(20, titleText.FontSize); Assert.Equal(28, titleText.MaxHeight);
+        Assert.Contains("已完成", System.Windows.Automation.AutomationProperties.GetName(titleText));
+        Assert.Contains(title, System.Windows.Automation.AutomationProperties.GetName(titleText));
+        Assert.Equal(Visibility.Collapsed, Descendants(session.View).OfType<TextBlock>().Single(text => text.Text == "已完成").Visibility);
+        Assert.True(layoutChanges > 0);
+        Assert.Single(Descendants(session.View).OfType<ScrollViewer>());
+        Assert.DoesNotContain(Descendants(session.View), element => element is CheckBox or TextBox);
     });
 }

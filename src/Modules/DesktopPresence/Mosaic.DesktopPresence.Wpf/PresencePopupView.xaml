@@ -4,44 +4,40 @@
              xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
              FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="14" UseLayoutRounding="True"
              Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}">
-    <Border Margin="6" CornerRadius="14" BorderThickness="1"
+    <Border x:Name="Frame" Margin="6" CornerRadius="12" BorderThickness="1" Padding="16"
             Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
             BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <Border x:Name="HeaderFrame" Padding="18,16,14,14" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
+            <Grid x:Name="HeaderFrame" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{DynamicResource Presence.Title}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Content="×" FontSize="20" MinWidth="32" MinHeight="32" Padding="0" Margin="8,0,0,0"
+                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" Click="Dismiss"
+                        ToolTip="{DynamicResource Presence.Dismiss}" AutomationProperties.Name="{DynamicResource Presence.Dismiss}"
+                        AutomationProperties.AutomationId="PresenceDismiss"/>
+            </Grid>
+            <ContentControl x:Name="ContentHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+            <StackPanel Grid.Row="2" Margin="0,12,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock x:Name="BrandLabel" Text="MOSAIC" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,5"
-                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                        <TextBlock Text="{DynamicResource Presence.Title}" FontSize="20" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="Subtitle" Text="{DynamicResource Presence.Subtitle}" Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap"
-                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                    </StackPanel>
-                    <Button Grid.Column="1" Content="×" FontSize="21" MinWidth="32" MinHeight="32" Padding="0" Margin="10,0,0,0"
-                            VerticalAlignment="Top" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                            Click="Dismiss" ToolTip="{DynamicResource Presence.Dismiss}" AutomationProperties.Name="{DynamicResource Presence.Dismiss}"
-                            AutomationProperties.AutomationId="PresenceDismiss"/>
+                    <Button Content="{DynamicResource Presence.Restore}" MinHeight="32" MinWidth="0" Padding="8,4" HorizontalAlignment="Left"
+                            Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" Click="Restore"
+                            AutomationProperties.AutomationId="PresenceRestore"/>
+                    <Button x:Name="MoreButton" Grid.Column="1" Content="⋯" FontSize="20" MinHeight="32" MinWidth="32" Padding="4,0"
+                            ToolTip="{DynamicResource Presence.More}" AutomationProperties.Name="{DynamicResource Presence.More}"
+                            Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" Click="More"
+                            AutomationProperties.AutomationId="PresenceMore">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="MoreMenu">
+                                <MenuItem Header="{DynamicResource Presence.Exit}" Click="Exit" AutomationProperties.AutomationId="PresenceExit"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                 </Grid>
-            </Border>
-            <ContentControl x:Name="ContentHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
-            <Border Grid.Row="2" Padding="14,12,14,14" BorderThickness="0,1,0,0"
-                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
-                <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <Button Content="{DynamicResource Presence.Restore}" MinHeight="40" MinWidth="0" Padding="12,8"
-                                Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}" Click="Restore"
-                                AutomationProperties.AutomationId="PresenceRestore"/>
-                        <Button Grid.Column="1" Content="{DynamicResource Presence.ExitShort}" ToolTip="{DynamicResource Presence.Exit}" MinHeight="40" MinWidth="0" Padding="10,8" Margin="8,0,0,0"
-                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" Click="Exit"
-                                AutomationProperties.AutomationId="PresenceExit"/>
-                    </Grid>
-                    <TextBlock x:Name="DismissHint" Margin="0,10,0,0" FontSize="11" TextAlignment="Center" TextWrapping="Wrap"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                </StackPanel>
-            </Border>
+                <TextBlock x:Name="DismissHint" Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"
+                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+            </StackPanel>
         </Grid>
     </Border>
 </UserControl>

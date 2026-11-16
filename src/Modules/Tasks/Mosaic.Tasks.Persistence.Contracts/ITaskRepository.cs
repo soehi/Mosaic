@@ -11,4 +11,9 @@ public interface ITaskRepository
     Task<OperationResult<IReadOnlyList<TaskItemDto>>> QueryAsync(TaskQuery query, CancellationToken cancellationToken = default);
     Task<OperationResult> ReplaceAsync(TaskItemDto task, long expectedRevision, CancellationToken cancellationToken = default);
     Task<OperationResult> DeleteAsync(Guid id, long expectedRevision, CancellationToken cancellationToken = default);
+    // A receipt and its initial task are committed atomically. Deleting the task preserves its receipt.
+    Task<OperationResult<TaskCreateOnceResult>> InsertOnceAsync(
+        string sourceId, string requestKey, string payloadFingerprint, TaskItemDto task, CancellationToken cancellationToken = default);
+    Task<OperationResult<IReadOnlyList<TaskCreationReceiptDto>>> QueryCreationReceiptsAsync(
+        string sourceId, CancellationToken cancellationToken = default);
 }

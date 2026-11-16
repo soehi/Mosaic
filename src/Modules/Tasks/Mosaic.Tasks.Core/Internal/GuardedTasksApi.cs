@@ -3,7 +3,7 @@ using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Tasks.Core.Internal;
 
-internal sealed class GuardedTasksApi(TaskService service, IModuleExecutionGate gate, IDiagnosticSink diagnostics) : ITasksApi
+internal sealed class GuardedTasksApi(TaskService service, IModuleExecutionGate gate, IDiagnosticSink diagnostics) : ITasksApi, ITaskCreateOnceApi
 {
     private static OperationError Invalid() => new(ErrorCodes.InvalidRequest, "请求参数无效。");
     private static bool Valid(Guid id, long revision) => id != Guid.Empty && revision > 0 && revision < long.MaxValue;
@@ -42,4 +42,11 @@ internal sealed class GuardedTasksApi(TaskService service, IModuleExecutionGate 
     }
     public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
         Invoke(true, () => service.GetConstraintsAsync(cancellationToken), cancellationToken);
+    private static bool ValidKey(string? value, int maximum) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && value.All(character => !char.IsControl(character));
+    public Task<OperationResult<TaskCreateOnceResult>> CreateOnceAsync(CreateTaskOnceRequest request, CancellationToken cancellationToken = default) =>
+        Invoke(request is { Title: not null, Notes: not null } && ValidKey(request.SourceId, 100) && ValidKey(request.RequestKey, 200),
+            () => service.CreateOnceAsync(request!, cancellationToken), cancellationToken);
+    public Task<OperationResult<IReadOnlyList<TaskCreationReceiptDto>>> ListReceiptsAsync(string sourceId, CancellationToken cancellationToken = default) =>
+        Invoke(ValidKey(sourceId, 100), () => service.ListReceiptsAsync(sourceId, cancellationToken), cancellationToken);
 }

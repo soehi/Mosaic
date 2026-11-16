@@ -9,6 +9,8 @@ try {
     if ($LASTEXITCODE) { throw 'Restore failed.' }
     dotnet restore src/Mosaic.Desktop -r win-x64 -p:SelfContained=true --no-dependencies --locked-mode -m:1 @mosaicRestoreArgs
     if ($LASTEXITCODE) { throw 'Self-contained runtime restore failed.' }
-    dotnet publish src/Mosaic.Desktop -c $Configuration -r win-x64 --self-contained true --no-restore -m:1 -o artifacts/local-run
+    & (Join-Path $PSScriptRoot 'release-content.ps1') -ManifestPath (Join-Path $PSScriptRoot 'release-manifest.json') -NotesPath (Join-Path $mosaicRoot 'docs/releases/v0.6.0.md')
+    dotnet publish src/Mosaic.Desktop -c $Configuration -r win-x64 --self-contained true -p:MosaicPublishedBuild=true --no-restore -m:1 -o artifacts/local-run
     if ($LASTEXITCODE) { throw 'Publish failed.' }
+    & (Join-Path $PSScriptRoot 'release-content.ps1') -CheckOnly -CheckManifestPath (Join-Path $mosaicRoot 'artifacts/local-run/release-manifest.json')
 } finally { Pop-Location }

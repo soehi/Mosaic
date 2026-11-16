@@ -1,0 +1,67 @@
+<UserControl x:Class="Mosaic.Tasks.Wpf.Internal.TaskPeekView" x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
+             AutomationProperties.AutomationId="TaskPeekView">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <TextBlock x:Name="Summary" FontSize="12" Margin="0,0,0,8"
+                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+        <Grid Grid.Row="1">
+            <StackPanel x:Name="State" Margin="0,12">
+                <TextBlock x:Name="Feedback" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                <Button x:Name="Retry" HorizontalAlignment="Left" Margin="0,10,0,0"
+                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"/>
+            </StackPanel>
+            <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          CanContentScroll="False" Padding="0">
+                <StackPanel>
+                    <ItemsControl x:Name="Rows">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="{Binding Padding}" Margin="{Binding Margin}" BorderThickness="0,0,0,1"
+                                        BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                                        AutomationProperties.Name="{Binding AccessibleName}" ToolTip="{Binding Title}" Cursor="Arrow">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <Path Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center"
+                                              Data="{Binding Geometry}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsCompleted}" Value="True"><Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/></DataTrigger>
+                                                        <DataTrigger Binding="{Binding HasCustomColor}" Value="True"><Setter Property="Stroke" Value="{Binding CustomColor}"/></DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                        <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="{Binding FontSize}" LineHeight="{Binding LineHeight}" LineStackingStrategy="BlockLineHeight"
+                                                   MaxHeight="{Binding MaximumTitleHeight}" Margin="10,0,8,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   AutomationProperties.Name="{Binding AccessibleName}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    <Style.Triggers><DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                                        <Setter Property="FontWeight" Value="Normal"/>
+                                                    </DataTrigger></Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Grid.Column="2" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="More" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

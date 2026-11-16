@@ -258,4 +258,6 @@
     <sys:String x:Key="Setting.Value.RightEdgeTop">右侧靠上</sys:String>
     <sys:String x:Key="Setting.Value.TopEdgeRight">顶部靠右</sys:String>
     <sys:String x:Key="Setting.Value.Theme">跟随主题</sys:String>
+    <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled">自动生成更新简要</sys:String>
+    <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled.Description">下次启动为新发布版本生成一条更新简要任务</sys:String>
 </ResourceDictionary>

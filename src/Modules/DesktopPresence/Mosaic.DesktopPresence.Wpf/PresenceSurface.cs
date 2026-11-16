@@ -25,6 +25,11 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
     private bool _stopped;
     private bool _closingWindows;
     private bool _observing;
+    private int _sessionGeneration;
+    private DispatcherOperation? _measureOperation;
+    private ContextMenu? _edgeMenu;
+    private EventHandler? _sessionLayoutHandler;
+    private bool _toolTipActive;
     private IReadOnlyDictionary<string, object?> _values = new Dictionary<string, object?>();
     internal IDesktopPresenceApi? Api { get; set; }
     private string Text(string key) => MosaicLocalizationManager.TryFindResource(key) ?? key;
@@ -70,6 +75,10 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             trigger.Click += async (_, _) => await PopupAsync();
             _edge.Content = trigger;
             var menu = new ContextMenu();
+            _edgeMenu = menu;
+            menu.Opened += (_, _) => _dismiss.Stop();
+            menu.Closed += (_, _) => ScheduleDismiss();
+            menu.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; menu.IsOpen = false; trigger.Focus(); } };
             var restore = new MenuItem(); restore.SetResourceReference(HeaderedItemsControl.HeaderProperty, "Presence.Restore");
             restore.Click += async (_, _) => await RestoreAsync();
             var exit = new MenuItem(); exit.SetResourceReference(HeaderedItemsControl.HeaderProperty, "Presence.Exit");
@@ -104,6 +113,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         {
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
             SystemParameters.StaticPropertyChanged += WorkAreaChanged;
+            MosaicThemeManager.ThemeChanged += DisplayChanged;
+            MosaicLocalizationManager.LanguageChanged += DisplayChanged;
             _observing = true;
         }
         PositionWindows();
@@ -124,7 +135,9 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _dismiss.Stop();
         if (!Inside()) await DismissAsync();
     }
-    private bool Inside() => (_edge is not null && PresenceScreen.PointerInside(_edge)) || (_popup is not null && PresenceScreen.PointerInside(_popup));
+    private bool Inside() => _toolTipActive || _edgeMenu?.IsOpen == true ||
+        (_popup?.Content is PresencePopupView view && view.IsFloatingInteractionActive) ||
+        (_edge is not null && PresenceScreen.PointerInside(_edge)) || (_popup is not null && PresenceScreen.PointerInside(_popup));
     private void ScheduleDismiss()
     {
         if (_popup is null || !Read("desktop.popup.autoHide", true) || Inside()) return;
@@ -148,14 +161,25 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         if (_popup is not null || _stopped) return Task.CompletedTask;
         _sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _session = factory.Create(new(Read("desktop.popup.filter", "All"), Read("desktop.popup.maxItems", 12),
-            Read("desktop.popup.openColor", "Theme"), Read("desktop.popup.completedColor", "Theme")));
+            Read("desktop.popup.openColor", "Theme"), Read("desktop.popup.completedColor", "Theme"),
+            Read("desktop.popup.rowGap", 0), Read("desktop.popup.rowPaddingY", 12),
+            Read("desktop.popup.titleFontSize", 14), Read("desktop.popup.titleMaxLines", 2), Read("desktop.popup.showStatusText", true)));
+        var generation = ++_sessionGeneration;
+        _sessionLayoutHandler = (_, _) => QueueMeasure(generation);
+        _session.LayoutInvalidated += _sessionLayoutHandler;
         _popup = CreateWindow("Presence.Title", "PresencePopup");
-        _popup.Content = new PresencePopupView(_session.View, RestoreAsync, ExitAsync, DismissAsync, Read("desktop.popup.autoHide", true));
+        var popupView = new PresencePopupView(_session.View, RestoreAsync, ExitAsync, DismissAsync,
+            Read("desktop.popup.autoHide", true), Read("desktop.popup.padding", 16), Read("desktop.popup.cornerRadius", 12),
+            Read("desktop.popup.showHints", false), Math.Min(Read("desktop.popup.maxHeight", 560), Area.Height) < 360);
+        popupView.InteractionChanged += (_, _) => { if (Inside()) _dismiss.Stop(); else ScheduleDismiss(); };
+        _popup.Content = popupView;
+        _popup.AddHandler(ToolTipService.ToolTipOpeningEvent, new ToolTipEventHandler((_, _) => { _toolTipActive = true; _dismiss.Stop(); }));
+        _popup.AddHandler(ToolTipService.ToolTipClosingEvent, new ToolTipEventHandler((_, _) => { _toolTipActive = false; ScheduleDismiss(); }));
         _popup.MouseEnter += (_, _) => _dismiss.Stop();
         _popup.MouseLeave += (_, _) => ScheduleDismiss();
         _popup.PreviewKeyDown += async (_, e) =>
         {
-            if (e.Key == Key.Escape) { e.Handled = true; await DismissAsync(); }
+            if (e.Key == Key.Escape) { e.Handled = true; if (!popupView.CloseMenuForEscape()) await DismissAsync(); }
             else if (e.Key is Key.Down or Key.Up)
             {
                 _popup?.MoveFocus(new TraversalRequest(e.Key == Key.Down ? FocusNavigationDirection.Next : FocusNavigationDirection.Previous));
@@ -165,25 +189,45 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _popup.Closing += async (_, e) => { if (_closingWindows) return; e.Cancel = true; await DismissAsync(); };
         PositionWindows(); _popup.Show(); PositionWindows();
         _lastPressed = PresenceScreen.LeftPressed; _pointer.Start();
-        _ = InitializeSessionAsync(_session, _sessionCancellation.Token);
+        _ = InitializeSessionAsync(_session, _sessionCancellation.Token, generation);
         return Task.CompletedTask;
     }
 
-    private async Task InitializeSessionAsync(ICompanionViewSession session, CancellationToken token)
+    private async Task InitializeSessionAsync(ICompanionViewSession session, CancellationToken token, int generation)
     {
         try { await session.InitializeAsync(token); }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception exception) { Report(exception); }
+        finally { QueueMeasure(generation); }
+    }
+
+    private void QueueMeasure(int generation)
+    {
+        var popup = _popup;
+        if (popup is null || _stopped || generation != _sessionGeneration) return;
+        if (!popup.Dispatcher.CheckAccess()) { popup.Dispatcher.BeginInvoke(new Action(() => QueueMeasure(generation))); return; }
+        if (_measureOperation?.Status == DispatcherOperationStatus.Pending) return;
+        _measureOperation = popup.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _measureOperation = null;
+            if (!_stopped && generation == _sessionGeneration && ReferenceEquals(popup, _popup)) PositionWindows();
+        }));
     }
 
     public async Task ClosePopupAsync()
     {
         _hover.Stop(); _dismiss.Stop(); _pointer.Stop();
+        ++_sessionGeneration;
+        _toolTipActive = false;
+        _measureOperation?.Abort(); _measureOperation = null;
         var popup = _popup; _popup = null;
         var session = _session; _session = null;
+        if (session is not null && _sessionLayoutHandler is not null) session.LayoutInvalidated -= _sessionLayoutHandler;
+        _sessionLayoutHandler = null;
         var cancellation = _sessionCancellation; _sessionCancellation = null;
         if (popup is not null)
         {
+            if (popup.Content is PresencePopupView popupView) popupView.CloseFloatingContent();
             _closingWindows = true;
             try { popup.Close(); } finally { _closingWindows = false; }
             popup.Content = null;
@@ -219,10 +263,12 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         {
             SystemEvents.DisplaySettingsChanged -= DisplayChanged;
             SystemParameters.StaticPropertyChanged -= WorkAreaChanged;
+            MosaicThemeManager.ThemeChanged -= DisplayChanged;
+            MosaicLocalizationManager.LanguageChanged -= DisplayChanged;
             _observing = false;
         }
         _closingWindows = true;
-        try { _edge?.Close(); _edge = null; } finally { _closingWindows = false; }
+        try { if (_edgeMenu is not null) _edgeMenu.IsOpen = false; _edgeMenu = null; _edge?.Close(); _edge = null; } finally { _closingWindows = false; }
         if (closeFailure is not null) throw closeFailure;
     }
 
@@ -257,8 +303,18 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         }
         if (_popup is not null)
         {
-            _popup.Width = Math.Min(Read("desktop.popup.width", 380), area.Width);
-            _popup.Height = Math.Min(Read("desktop.popup.maxHeight", 560), area.Height);
+            var width = Math.Max(1, Math.Min(Read("desktop.popup.width", 380), area.Width));
+            var maximumHeight = Math.Max(1, Math.Min(Read("desktop.popup.maxHeight", 560), area.Height));
+            var height = maximumHeight;
+            if (Read("desktop.popup.fitContent", true) && _popup.Content is FrameworkElement content)
+            {
+                // Only the companion's own list scrolls. An unconstrained measure gives
+                // the generic container's natural height without inspecting its content.
+                content.Measure(new Size(width, double.PositiveInfinity));
+                height = Math.Max(1, Math.Min(maximumHeight, Math.Ceiling(content.DesiredSize.Height)));
+            }
+            if (Math.Abs(_popup.Width - width) > 0.5 || double.IsNaN(_popup.Width)) _popup.Width = width;
+            if (Math.Abs(_popup.Height - height) > 0.5 || double.IsNaN(_popup.Height)) _popup.Height = height;
             _popup.Left = rightEdge ? Math.Max(area.Left, area.Right - depth - _popup.Width) : Math.Clamp(area.Right - offset - _popup.Width, area.Left, area.Right - _popup.Width);
             _popup.Top = rightEdge ? Math.Clamp(area.Top + offset, area.Top, area.Bottom - _popup.Height) : area.Top + depth;
             if (_popup.Top + _popup.Height > area.Bottom) _popup.Top = area.Bottom - _popup.Height;
@@ -266,8 +322,12 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             PresenceScreen.Place(_popup, host.MainWindowHandle, Read("desktop.edge.monitor", "Primary") == "LastMainWindow");
         }
     }
-    private void DisplayChanged(object? sender, EventArgs e) => Application.Current?.Dispatcher.BeginInvoke(PositionWindows);
-    private void WorkAreaChanged(object? sender, PropertyChangedEventArgs e) => Application.Current?.Dispatcher.BeginInvoke(PositionWindows);
+    private void DisplayChanged(object? sender, EventArgs e)
+    {
+        var dispatcher = _popup?.Dispatcher ?? _edge?.Dispatcher ?? Application.Current?.Dispatcher;
+        dispatcher?.BeginInvoke(PositionWindows);
+    }
+    private void WorkAreaChanged(object? sender, PropertyChangedEventArgs e) => DisplayChanged(sender, e);
     private async Task PopupAsync() { if (Api is { } api) ShowResult(await api.RequestPopupAsync()); }
     private async Task RestoreAsync() { if (Api is { } api) ShowResult(await api.RequestRestoreAsync()); }
     private async Task DismissAsync() { if (Api is { } api) ShowResult(await api.RequestDismissAsync()); }

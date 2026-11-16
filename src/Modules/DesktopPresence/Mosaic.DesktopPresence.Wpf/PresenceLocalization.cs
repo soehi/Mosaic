@@ -19,6 +19,7 @@ internal static class PresenceLocalization
         Add("Presence.Restore", "打开主窗口", "Open main window");
         Add("Presence.Exit", "退出 Mosaic", "Exit Mosaic");
         Add("Presence.ExitShort", "退出", "Exit");
+        Add("Presence.More", "更多操作", "More actions");
         Add("Presence.Failed", "退出失败，请重试或打开主窗口。", "Could not exit. Try again or open the main window.");
         Add("Settings.Section.DesktopPresence", "驻留与边缘", "Residence & edge");
         var names = new (string Id, string Zh, string En, string ZhDescription, string EnDescription)[]
@@ -45,6 +46,22 @@ internal static class PresenceLocalization
         {
             Add("Settings.Setting." + item.Id, item.Zh, item.En);
             Add("Settings.Setting." + item.Id + ".Description", item.ZhDescription, item.EnDescription);
+        }
+        foreach (var (key, zh, english, description, enDescription) in new[]
+        {
+            ("FitContent", "按内容收缩", "Fit popup to content", "少量任务使用自然高度，仍受最大高度限制", "Use natural height for short lists, within the maximum height"),
+            ("PopupPadding", "面板内边距", "Popup padding", "外框统一内边距（DIP）", "Single outer content padding in DIP"),
+            ("PopupCornerRadius", "面板圆角", "Popup corner radius", "任务速览外框圆角（DIP）", "Overview frame corner radius in DIP"),
+            ("PopupRowGap", "任务行间距", "Row gap", "相邻任务行的额外间距（DIP）", "Additional spacing between task rows in DIP"),
+            ("PopupRowPaddingY", "任务行纵向留白", "Row vertical padding", "每行上方和下方的留白（DIP）", "Space above and below each row in DIP"),
+            ("PopupTitleFontSize", "速览标题字号", "Task title size", "任务标题字号（DIP）", "Task title font size in DIP"),
+            ("PopupTitleMaxLines", "标题最多行数", "Maximum title lines", "超出行数省略，悬停可查看完整标题", "Truncate longer titles; hover to read the full title"),
+            ("PopupShowStatusText", "显示状态文字", "Show status text", "隐藏后仍保留矢量标记和无障碍名称", "Vector status marks and accessible names remain visible to assistive technology"),
+            ("PopupShowHints", "常驻显示收起提示", "Show dismissal hint", "关闭时通过工具提示查看收起方式", "When hidden, dismissal instructions remain in a tooltip")
+        })
+        {
+            Add("Settings.Setting.Desktop." + key, zh, english);
+            Add("Settings.Setting.Desktop." + key + ".Description", description, enDescription);
         }
         foreach (var (value, zh, english) in new[]
         {

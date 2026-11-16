@@ -38,6 +38,45 @@ internal sealed class SqliteTaskRepository(IDatabaseSession database) : ITaskRep
     }
     public async Task<OperationResult> DeleteAsync(Guid id, long expectedRevision, CancellationToken cancellationToken = default) =>
         WriteResult(await database.ExecuteAsync(new("DELETE FROM tasks WHERE id=$id AND revision=$expected", new Dictionary<string, object?> { ["$id"] = id.ToString("D"), ["$expected"] = expectedRevision }), cancellationToken).ConfigureAwait(false));
+    public async Task<OperationResult<TaskCreateOnceResult>> InsertOnceAsync(
+        string sourceId, string requestKey, string payloadFingerprint, TaskItemDto task, CancellationToken cancellationToken = default)
+    {
+        var result = await database.TransactionAsync(session =>
+        {
+            var key = new Dictionary<string, object?> { ["$source"] = sourceId, ["$key"] = requestKey };
+            var receipts = session.Query(new(
+                "SELECT r.task_id,r.payload_fingerprint,CASE WHEN t.id IS NULL THEN 0 ELSE 1 END AS task_exists FROM task_creation_receipts r LEFT JOIN tasks t ON t.id=r.task_id WHERE r.source_id=$source AND r.request_key=$key", key));
+            if (receipts.Count > 0)
+            {
+                var row = receipts[0];
+                return row.String("payload_fingerprint") == payloadFingerprint
+                    ? OperationResult<TaskCreateOnceResult>.Success(new(Guid.ParseExact(row.String("task_id"), "D"), TaskCreateOnceDisposition.AlreadyCreated, row.Int64("task_exists") == 1))
+                    : OperationResult<TaskCreateOnceResult>.Failure(new(ErrorCodes.Conflict, "此创建请求标识已用于不同的任务内容。", "RequestKey"));
+            }
+            session.Execute(new(
+                "INSERT INTO tasks(id,title,notes,completed,created_at,updated_at,revision) VALUES($id,$title,$notes,$completed,$created,$updated,$revision)", Values(task)));
+            session.Execute(new(
+                "INSERT INTO task_creation_receipts(source_id,request_key,task_id,payload_fingerprint,created_at) VALUES($source,$key,$id,$fingerprint,$created)",
+                new Dictionary<string, object?>
+                {
+                    ["$source"] = sourceId, ["$key"] = requestKey, ["$id"] = task.Id.ToString("D"),
+                    ["$fingerprint"] = payloadFingerprint, ["$created"] = task.CreatedAtUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)
+                }));
+            return OperationResult<TaskCreateOnceResult>.Success(new(task.Id, TaskCreateOnceDisposition.Created, true));
+        }, cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess ? result.Value : OperationResult<TaskCreateOnceResult>.Failure(result.Error!);
+    }
+    public async Task<OperationResult<IReadOnlyList<TaskCreationReceiptDto>>> QueryCreationReceiptsAsync(string sourceId, CancellationToken cancellationToken = default)
+    {
+        var result = await database.QueryAsync(new(
+            "SELECT r.source_id,r.request_key,r.task_id,r.payload_fingerprint,r.created_at,CASE WHEN t.id IS NULL THEN 0 ELSE 1 END AS task_exists FROM task_creation_receipts r LEFT JOIN tasks t ON t.id=r.task_id WHERE r.source_id=$source ORDER BY r.request_key COLLATE BINARY",
+            new Dictionary<string, object?> { ["$source"] = sourceId }), cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess
+            ? OperationResult<IReadOnlyList<TaskCreationReceiptDto>>.Success(Array.AsReadOnly(result.Value.Select(row => new TaskCreationReceiptDto(
+                row.String("source_id"), row.String("request_key"), Guid.ParseExact(row.String("task_id"), "D"), row.String("payload_fingerprint"),
+                DateTimeOffset.ParseExact(row.String("created_at"), "O", CultureInfo.InvariantCulture), row.Int64("task_exists") == 1)).ToArray()))
+            : OperationResult<IReadOnlyList<TaskCreationReceiptDto>>.Failure(result.Error!);
+    }
     private static OperationResult WriteResult(OperationResult<int> result) => !result.IsSuccess ? OperationResult.Failure(result.Error!) : result.Value == 1 ? OperationResult.Success() : OperationResult.Failure(new(ErrorCodes.Conflict, "任务已更改或删除，请重新加载。"));
     private static Dictionary<string, object?> Values(TaskItemDto t) => new()
     {

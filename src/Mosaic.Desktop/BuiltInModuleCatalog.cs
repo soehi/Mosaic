@@ -1,4 +1,6 @@
 using Mosaic.Contracts;
+using Mosaic.ReleaseSummary;
+using System.Reflection;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Settings.Core;
 using Mosaic.Settings.Contracts;
@@ -39,6 +41,7 @@ internal sealed class ModuleRuntimeContext(
     internal required IDesktopWindowHost WindowHost { get; init; }
     internal ICompanionViewFactory? CompanionFactory { get; set; }
     internal IDesktopPresenceApi? Presence { get; set; }
+    internal IReleaseSummaryApi? ReleaseSummary { get; set; }
 }
 
 internal static class BuiltInModuleCatalog
@@ -110,6 +113,16 @@ internal static class BuiltInModuleCatalog
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings capability was not assembled."),
                 context.Dispatcher, context.Diagnostics));
             context.Presence = module.Api;
+            return module;
+        }),
+        [ReleaseSummaryModule.Definition.Id] = new(ReleaseSummaryModule.Definition, context =>
+        {
+            var assembly = typeof(BuiltInModuleCatalog).Assembly;
+            var published = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Any(item => item.Key == "MosaicPublishedBuild" && item.Value == "true");
+            var path = Path.Combine(AppContext.BaseDirectory, "release-manifest.json");
+            var input = new ReleaseSummaryStartupInput(File.Exists(path) ? File.ReadAllText(path) : "", assembly.GetName().Version!.ToString(3), published);
+            var module = new ReleaseSummaryModule(new(context.Tasks!.CreateOnceApi, context.Settings!.Api, context.Diagnostics, input));
+            context.ReleaseSummary = module.Api;
             return module;
         }),
         [SettingsUiModule.Definition.Id] = new(SettingsUiModule.Definition, context =>

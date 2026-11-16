@@ -19,7 +19,10 @@
 <ProjectReference Include="..\Modules\Settings\Mosaic.Settings.Wpf\Mosaic.Settings.Wpf.csproj" />
 <ProjectReference Include="../Modules/DesktopPresence/Mosaic.DesktopPresence.Contracts/Mosaic.DesktopPresence.Contracts.csproj" />
 <ProjectReference Include="../Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/Mosaic.DesktopPresence.Wpf.csproj" />
+<ProjectReference Include="../Modules/ReleaseSummary/Mosaic.ReleaseSummary/Mosaic.ReleaseSummary.csproj" />
 <PackageReference Include="Microsoft.Extensions.Hosting" />
 <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
 </ItemGroup>
+<PropertyGroup><MosaicPublishedBuild Condition="'$(MosaicPublishedBuild)' == ''">false</MosaicPublishedBuild></PropertyGroup>
+<ItemGroup><AssemblyMetadata Include="MosaicPublishedBuild" Value="$(MosaicPublishedBuild)" /><None Include="../../build/release-manifest.json" Link="release-manifest.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../build/release-manifest.json')" /></ItemGroup>
 </Project>

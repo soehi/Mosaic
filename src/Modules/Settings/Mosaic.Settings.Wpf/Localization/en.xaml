@@ -258,4 +258,6 @@
     <sys:String x:Key="Setting.Value.RightEdgeTop">Right edge top</sys:String>
     <sys:String x:Key="Setting.Value.TopEdgeRight">Top edge right</sys:String>
     <sys:String x:Key="Setting.Value.Theme">Follow theme</sys:String>
+    <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled">Create update summary task</sys:String>
+    <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled.Description">Create one update summary task for a new release on the next startup</sys:String>
 </ResourceDictionary>

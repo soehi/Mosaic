@@ -1,5 +1,7 @@
 # Mosaic：设置功能规划（定稿）
 
+实施更新（2026-11-16）：0.6.0 已实现紧凑速览、自然高度、9 项视觉预览参数、独立 release-summary、Tasks 原子创建回执、发布清单和一次性配置迁移。完整配置 84 项（12 普通/72 高级），Presence 26 项。构建及自动化已验证；完整视觉/DPI/交互与安装升级矩阵仍待验收。实际文件和验证见 implementation-status.md 最新记录；下文原规划条目保留为验收基准。
+
 状态：57 项基线的普通/高级投影、分区保存/放弃/恢复及固定右栏已实施。0.3.0 新增驻留分组 17 项；完整配置为 74 项、5 个分区、11 项普通/63 项高级。0.4.0 落实“跨分区持续预览、离开设置页统一确认”；0.5.0 完成宿主设置单一权威、ProviderMap/ModuleList 共享格式规则、跨存储提交日志、设置展示元数据下放模块和导航本地化键；0.5.1 增加生效配置层的一次性 Presence 迁移、迁移标记和原子验收。完整交互式桌面矩阵、重启 pending 数量、旧 0.1 配置完整迁移及结构化模块/provider 编辑仍待验收。
 
 ## 1. 已确认范围
@@ -704,3 +706,13 @@ settings-core 继续负责按 `ModuleId` 路由；settings-ui 不接触来源实
 - 根因位置：`AppConfiguration.Load` 在完整校验前直接修改并写回顶层配置，没有一次性迁移标记；Presence 被用户禁用后仍会重新补入。迁移前的完整依赖解析还会先拒绝尚无 `presence.tasks-view@1` 的旧 `tasks-ui` 配置。设置页已经保存 `settings.host.modules/providers` 时，旧逻辑可能只修改其中一层。
 - 改动位置：`AppConfiguration.cs` 先校验顶层与生效配置，再选择实际覆盖层迁移；新增 `appliedMigrations` 和 `desktop-presence-v1`，成功后原子替换并保留 `.pre-migration`。`HostConfigurationValidator.cs` 成为宿主模块/provider 的唯一语义校验，`HostSettingSource.cs` 复用该入口。
 - 验收位置：`DesktopTests.Configuration_presence_migration_is_validated_persisted_and_one_time` 覆盖顶层迁移、模块/provider 联合及单独覆盖、已迁移后主动禁用及非法配置不写盘。非桌面自动化 121/121，迁移黑盒 6/6。
+
+## 14. 后续规划：速览视觉参数与更新任务
+
+状态：2026-11-16，尚未实施。参数定义、归属和验收统一见 [任务速览 UI 与更新简要任务计划](peek-and-update-summary-plan.md) 第 8、9 节。
+
+- 复用现有弹窗宽度、最大高度、任务上限、筛选与状态色；最大高度改为真正的高度上限，少量任务按内容收缩。
+- 拟新增 9 项 Presence 高级视觉定义，交由通用辅助视图选项传递格式提示，Tasks UI 不再注册同一参数；无 Presence 时整组撤销。
+- 拟新增普通项 `updates.summaryTask.enabled`，由独立更新模块注册到“任务”分区。设置保存只影响下次启动，不在预览或保存时创建任务，使用 `SettingPreviewMode.None` 和 `SettingApplyMode.Restart`。
+- 上述 10 项尚未进入源码，当前 74 项、11 普通/63 高级的实施统计不变；实施同批更新定义数量、资源、截图、测试与发布说明。
+- 普通/高级可见性及跨分区预览规则继续适用；分区与高级开关切换不弹保存确认，离开设置页统一处理全部修改。

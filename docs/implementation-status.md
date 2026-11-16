@@ -1,5 +1,26 @@
 # Mosaic：实施与验证记录
 
+## 0.6.0：任务速览与更新简要（2026-11-16）
+
+- 根因位置：PresenceSurface.PositionWindows 把 maxHeight 当实际高度；TaskPeekViewModel.UpdateView 逐项大卡片和 PresencePopupView.xaml 的重操作栏形成空白与视觉负担。Tasks 的 TaskService.CreateAsync / ITaskRepository / SqliteTaskRepository 原本没有可持久化的幂等创建事实。
+- 改动位置：PresentationContracts.cs 的 CompanionViewOptions / ICompanionViewSession；Tasks.Wpf/Internal/TaskPeekViewFactory.cs 与新增 TaskPeekView.xaml/.cs；PresenceSurface.cs、PresencePopupView.xaml/.cs、PresenceSettings.cs、PresenceLocalization.cs。容器只测通用 DesiredSize，任务内容仍由 Tasks UI 拥有；更多菜单、提示、Esc、旧会话通知隔离纳入处理。
+- 改动位置：Tasks.Contracts/TaskCreateOnce.cs；Tasks.Core 的 TaskService.CreateOnceAsync、GuardedTasksApi、TasksModule；Persistence.Contracts/ITaskRepository；Tasks.Sqlite 的 SqliteTaskRepository、TasksSqliteModule 与 002_CreateTaskReceipts.sql。任务和回执同事务写入，删除任务保留回执，历史回执优先于新限额校验。
+- 新增 ReleaseSummary/Mosaic.ReleaseSummary 的 ReleaseManifest、ReleaseSummaryComposer、ReleaseSummaryModule，独占版本范围、正文及启动策略。更新开关为下次启动生效且不预览。Desktop 的 AppConfiguration、BuiltInModuleCatalog、Bootstrapper、appsettings.json、csproj 完成一次性生效层迁移和任务首屏查询前的就绪申请。
+- 构建位置：build/release-content.json、published-release-index.json、release-content.ps1、release-manifest.json 为发布内容权威及生成/校验；publish.ps1、package.ps1、WiX、Directory.Build.props、解决方案、项目引用边界、public-api 与锁文件同步 0.6.0。开发构建不会自动写更新任务，正式发布使用 MosaicPublishedBuild 标记。
+- 测试位置：新增 Tasks.Core.Tests/CreateOnceTests.cs、Tasks.Contract.Tests/CreateOnceRepositoryTests.cs、ReleaseSummary.Tests；更新 Shared/MemoryTaskRepository.cs、Wpf.Tests/PresenceTests.cs 和 Desktop.SmokeTests/DesktopTests.cs。146 项非桌面自动化通过（WPF 52）；Release 构建 0 警告/0 错误。正式发布包两次启动独立工作空间，确认只有一条未完成更新任务和一条回执；8 项旧配置迁移黑盒通过。
+- 原配置自动补入 release-summary-v1（仅任务和设置能力已启用时接入），成功后原子写回并备份；已迁移后用户停用不会加回。任务回执表使用 Tasks V2 迁移及既有备份机制，不覆盖用户任务数据。
+- 产物：唯一完整程序 artifacts/local-run/Mosaic.Desktop.exe；Mosaic-0.6.0-win-x64.msi 为 51,905,472 字节，SHA-256 C307F5CB184CB302A5278231F67C05BDD9132CF8798B18840B1C2AA905289B7D。MSI 以 SkipValidation 构建。
+- 未完成验收：完整桌面 Smoke、所有0/1/3/12/超限截图矩阵、100–200% DPI、多屏/高对比度实机、MSI ICE 与干净 Windows 安装升级。生成安装包不等于完成上述验收。
+
+
+## 待实施计划：速览 UI 与更新简要任务（2026-11-16）
+
+- 本轮仅更新规划文档，未改程序或用户数据，也未创建实际更新任务。完整需求、默认行为、模块接口与验收见 [专项计划](peek-and-update-summary-plan.md)，总计划新增阶段 11。
+- 用户已确认正文范围为“本次更新的全部新增、改进和修复”；专项计划第 1、4、7 节与总计划阶段 11 已同步定稿，移除全版本功能清单的备选要求。功能仍处于待实施状态。
+- 视觉原因位置：`PresenceSurface.PositionWindows` 将最大高度直接用作实际高度；`TaskPeekViewModel.UpdateView` 的逐项大卡片，以及 `PresencePopupView.xaml` 的大按钮和辅助文字造成层级偏重。拟分别改为自然高度、紧凑任务行与轻量操作区。
+- 更新任务能力缺口位置：`ITasksApi` / `TaskService.CreateAsync` 只有普通创建，`ITaskRepository` / `SqliteTaskRepository` 没有原子创建回执；计划新增公开通用幂等能力，独立更新模块负责发布正文与触发。
+- 文档改动位置：新增 `docs/peek-and-update-summary-plan.md`；同步 `docs/implementation-plan.md` 阶段 11、`docs/settings-plan.md` 第 14 节、`docs/desktop-presence-plan.md` 后续规则、`docs/architecture-principles.md` 第 13 节，以及 README 文档入口。本节只登记计划，不复用历史测试计数证明新功能已完成。
+
 ## 当前增量：0.5.1 旧配置迁移收口（2026-11-16）
 
 - 根因位置：`AppConfiguration.Load` 在完整校验前直接改写旧配置，且没有保存一次性迁移状态；早期修复又在迁移前解析旧依赖图，旧 `tasks-ui` 因缺少 `presence.tasks-view@1` 被提前拒绝。用户关闭 Presence 后仍会被每次启动补回，设置覆盖存在时还可能只更新 modules 或 providers 的单层。修复前逻辑没有覆盖顶层与 `settings.host.*` 的完整生效组合。

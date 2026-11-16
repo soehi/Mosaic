@@ -23,15 +23,18 @@ public sealed class TasksModule : IModuleActivation
     {
         _gate = dependencies.Gate;
         _settings = dependencies.Settings;
-        Api = new GuardedTasksApi(new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules), _gate, dependencies.Diagnostics);
+        var api = new GuardedTasksApi(new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules), _gate, dependencies.Diagnostics);
+        Api = api;
+        CreateOnceApi = api;
     }
     public static ModuleManifest Definition { get; } = new(
         "tasks-core",
-        [new("tasks.api", 1)],
+        [new("tasks.api", 1), new("tasks.create-once", 1)],
         [new("tasks.repository", 1), new("settings.api", 1)],
         "Owns task rules and the guarded public task API.");
     public ModuleManifest Manifest => Definition;
     public ITasksApi Api { get; }
+    public ITaskCreateOnceApi CreateOnceApi { get; }
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

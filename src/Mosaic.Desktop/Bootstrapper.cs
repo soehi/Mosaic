@@ -72,6 +72,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
         {
             await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest));
             Presence = context.Presence;
+            if (context.ReleaseSummary is { } summary) await summary.RequestStartupReadyAsync();
             var settingsApi = context.Settings?.Api;
             _settingsCore = settingsApi;
             _shellSettingsRegistration = settingsApi?.Register(new ShellSettingSource());

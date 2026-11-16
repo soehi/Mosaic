@@ -14,6 +14,8 @@ internal sealed record AppConfiguration(
     string[]? AppliedMigrations = null)
 {
     private const string PresenceMigration = "desktop-presence-v1";
+    private const string ReleaseSummaryMigration = "release-summary-v1";
+    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration];
 
     internal static AppConfiguration Load(AppPaths paths)
     {
@@ -33,15 +35,20 @@ internal sealed record AppConfiguration(
         }
         catch (JsonException) { throw new ConfigurationException("配置 JSON 格式无效，请修正 Config/appsettings.json。"); }
         if (configuration is null) throw new ConfigurationException("配置根必须是 JSON 对象。");
-        var hasPresenceMigration = configuration.AppliedMigrations?.Contains(PresenceMigration, StringComparer.Ordinal) ?? false;
-        ValidateCoreConfiguration(configuration, validateDependencies: hasPresenceMigration);
+        var original = configuration;
+        var appliedMigrations = configuration.AppliedMigrations ?? [];
+        ValidateCoreConfiguration(configuration,
+            validateDependencies: KnownMigrations.All(id => appliedMigrations.Contains(id, StringComparer.Ordinal)));
 
-        if (!hasPresenceMigration)
+        if (!appliedMigrations.Contains(PresenceMigration, StringComparer.Ordinal))
+            configuration = ApplyPresenceMigration(configuration);
+        if (!appliedMigrations.Contains(ReleaseSummaryMigration, StringComparer.Ordinal))
+            configuration = ApplyReleaseSummaryMigration(configuration);
+
+        if (configuration != original)
         {
-            var migrated = ApplyPresenceMigration(configuration);
-            ValidateCoreConfiguration(migrated, validateDependencies: true);
-            WriteConfiguration(paths, migrated);
-            configuration = migrated;
+            ValidateCoreConfiguration(configuration, validateDependencies: true);
+            WriteConfiguration(paths, configuration);
         }
 
         return configuration with
@@ -106,13 +113,8 @@ internal sealed record AppConfiguration(
             providerChanged |= providers.TryAdd("desktop.presence@1", "desktop-presence");
         }
 
-        var appliedMigrations = (configuration.AppliedMigrations ?? [])
-            .Append(PresenceMigration)
-            .ToArray();
-        if (!moduleChanged && !providerChanged)
-            return configuration with { AppliedMigrations = appliedMigrations };
-
-        if (hasModuleOverride) settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
+        if (moduleChanged && hasModuleOverride)
+            settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
         if (providerChanged)
         {
             // A modules override can enable a module that is absent from the top-level baseline.
@@ -126,9 +128,56 @@ internal sealed record AppConfiguration(
             Modules = hasModuleOverride ? configuration.Modules : modules.ToArray(),
             Providers = hasModuleOverride ? configuration.Providers : providers,
             Settings = settings,
-            AppliedMigrations = appliedMigrations
+            AppliedMigrations = MarkMigration(configuration, PresenceMigration)
         };
     }
+
+    private static AppConfiguration ApplyReleaseSummaryMigration(AppConfiguration configuration)
+    {
+        var settings = configuration.Settings is null
+            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            : new Dictionary<string, JsonElement>(configuration.Settings, StringComparer.Ordinal);
+        var hasModuleOverride = settings.ContainsKey("host.modules");
+        var hasProviderOverride = settings.ContainsKey("host.providers");
+        var modules = ReadModuleOverride(configuration)?.ToList() ?? configuration.Modules.ToList();
+        var providers = ReadProviderOverride(configuration) is { } providerOverride
+            ? new Dictionary<string, string>(providerOverride, StringComparer.Ordinal)
+            : new Dictionary<string, string>(configuration.Providers, StringComparer.Ordinal);
+        var tasksEnabled = modules.Contains("tasks-core", StringComparer.Ordinal);
+        var settingsEnabled = modules.Contains("settings-core", StringComparer.Ordinal);
+        var moduleChanged = false;
+        var providerChanged = false;
+
+        if (tasksEnabled && settingsEnabled)
+        {
+            if (!modules.Contains("release-summary", StringComparer.Ordinal))
+            {
+                modules.Add("release-summary");
+                moduleChanged = true;
+            }
+            providerChanged |= providers.TryAdd("tasks.create-once@1", "tasks-core");
+            providerChanged |= providers.TryAdd("release.summary@1", "release-summary");
+        }
+
+        if (moduleChanged && hasModuleOverride)
+            settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
+        if (providerChanged && (hasModuleOverride || hasProviderOverride))
+            settings["host.providers"] = JsonSerializer.SerializeToElement(providers);
+
+        return configuration with
+        {
+            Modules = hasModuleOverride ? configuration.Modules : modules.ToArray(),
+            Providers = hasModuleOverride || hasProviderOverride ? configuration.Providers : providers,
+            Settings = settings,
+            AppliedMigrations = MarkMigration(configuration, ReleaseSummaryMigration)
+        };
+    }
+
+    private static string[] MarkMigration(AppConfiguration configuration, string migration) =>
+        (configuration.AppliedMigrations ?? [])
+            .Append(migration)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     private static string[]? ReadModuleOverride(AppConfiguration configuration)
     {

@@ -139,7 +139,9 @@ public sealed class DesktopTests
             popup = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "PresencePopup"))), "Missing second overview");
-            Click(Id(popup, "PresenceExit")!);
+            Click(Id(popup, "PresenceMore")!);
+            var exit = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, "PresenceExit")), "Missing exit menu");
+            Click(exit);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
             Assert.Equal(0, process.ExitCode);
         }
@@ -225,6 +227,35 @@ public sealed class DesktopTests
             if (hasModuleOverride)
                 Assert.DoesNotContain("desktop-presence", migratedRoot.GetProperty("modules").EnumerateArray().Select(item => item.GetString()));
             Assert.Equal(original, File.ReadAllText(configPath + ".pre-migration"));
+        }
+        finally { Cleanup(process); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Release_summary_migration_updates_the_effective_layer_once(bool overrides)
+    {
+        var root = NewRoot();
+        var configPath = Path.Combine(root, "Config/appsettings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+        var config = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(Path.Combine(Root, "src/Mosaic.Desktop/appsettings.json")))!;
+        var modules = config["modules"].Deserialize<string[]>()!.Where(id => id != "release-summary").ToArray();
+        var providers = config["providers"].Deserialize<Dictionary<string,string>>()!.Where(item => item.Key is not "tasks.create-once@1" and not "release.summary@1").ToDictionary();
+        config["modules"] = JsonSerializer.SerializeToElement(modules);
+        config["providers"] = JsonSerializer.SerializeToElement(providers);
+        config["appliedMigrations"] = JsonSerializer.SerializeToElement(new[] { "desktop-presence-v1" });
+        if (overrides) config["settings"] = JsonSerializer.SerializeToElement(new Dictionary<string,object> { ["host.modules"] = modules, ["host.providers"] = providers });
+        File.WriteAllText(configPath, JsonSerializer.Serialize(config));
+        using var process = StartExisting(root, hidden: true);
+        try
+        {
+            await UntilCondition(() => File.ReadAllText(configPath).Contains("release-summary-v1", StringComparison.Ordinal), "Summary migration not persisted");
+            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+            var scope = overrides ? doc.RootElement.GetProperty("settings") : doc.RootElement;
+            Assert.Contains("release-summary", scope.GetProperty(overrides ? "host.modules" : "modules").EnumerateArray().Select(item => item.GetString()));
+            Assert.Equal("tasks-core", scope.GetProperty(overrides ? "host.providers" : "providers").GetProperty("tasks.create-once@1").GetString());
+            Assert.True(File.Exists(configPath + ".pre-migration"));
         }
         finally { Cleanup(process); }
     }

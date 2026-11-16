@@ -321,139 +321,147 @@
       "mosaic.desktoppresence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.desktoppresence.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.DesktopPresence.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.DesktopPresence.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.desktoppresence.wpf": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.DesktopPresence.Contracts": "[0.5.0, )",
-          "Mosaic.DesktopPresence.Core": "[0.5.0, )",
-          "Mosaic.Presentation.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Wpf": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.DesktopPresence.Contracts": "[0.6.0, )",
+          "Mosaic.DesktopPresence.Core": "[0.6.0, )",
+          "Mosaic.Presentation.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Wpf": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.kernel": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.presentation.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.presentation.wpf": {
         "type": "Project"
       },
+      "mosaic.releasesummary": {
+        "type": "Project",
+        "dependencies": {
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Contracts": "[0.6.0, )"
+        }
+      },
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.settings.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.settings.sqlite": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )",
-          "Mosaic.Storage.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )",
+          "Mosaic.Storage.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.settings.wpf": {
         "type": "Project",
         "dependencies": {
           "CommunityToolkit.Mvvm": "[8.4.2, )",
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Wpf": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Wpf": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.shell.wpf": {
         "type": "Project",
         "dependencies": {
           "CommunityToolkit.Mvvm": "[8.4.2, )",
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Wpf": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Wpf": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.storage.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.storage.sqlite": {
         "type": "Project",
         "dependencies": {
           "Microsoft.Data.Sqlite": "[10.0.9, )",
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )",
-          "Mosaic.Storage.Contracts": "[0.5.0, )",
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )",
+          "Mosaic.Storage.Contracts": "[0.6.0, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
         }
       },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.tasks.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )",
-          "Mosaic.Tasks.Contracts": "[0.5.0, )",
-          "Mosaic.Tasks.Persistence.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Persistence.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.tasks.persistence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Tasks.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.tasks.sqlite": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Storage.Contracts": "[0.5.0, )",
-          "Mosaic.Tasks.Contracts": "[0.5.0, )",
-          "Mosaic.Tasks.Persistence.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Storage.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Persistence.Contracts": "[0.6.0, )"
         }
       },
       "mosaic.tasks.wpf": {
         "type": "Project",
         "dependencies": {
           "CommunityToolkit.Mvvm": "[8.4.2, )",
-          "Mosaic.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Contracts": "[0.5.0, )",
-          "Mosaic.Presentation.Wpf": "[0.5.0, )",
-          "Mosaic.Settings.Contracts": "[0.5.0, )",
-          "Mosaic.Tasks.Contracts": "[0.5.0, )"
+          "Mosaic.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Contracts": "[0.6.0, )",
+          "Mosaic.Presentation.Wpf": "[0.6.0, )",
+          "Mosaic.Settings.Contracts": "[0.6.0, )",
+          "Mosaic.Tasks.Contracts": "[0.6.0, )"
         }
       },
       "CommunityToolkit.Mvvm": {

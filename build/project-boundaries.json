@@ -83,7 +83,8 @@
     "Mosaic.Settings.Sqlite",
     "Mosaic.Settings.Wpf",
     "Mosaic.DesktopPresence.Contracts",
-    "Mosaic.DesktopPresence.Wpf"
+    "Mosaic.DesktopPresence.Wpf",
+    "Mosaic.ReleaseSummary"
   ],
   "Mosaic.DesktopPresence.Contracts": [
     "Mosaic.Contracts"
@@ -98,6 +99,11 @@
     "Mosaic.DesktopPresence.Core",
     "Mosaic.Presentation.Contracts",
     "Mosaic.Presentation.Wpf",
+    "Mosaic.Settings.Contracts"
+  ],
+  "Mosaic.ReleaseSummary": [
+    "Mosaic.Contracts",
+    "Mosaic.Tasks.Contracts",
     "Mosaic.Settings.Contracts"
   ]
 }

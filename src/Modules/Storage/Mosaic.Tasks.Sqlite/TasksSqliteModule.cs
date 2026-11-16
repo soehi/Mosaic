@@ -18,9 +18,15 @@ public sealed class TasksSqliteModule(IDatabaseSession database) : IModuleActiva
     public ITaskRepository Repository => _active ? _repository : throw new InvalidOperationException("Task repository is not active.");
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
-        using var stream = typeof(TasksSqliteModule).Assembly.GetManifestResourceStream("Mosaic.Tasks.Sqlite.Migrations.001_CreateTasks.sql") ?? throw new InvalidOperationException("Missing embedded migration.");
-        using var reader = new StreamReader(stream);
-        var result = await database.MigrateAsync("tasks-sqlite", [new(1, await reader.ReadToEndAsync(cancellationToken))], cancellationToken).ConfigureAwait(false);
+        var migrations = new List<MigrationDefinition>();
+        foreach (var (version, name) in new[] { (1, "001_CreateTasks"), (2, "002_CreateTaskReceipts") })
+        {
+            using var stream = typeof(TasksSqliteModule).Assembly.GetManifestResourceStream($"Mosaic.Tasks.Sqlite.Migrations.{name}.sql")
+                ?? throw new InvalidOperationException("Missing embedded migration.");
+            using var reader = new StreamReader(stream);
+            migrations.Add(new(version, await reader.ReadToEndAsync(cancellationToken)));
+        }
+        var result = await database.MigrateAsync("tasks-sqlite", migrations, cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess) throw new InvalidOperationException($"任务数据迁移失败：{result.Error!.Code} ({result.Error.CorrelationId})");
         _active = true;
     }

@@ -25,7 +25,16 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         Define("desktop.popup.maxHeight", "弹窗最大高度", "面板高度同时受工作区限制（DIP）", 560, min: 240, max: 1000),
         Define("desktop.popup.maxItems", "摘要任务上限", "超出数量会明确提示，可恢复主窗口查看更多", 12, min: 1, max: 100),
         Define("desktop.popup.openColor", "未完成状态颜色", "使用 Theme 跟随主题，或输入 #RRGGBB", "Theme"),
-        Define("desktop.popup.completedColor", "已完成状态颜色", "使用 Theme 跟随主题，或输入 #RRGGBB", "Theme")
+        Define("desktop.popup.completedColor", "已完成状态颜色", "使用 Theme 跟随主题，或输入 #RRGGBB", "Theme"),
+        Define("desktop.popup.fitContent", "按内容收缩", "少量任务时使用自然高度，仍受最大高度限制", true),
+        Define("desktop.popup.padding", "面板内边距", "外框统一内边距（DIP）", 16, min: 8, max: 28),
+        Define("desktop.popup.cornerRadius", "面板圆角", "任务速览外框圆角（DIP）", 12, min: 0, max: 24),
+        Define("desktop.popup.rowGap", "任务行间距", "相邻任务行的额外间距（DIP）", 0, min: 0, max: 12),
+        Define("desktop.popup.rowPaddingY", "任务行纵向留白", "每行上方和下方的留白（DIP）", 12, min: 6, max: 20),
+        Define("desktop.popup.titleFontSize", "速览标题字号", "任务标题字号（DIP）", 14, min: 12, max: 20),
+        Define("desktop.popup.titleMaxLines", "标题最多行数", "超出行数省略，悬停可查看完整标题", 2, min: 1, max: 3),
+        Define("desktop.popup.showStatusText", "显示状态文字", "隐藏后仍保留矢量标记和无障碍名称", true),
+        Define("desktop.popup.showHints", "常驻显示收起提示", "关闭时通过工具提示查看收起方式", false)
     ];
 
     private static SettingDefinition Define(string id, string name, string description, object value,
@@ -57,7 +66,16 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         ["desktop.popup.maxHeight"] = "Settings.Setting.Desktop.PopupMaxHeight",
         ["desktop.popup.maxItems"] = "Settings.Setting.Desktop.PopupMaxItems",
         ["desktop.popup.openColor"] = "Settings.Setting.Desktop.OpenColor",
-        ["desktop.popup.completedColor"] = "Settings.Setting.Desktop.CompletedColor"
+        ["desktop.popup.completedColor"] = "Settings.Setting.Desktop.CompletedColor",
+        ["desktop.popup.fitContent"] = "Settings.Setting.Desktop.FitContent",
+        ["desktop.popup.padding"] = "Settings.Setting.Desktop.PopupPadding",
+        ["desktop.popup.cornerRadius"] = "Settings.Setting.Desktop.PopupCornerRadius",
+        ["desktop.popup.rowGap"] = "Settings.Setting.Desktop.PopupRowGap",
+        ["desktop.popup.rowPaddingY"] = "Settings.Setting.Desktop.PopupRowPaddingY",
+        ["desktop.popup.titleFontSize"] = "Settings.Setting.Desktop.PopupTitleFontSize",
+        ["desktop.popup.titleMaxLines"] = "Settings.Setting.Desktop.PopupTitleMaxLines",
+        ["desktop.popup.showStatusText"] = "Settings.Setting.Desktop.PopupShowStatusText",
+        ["desktop.popup.showHints"] = "Settings.Setting.Desktop.PopupShowHints"
     };
 
     private static string PresenceValueKey(string value) => value switch

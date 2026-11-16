@@ -1,4 +1,6 @@
 using System.Text;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Persistence.Contracts;
@@ -29,6 +31,30 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
         var saved = await repository.InsertAsync(task, ct).ConfigureAwait(false);
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(task) : OperationResult<TaskItemDto>.Failure(saved.Error!);
     }
+    internal async Task<OperationResult<TaskCreateOnceResult>> CreateOnceAsync(CreateTaskOnceRequest request, CancellationToken ct)
+    {
+        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            Title = request.Title.Trim(),
+            request.Notes,
+            request.IsCompleted
+        })));
+        // Successful historical requests remain recognizable after the user lowers task limits.
+        var receipts = await repository.QueryCreationReceiptsAsync(request.SourceId, ct).ConfigureAwait(false);
+        if (!receipts.IsSuccess) return OperationResult<TaskCreateOnceResult>.Failure(receipts.Error!);
+        if (receipts.Value.FirstOrDefault(receipt => receipt.RequestKey == request.RequestKey) is { } existing)
+            return existing.PayloadFingerprint == fingerprint
+                ? OperationResult<TaskCreateOnceResult>.Success(new(existing.TaskId, TaskCreateOnceDisposition.AlreadyCreated, existing.TaskExists))
+                : OperationResult<TaskCreateOnceResult>.Failure(CreateOnceConflict());
+        if (Validate(request.Title, request.Notes) is { } error) return OperationResult<TaskCreateOnceResult>.Failure(error);
+        var now = clock.GetUtcNow();
+        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted, now, now, rules.Current.RevisionStart);
+        return await repository.InsertOnceAsync(request.SourceId, request.RequestKey, fingerprint, task, ct).ConfigureAwait(false);
+    }
+    internal Task<OperationResult<IReadOnlyList<TaskCreationReceiptDto>>> ListReceiptsAsync(string sourceId, CancellationToken ct) =>
+        repository.QueryCreationReceiptsAsync(sourceId, ct);
+    private static OperationError CreateOnceConflict() => new(
+        ErrorCodes.Conflict, "此创建请求标识已用于不同的任务内容。", "RequestKey");
     internal async Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken ct)
     {
         var found = await repository.FindAsync(id, ct).ConfigureAwait(false);

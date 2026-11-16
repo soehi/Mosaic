@@ -1,5 +1,5 @@
 param(
-    [string]$ProductVersion = '0.5.1',
+    [string]$ProductVersion = '0.6.0',
     [switch]$NoPublish,
     [string]$PublishDirectory = 'artifacts/local-run',
     [switch]$SkipValidation)
@@ -8,6 +8,7 @@ $mosaicRoot = Split-Path $PSScriptRoot -Parent
 if (-not $NoPublish) { & (Join-Path $PSScriptRoot 'publish.ps1') }
 $mosaicPublish = if ([IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirectory } else { Join-Path $mosaicRoot $PublishDirectory }
 if (-not (Test-Path -LiteralPath (Join-Path $mosaicPublish 'Mosaic.Desktop.exe'))) { throw 'Publish the application first.' }
+& (Join-Path $PSScriptRoot 'release-content.ps1') -ProgramVersion $ProductVersion -CheckOnly -CheckManifestPath (Join-Path $mosaicPublish 'release-manifest.json')
 $mosaicRuntimeDataDirectories = @('Data', 'Config', 'Logs')
 function Test-MosaicPayloadItem([IO.FileSystemInfo]$Item) {
     if ($Item.Name -eq '.mosaic.instance.lock') { return $false }

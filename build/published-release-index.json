@@ -1,0 +1,37 @@
+[
+  {
+    "releaseId": "mosaic-0.1.0",
+    "version": "0.1.0",
+    "contentSha256": "C44D008127253C171DF34DF56C84000B369BE1C9E93BB35EC56086E81EAFEDA5"
+  },
+  {
+    "releaseId": "mosaic-0.2.0",
+    "version": "0.2.0",
+    "contentSha256": "6F1FFE4EE3653DF6B52297AF11A11822C033425479B3493BF02BDE76D9BB063D"
+  },
+  {
+    "releaseId": "mosaic-0.3.0",
+    "version": "0.3.0",
+    "contentSha256": "9255D67E4C8F63FF48D7ECA6FC72493E52F1CF8765C99A1F872A58FA4E59A074"
+  },
+  {
+    "releaseId": "mosaic-0.4.0",
+    "version": "0.4.0",
+    "contentSha256": "2E237FD65A46EB54243C163D0D88A003F0AF2D3CD40F1BB3003B4C41A13323B1"
+  },
+  {
+    "releaseId": "mosaic-0.5.0",
+    "version": "0.5.0",
+    "contentSha256": "563F848CED36884498EC5066B94CF0DD37B8C7A0D8CC0E085BBFC46E683D36CD"
+  },
+  {
+    "releaseId": "mosaic-0.5.1",
+    "version": "0.5.1",
+    "contentSha256": "B6AFFA900A7A169255C3141099A29C7E0D4D51D86E8519AF59A55A45D690659C"
+  },
+  {
+    "releaseId": "mosaic-0.6.0",
+    "version": "0.6.0",
+    "contentSha256": "C9FFBCBCAE502688638D134C59067DDA38232F1EE2484B8ACD615A9A20D7959D"
+  }
+]
