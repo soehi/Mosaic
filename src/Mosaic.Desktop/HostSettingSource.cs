@@ -63,31 +63,7 @@ internal sealed class HostSettingSource : IHostSettingSource
                 && Convert.ToDouble(size) < Convert.ToDouble(minimum))
                 return Task.FromResult(OperationResult.Failure(new(ErrorCodes.ValidationFailed, "启动尺寸不得小于窗口最小尺寸。", sizeId)));
         }
-        var unknown = modules.Where(id => !BuiltInModuleCatalog.Definitions.ContainsKey(id)).ToArray();
-        if (unknown.Length > 0)
-            return Task.FromResult(OperationResult.Failure(new(
-                ErrorCodes.ValidationFailed, "未知模块：" + string.Join("、", unknown), "host.modules")));
-        var stale = providers.Where(item =>
-                !BuiltInModuleCatalog.Definitions.TryGetValue(item.Value, out var definition) ||
-                !modules.Contains(item.Value, StringComparer.Ordinal) ||
-                !definition.Provides.Any(capability => capability.ToString() == item.Key))
-            .Select(item => item.Key)
-            .ToArray();
-        if (stale.Length > 0)
-            return Task.FromResult(OperationResult.Failure(new(
-                ErrorCodes.ValidationFailed, "能力绑定无效：" + string.Join("、", stale), "host.providers")));
-        try
-        {
-            _ = ModuleGraph.Resolve(
-                modules.Select(id => BuiltInModuleCatalog.Definitions[id]).ToArray(),
-                providers);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Task.FromResult(OperationResult.Failure(new(
-                ErrorCodes.ValidationFailed, "模块依赖或能力绑定无效：" + exception.Message, "host.modules")));
-        }
-        return Task.FromResult(OperationResult.Success());
+        return Task.FromResult(HostConfigurationValidator.Validate(modules, providers));
     }
 
     public async Task<OperationResult> PersistAsync(

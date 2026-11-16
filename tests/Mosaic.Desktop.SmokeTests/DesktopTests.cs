@@ -12,6 +12,18 @@ public sealed class DesktopTests
     }
     private static string Executable => Environment.GetEnvironmentVariable("MOSAIC_SMOKE_EXE") ?? Path.Combine(Root, "artifacts/local-run/Mosaic.Desktop.exe");
     private static string NewRoot() { var path = Path.Combine(Root, "artifacts/smoke-data", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(path); return path; }
+    private static Process StartExisting(string dataRoot, bool hidden = false)
+    {
+        var info = new ProcessStartInfo(Executable) { UseShellExecute = false };
+        if (hidden)
+        {
+            info.WindowStyle = ProcessWindowStyle.Hidden;
+            info.CreateNoWindow = true;
+        }
+        info.ArgumentList.Add("--data-root");
+        info.ArgumentList.Add(dataRoot);
+        return Process.Start(info)!;
+    }
     private static Process Start(string dataRoot, bool presence = false)
     {
         var configPath = Path.Combine(dataRoot, "Config/appsettings.json");
@@ -26,9 +38,23 @@ public sealed class DesktopTests
             }
             File.WriteAllText(configPath, JsonSerializer.Serialize(config));
         }
-        var info = new ProcessStartInfo(Executable) { UseShellExecute = false };
-        info.ArgumentList.Add("--data-root"); info.ArgumentList.Add(dataRoot);
-        return Process.Start(info)!;
+        return StartExisting(dataRoot);
+    }
+    private static async Task UntilCondition(Func<bool> condition, string description)
+    {
+        var deadline = Stopwatch.StartNew();
+        while (deadline.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            try { if (condition()) return; } catch (IOException) { } catch (JsonException) { }
+            await Task.Delay(75);
+        }
+        throw new TimeoutException(description);
+    }
+    private static bool HasAppliedPresenceMigration(string configPath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(configPath));
+        return document.RootElement.TryGetProperty("appliedMigrations", out var migrations) &&
+            migrations.EnumerateArray().Any(item => item.GetString() == "desktop-presence-v1");
     }
     private static async Task<T> Until<T>(Func<T?> get, string description) where T : class
     {
@@ -116,6 +142,89 @@ public sealed class DesktopTests
             Click(Id(popup, "PresenceExit")!);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
             Assert.Equal(0, process.ExitCode);
+        }
+        finally { Cleanup(process); }
+    }
+
+    [Theory]
+    [InlineData("top-level")]
+    [InlineData("host-overrides")]
+    [InlineData("host-module-only")]
+    [InlineData("host-provider-only")]
+    [InlineData("already-migrated-disabled")]
+    [InlineData("invalid-not-rewritten")]
+    public async Task Configuration_presence_migration_is_validated_persisted_and_one_time(string scenario)
+    {
+        var root = NewRoot();
+        var configDirectory = Path.Combine(root, "Config");
+        Directory.CreateDirectory(configDirectory);
+        var configPath = Path.Combine(configDirectory, "appsettings.json");
+        var config = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            File.ReadAllText(Path.Combine(Root, "src/Mosaic.Desktop/appsettings.json")))!;
+        var modules = config["modules"].Deserialize<string[]>()!
+            .Where(id => scenario is "already-migrated-disabled" or "invalid-not-rewritten" || id != "desktop-presence")
+            .ToArray();
+        var providers = config["providers"].Deserialize<Dictionary<string, string>>()!
+            .Where(item => scenario == "already-migrated-disabled"
+                ? item.Key != "desktop.presence@1"
+                : item.Key is not "presence.tasks-view@1" and not "desktop.presence@1")
+            .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        config["modules"] = JsonSerializer.SerializeToElement(modules);
+        config["providers"] = JsonSerializer.SerializeToElement(providers);
+        if (scenario is "top-level" or "host-overrides" or "host-module-only" or "host-provider-only" or "invalid-not-rewritten")
+            config.Remove("appliedMigrations");
+        if (scenario is "host-overrides" or "host-module-only" or "host-provider-only")
+        {
+            var settings = new Dictionary<string, object?>();
+            if (scenario is "host-overrides" or "host-module-only") settings["host.modules"] = modules;
+            if (scenario is "host-overrides" or "host-provider-only") settings["host.providers"] = providers;
+            config["settings"] = JsonSerializer.SerializeToElement(settings);
+        }
+        if (scenario == "invalid-not-rewritten")
+            config["storage"] = JsonSerializer.SerializeToElement(new
+            {
+                engine = "sqlite",
+                location = "local-app-data",
+                filename = "../escape.sqlite"
+            });
+        File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+        var original = File.ReadAllText(configPath);
+        Process? process = null;
+        try
+        {
+            process = StartExisting(root, hidden: true);
+            if (scenario == "invalid-not-rewritten")
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+                Assert.Equal(original, File.ReadAllText(configPath));
+                Assert.False(File.Exists(configPath + ".pre-migration"));
+                return;
+            }
+            if (scenario == "already-migrated-disabled")
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+                Assert.Equal(original, File.ReadAllText(configPath));
+                return;
+            }
+
+            await UntilCondition(() => HasAppliedPresenceMigration(configPath), "Presence migration was not persisted");
+            using var migratedDocument = JsonDocument.Parse(File.ReadAllText(configPath));
+            var migratedRoot = migratedDocument.RootElement;
+            var hasModuleOverride = scenario is "host-overrides" or "host-module-only";
+            var hasProviderOverride = scenario is "host-overrides" or "host-module-only" or "host-provider-only";
+            var moduleScope = hasModuleOverride ? migratedRoot.GetProperty("settings") : migratedRoot;
+            var providerScope = hasProviderOverride ? migratedRoot.GetProperty("settings") : migratedRoot;
+            var enabledModules = moduleScope.GetProperty(hasModuleOverride ? "host.modules" : "modules")
+                .EnumerateArray()
+                .Select(item => item.GetString())
+                .ToArray();
+            var effectiveProviders = providerScope.GetProperty(hasProviderOverride ? "host.providers" : "providers");
+            Assert.Contains("desktop-presence", enabledModules);
+            Assert.Equal("tasks-ui", effectiveProviders.GetProperty("presence.tasks-view@1").GetString());
+            Assert.Equal("desktop-presence", effectiveProviders.GetProperty("desktop.presence@1").GetString());
+            if (hasModuleOverride)
+                Assert.DoesNotContain("desktop-presence", migratedRoot.GetProperty("modules").EnumerateArray().Select(item => item.GetString()));
+            Assert.Equal(original, File.ReadAllText(configPath + ".pre-migration"));
         }
         finally { Cleanup(process); }
     }

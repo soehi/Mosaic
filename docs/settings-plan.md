@@ -1,6 +1,6 @@
 # Mosaic：设置功能规划（定稿）
 
-状态：57 项基线的普通/高级投影、分区保存/放弃/恢复及固定右栏已实施。0.3.0 新增驻留分组 17 项；完整配置为 74 项、5 个分区、11 项普通/63 项高级。0.4.0 落实“跨分区持续预览、离开设置页统一确认”；0.5.0 完成宿主设置单一权威、ProviderMap/ModuleList 共享格式规则、跨存储提交日志、设置展示元数据下放模块和导航本地化键。完整交互式桌面矩阵、重启 pending 数量、旧 0.1 配置完整迁移及结构化模块/provider 编辑仍待验收。
+状态：57 项基线的普通/高级投影、分区保存/放弃/恢复及固定右栏已实施。0.3.0 新增驻留分组 17 项；完整配置为 74 项、5 个分区、11 项普通/63 项高级。0.4.0 落实“跨分区持续预览、离开设置页统一确认”；0.5.0 完成宿主设置单一权威、ProviderMap/ModuleList 共享格式规则、跨存储提交日志、设置展示元数据下放模块和导航本地化键；0.5.1 增加生效配置层的一次性 Presence 迁移、迁移标记和原子验收。完整交互式桌面矩阵、重启 pending 数量、旧 0.1 配置完整迁移及结构化模块/provider 编辑仍待验收。
 
 ## 1. 已确认范围
 
@@ -698,3 +698,9 @@ settings-core 继续负责按 `ModuleId` 路由；settings-ui 不接触来源实
 - 任务错误使用稳定键并经模块本地化器翻译；Shell 对话框、启动失败、退出协调和宿主诊断使用 Desktop/Shell 本地化资源。
 - 紧凑任务页采用真实单栏：仅列表或仅编辑器加顶部返回条，宽屏继续双栏。任务数据、草稿、离开守卫和公开 API 边界不变。
 - 未完成项：重启 pending 的可观测计数、旧 0.1 配置的完整交互式迁移矩阵、模块/provider 结构化编辑器、多屏/DPI/输入法验收及完整桌面 Smoke。以上项目不得因自动化全绿而标记完成。
+
+### 13.14 0.5.1 旧配置迁移实施记录（2026-11-16）
+
+- 根因位置：`AppConfiguration.Load` 在完整校验前直接修改并写回顶层配置，没有一次性迁移标记；Presence 被用户禁用后仍会重新补入。迁移前的完整依赖解析还会先拒绝尚无 `presence.tasks-view@1` 的旧 `tasks-ui` 配置。设置页已经保存 `settings.host.modules/providers` 时，旧逻辑可能只修改其中一层。
+- 改动位置：`AppConfiguration.cs` 先校验顶层与生效配置，再选择实际覆盖层迁移；新增 `appliedMigrations` 和 `desktop-presence-v1`，成功后原子替换并保留 `.pre-migration`。`HostConfigurationValidator.cs` 成为宿主模块/provider 的唯一语义校验，`HostSettingSource.cs` 复用该入口。
+- 验收位置：`DesktopTests.Configuration_presence_migration_is_validated_persisted_and_one_time` 覆盖顶层迁移、模块/provider 联合及单独覆盖、已迁移后主动禁用及非法配置不写盘。非桌面自动化 121/121，迁移黑盒 6/6。

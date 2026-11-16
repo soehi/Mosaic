@@ -10,8 +10,11 @@ internal sealed record AppConfiguration(
     string[] Modules,
     Dictionary<string, string> Providers,
     StorageConfiguration Storage,
-    IReadOnlyDictionary<string, JsonElement>? Settings = null)
+    IReadOnlyDictionary<string, JsonElement>? Settings = null,
+    string[]? AppliedMigrations = null)
 {
+    private const string PresenceMigration = "desktop-presence-v1";
+
     internal static AppConfiguration Load(AppPaths paths)
     {
         Directory.CreateDirectory(paths.ConfigDirectory);
@@ -29,35 +32,126 @@ internal sealed record AppConfiguration(
             });
         }
         catch (JsonException) { throw new ConfigurationException("配置 JSON 格式无效，请修正 Config/appsettings.json。"); }
+        if (configuration is null) throw new ConfigurationException("配置根必须是 JSON 对象。");
+        var hasPresenceMigration = configuration.AppliedMigrations?.Contains(PresenceMigration, StringComparer.Ordinal) ?? false;
+        ValidateCoreConfiguration(configuration, validateDependencies: hasPresenceMigration);
+
+        if (!hasPresenceMigration)
+        {
+            var migrated = ApplyPresenceMigration(configuration);
+            ValidateCoreConfiguration(migrated, validateDependencies: true);
+            WriteConfiguration(paths, migrated);
+            configuration = migrated;
+        }
+
+        return configuration with
+        {
+            Settings = configuration.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            AppliedMigrations = configuration.AppliedMigrations ?? []
+        };
+    }
+
+    private static void ValidateCoreConfiguration(AppConfiguration configuration, bool validateDependencies)
+    {
         if (configuration is not { ConfigVersion: 1, Modules: not null, Providers: not null, Storage: not null })
             throw new ConfigurationException("配置版本或必填内容无效。");
-        // Existing tasks-ui gained an additive capability. Upgrade its binding only; do not enable Presence implicitly.
-        if (configuration.Modules.Contains("tasks-ui", StringComparer.Ordinal))
-            configuration.Providers.TryAdd("presence.tasks-view@1", "tasks-ui");
-        if (configuration.Settings is { } overrides && overrides.TryGetValue("host.providers", out var providerElement))
-        {
-            var enabled = overrides.TryGetValue("host.modules", out var moduleElement)
-                ? moduleElement.Deserialize<string[]>() ?? [] : configuration.Modules;
-            var bindings = providerElement.Deserialize<Dictionary<string, string>>();
-            if (enabled.Contains("tasks-ui", StringComparer.Ordinal) && bindings is not null && bindings.TryAdd("presence.tasks-view@1", "tasks-ui"))
-            {
-                var upgraded = new Dictionary<string, JsonElement>(overrides, StringComparer.Ordinal)
-                { ["host.providers"] = JsonSerializer.SerializeToElement(bindings) };
-                configuration = configuration with { Settings = upgraded };
-            }
-        }
-        if (configuration.Modules.Distinct(StringComparer.Ordinal).Count() != configuration.Modules.Length || configuration.Modules.Any(m => m is null || !BuiltInModuleCatalog.Definitions.ContainsKey(m)))
-            throw new ConfigurationException("模块列表包含未知或重复的模块。");
-        if (configuration.Providers.Any(p =>
-                p.Value is null ||
-                !configuration.Modules.Contains(p.Value, StringComparer.Ordinal) ||
-                !BuiltInModuleCatalog.Definitions.TryGetValue(p.Value, out var definition) ||
-                !definition.Provides.Any(c => c.ToString() == p.Key)))
-            throw new ConfigurationException("能力提供者配置无效。");
+        if (configuration.AppliedMigrations is { } migrations &&
+            migrations.Distinct(StringComparer.Ordinal).Count() != migrations.Length)
+            throw new ConfigurationException("配置迁移标记包含重复项。");
+        var validation = HostConfigurationValidator.ValidateDeclarations(configuration.Modules, configuration.Providers);
+        if (!validation.IsSuccess)
+            throw new ConfigurationException(validation.Error!.Message);
+        ValidateEffectiveHostConfiguration(configuration, validateDependencies);
+
         var storage = configuration.Storage;
-        if (storage.Engine != "sqlite" || storage.Location != "local-app-data" || !IsValidDatabaseFilename(storage.Filename))
+        if (storage.Engine != "sqlite" ||
+            storage.Location != "local-app-data" ||
+            !IsValidDatabaseFilename(storage.Filename))
             throw new ConfigurationException("存储配置无效，数据库名称必须是合法的单个文件名。");
-        return configuration with { Settings = configuration.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal) };
+    }
+
+    private static void ValidateEffectiveHostConfiguration(AppConfiguration configuration, bool validateDependencies)
+    {
+        var modules = ReadModuleOverride(configuration) ?? configuration.Modules;
+        var providers = ReadProviderOverride(configuration) ?? configuration.Providers;
+        var validation = validateDependencies
+            ? HostConfigurationValidator.Validate(modules, providers)
+            : HostConfigurationValidator.ValidateDeclarations(modules, providers);
+        if (!validation.IsSuccess)
+            throw new ConfigurationException(validation.Error!.Message);
+    }
+
+    private static AppConfiguration ApplyPresenceMigration(AppConfiguration configuration)
+    {
+        var settings = configuration.Settings is null
+            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            : new Dictionary<string, JsonElement>(configuration.Settings, StringComparer.Ordinal);
+        var hasModuleOverride = settings.ContainsKey("host.modules");
+        var hasProviderOverride = settings.ContainsKey("host.providers");
+        var modules = ReadModuleOverride(configuration)?.ToList() ?? configuration.Modules.ToList();
+        var providers = ReadProviderOverride(configuration) is { } providerOverride
+            ? new Dictionary<string, string>(providerOverride, StringComparer.Ordinal)
+            : new Dictionary<string, string>(configuration.Providers, StringComparer.Ordinal);
+        var moduleChanged = false;
+        var providerChanged = false;
+
+        if (modules.Contains("tasks-ui", StringComparer.Ordinal))
+        {
+            if (!modules.Contains("desktop-presence", StringComparer.Ordinal))
+            {
+                modules.Add("desktop-presence");
+                moduleChanged = true;
+            }
+            providerChanged |= providers.TryAdd("presence.tasks-view@1", "tasks-ui");
+            providerChanged |= providers.TryAdd("desktop.presence@1", "desktop-presence");
+        }
+
+        var appliedMigrations = (configuration.AppliedMigrations ?? [])
+            .Append(PresenceMigration)
+            .ToArray();
+        if (!moduleChanged && !providerChanged)
+            return configuration with { AppliedMigrations = appliedMigrations };
+
+        if (hasModuleOverride) settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
+        if (providerChanged)
+        {
+            // A modules override can enable a module that is absent from the top-level baseline.
+            // Keep the effective provider map in the same layer so both lists remain self-consistent.
+            if (hasModuleOverride || hasProviderOverride)
+                settings["host.providers"] = JsonSerializer.SerializeToElement(providers);
+        }
+
+        return configuration with
+        {
+            Modules = hasModuleOverride ? configuration.Modules : modules.ToArray(),
+            Providers = hasModuleOverride ? configuration.Providers : providers,
+            Settings = settings,
+            AppliedMigrations = appliedMigrations
+        };
+    }
+
+    private static string[]? ReadModuleOverride(AppConfiguration configuration)
+    {
+        if (configuration.Settings is not { } settings || !settings.TryGetValue("host.modules", out var value))
+            return null;
+        try
+        {
+            return value.Deserialize<string[]>()
+                ?? throw new ConfigurationException("宿主模块覆盖必须是字符串数组。");
+        }
+        catch (JsonException) { throw new ConfigurationException("宿主模块覆盖必须是字符串数组。"); }
+    }
+
+    private static Dictionary<string, string>? ReadProviderOverride(AppConfiguration configuration)
+    {
+        if (configuration.Settings is not { } settings || !settings.TryGetValue("host.providers", out var value))
+            return null;
+        try
+        {
+            return value.Deserialize<Dictionary<string, string>>()
+                ?? throw new ConfigurationException("宿主能力绑定覆盖必须是字符串映射。");
+        }
+        catch (JsonException) { throw new ConfigurationException("宿主能力绑定覆盖必须是字符串映射。"); }
     }
     internal static bool IsValidDatabaseFilename(string filename) =>
         !string.IsNullOrWhiteSpace(filename) &&
@@ -85,6 +179,38 @@ internal sealed record AppConfiguration(
     {
         var name = filename.Split('.')[0].ToUpperInvariant();
         return name is "CON" or "PRN" or "AUX" or "NUL" || (name.Length == 4 && (name.StartsWith("COM", StringComparison.Ordinal) || name.StartsWith("LPT", StringComparison.Ordinal)) && name[3] is >= '1' and <= '9');
+    }
+
+    private static void WriteConfiguration(AppPaths paths, AppConfiguration configuration)
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        var root = new Dictionary<string, object?>
+        {
+            ["configVersion"] = configuration.ConfigVersion,
+            ["appliedMigrations"] = configuration.AppliedMigrations ?? [],
+            ["modules"] = configuration.Modules,
+            ["providers"] = configuration.Providers,
+            ["storage"] = configuration.Storage,
+            ["settings"] = configuration.Settings
+        };
+        var temporaryPath = paths.ConfigPath + ".tmp";
+        var backupPath = paths.ConfigPath + ".pre-migration";
+        try
+        {
+            if (File.Exists(paths.ConfigPath)) File.Copy(paths.ConfigPath, backupPath, overwrite: true);
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(root, options));
+            File.Replace(temporaryPath, paths.ConfigPath, backupPath);
+        }
+        catch (Exception exception)
+        {
+            try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+            catch { /* A leftover temporary file must not mask the original failure. */ }
+            throw new ConfigurationException("升级模块配置失败：" + exception.Message);
+        }
     }
 }
 

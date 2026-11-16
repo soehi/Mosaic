@@ -1,6 +1,15 @@
 # Mosaic：实施与验证记录
 
-## 当前增量：0.5.0 设置与架构收口（2026-11-16）
+## 当前增量：0.5.1 旧配置迁移收口（2026-11-16）
+
+- 根因位置：`AppConfiguration.Load` 在完整校验前直接改写旧配置，且没有保存一次性迁移状态；早期修复又在迁移前解析旧依赖图，旧 `tasks-ui` 因缺少 `presence.tasks-view@1` 被提前拒绝。用户关闭 Presence 后仍会被每次启动补回，设置覆盖存在时还可能只更新 modules 或 providers 的单层。修复前逻辑没有覆盖顶层与 `settings.host.*` 的完整生效组合。
+- 改动位置：`src/Mosaic.Desktop/AppConfiguration.cs` 的解析、校验、Presence 迁移和原子写回；新增 `src/Mosaic.Desktop/HostConfigurationValidator.cs`；`src/Mosaic.Desktop/HostSettingSource.cs` 改用共享语义校验；`src/Mosaic.Desktop/appsettings.json` 增加 `desktop-presence-v1`；`tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs` 新增迁移黑盒场景；版本与说明同步到 `Directory.Build.props`、`build/package.ps1`、WiX 默认值、README 和发布文档。
+- 迁移先校验顶层及实际生效的模块/provider，再修改配置；成功后原子写入 `appliedMigrations: ["desktop-presence-v1"]`，原文件保存为 `Config/appsettings.json.pre-migration`。非法配置不写盘，已迁移后主动禁用 Presence 不会被重新启用。
+- Release 构建 0 警告、0 错误；非桌面自动化 121/121 通过（含 WPF 49/49）；迁移黑盒测试 6/6 通过，覆盖顶层配置、模块/provider 联合及单独覆盖、一次性和非法配置保留。
+- 已生成自包含 `artifacts/local-run` 和 `Mosaic-0.5.1-win-x64.msi`（51,864,156 字节，SHA-256 `528BF03F56E8544AC1FD508E8FBD5B3A03A49E50D569D93156D4DFC85AB2EF2F`）；MSI 数据库回读 `ProductVersion=0.5.1`。使用真实 `%LOCALAPPDATA%\Mosaic` 旧配置启动后，迁移成功且进程持续运行。Windows Installer 服务不可用，ICE01–ICE105 未执行，安装/升级仍待独立验收。
+- 完整交互式桌面 Smoke、干净 Windows 安装与 0.5.0→0.5.1 升级、多屏/DPI、系统会话结束及旧 0.1 配置完整迁移矩阵仍需独立验收。
+
+## 历史增量：0.5.0 设置与架构收口（2026-11-16）
 
 - Release 生产依赖链构建通过：0 警告、0 错误。非桌面自动化 121/121 通过：架构 4、Presence.Core 14、Kernel 5、Settings.Core 25、Settings.Sqlite 1、Storage.Sqlite 12、Tasks.Contract 2、Tasks.Core 9、WPF 49。
 - 宿主设置默认值从 settings-core 移入 Desktop；canonical 模块/provider 默认由 `BuiltInModuleCatalog` 推导，旧顶层配置作为基线读取，`settings` 段只覆盖用户显式保存的项。
