@@ -4,10 +4,10 @@
         xmlns:local="clr-namespace:Mosaic.Shell.Wpf"
         xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
         Title="Mosaic"
-        Width="1220"
-        Height="780"
-        MinWidth="760"
-        MinHeight="620"
+        Width="1504"
+        Height="1012"
+        MinWidth="1100"
+        MinHeight="720"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource {x:Static theme:MosaicTheme.CanvasBrushKey}}"
         Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"
@@ -30,13 +30,15 @@
         </Grid.ColumnDefinitions>
 
         <Border x:Name="Sidebar"
+                ClipToBounds="True"
                 Background="{DynamicResource {x:Static theme:MosaicTheme.SidebarBrushKey}}"
                 BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
                 BorderThickness="0,0,1,0">
             <DockPanel x:Name="SidebarContent" Margin="20,28,16,22">
                 <StackPanel x:Name="BrandPanel" DockPanel.Dock="Top" Margin="2,0,0,42">
-                    <StackPanel x:Name="BrandLockup" Orientation="Horizontal">
+                    <DockPanel x:Name="BrandLockup">
                         <Border x:Name="BrandMark"
+                                DockPanel.Dock="Left"
                                 Width="30"
                                 Height="30"
                                 Margin="0,0,9,0"
@@ -50,11 +52,12 @@
                         </Border>
                         <TextBlock x:Name="BrandText"
                                    Text="Mosaic"
+                                   TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center"
                                    FontSize="24"
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-                    </StackPanel>
+                    </DockPanel>
                     <TextBlock x:Name="BrandTagline"
                                Text="{DynamicResource Shell.Tagline}"
                                Margin="1,10,0,0"
@@ -82,6 +85,7 @@
                                      Fill="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
                             <TextBlock x:Name="StatusText"
                                        Text="{DynamicResource Shell.WorkspaceStatus}"
+                                       TextTrimming="CharacterEllipsis"
                                        FontSize="12"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         </DockPanel>
@@ -92,6 +96,12 @@
                                FontSize="10"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                    <TextBlock x:Name="VersionText"
+                               Text="v0.0.0"
+                               Margin="4,6,0,0"
+                               FontSize="10"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"
+                               AutomationProperties.AutomationId="AppVersion"/>
                 </StackPanel>
 
                 <ItemsControl x:Name="NavigationItems" ItemsSource="{Binding Navigation}">
@@ -104,7 +114,7 @@
                                 <Button.Style>
                                     <Style TargetType="Button"
                                            BasedOn="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}">
-                                        <Setter Property="Width" Value="154"/>
+                                        <Setter Property="HorizontalAlignment" Value="Stretch"/>
                                         <Setter Property="MinHeight" Value="44"/>
                                         <Setter Property="Padding" Value="13,0"/>
                                         <Setter Property="HorizontalContentAlignment" Value="Left"/>
@@ -134,7 +144,11 @@
                                     </Style>
                                 </Button.Style>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Width="22"
+                                    <Path x:Name="SettingsGear" Width="16" Height="16" Margin="3,0"
+                                          Stretch="Uniform" Visibility="Collapsed"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          Data="M 9,0 L 15,0 16,4 19,6 23,5 26,10 23,13 23,17 26,20 23,25 19,24 16,26 15,30 9,30 8,26 5,24 1,25 -2,20 1,17 1,13 -2,10 1,5 5,6 8,4 Z M 12,9 A 6,6 0 1 0 12,21 A 6,6 0 1 0 12,9 Z"/>
+                                    <TextBlock x:Name="NavigationGlyph" Width="22"
                                                VerticalAlignment="Center"
                                                FontSize="15"
                                                TextAlignment="Center">
@@ -147,10 +161,15 @@
                                     </TextBlock>
                                     <TextBlock x:Name="NavigationLabel"
                                                Text="{Binding Label}"
+                                               Margin="6,0,0,0"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IconKey}" Value="settings">
+                                    <Setter TargetName="SettingsGear" Property="Visibility" Value="Visible"/>
+                                    <Setter TargetName="NavigationGlyph" Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
                                 <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
                                              Value="True">
                                     <Setter TargetName="NavigationLabel"
@@ -163,6 +182,33 @@
                 </ItemsControl>
             </DockPanel>
         </Border>
+
+        <Thumb x:Name="SidebarResizeHandle" Width="6" HorizontalAlignment="Right"
+               Panel.ZIndex="3" Cursor="SizeWE" Focusable="True"
+               DragStarted="OnSidebarResizeStarted" DragDelta="OnSidebarResizeDelta" DragCompleted="OnSidebarResizeCompleted"
+               PreviewKeyDown="OnSidebarResizeKeyDown" MouseDoubleClick="OnSidebarResizeReset"
+               ToolTip="{DynamicResource Shell.ResizeSidebar}"
+               AutomationProperties.Name="{DynamicResource Shell.ResizeSidebar}"
+               AutomationProperties.AutomationId="SidebarResizeHandle">
+            <Thumb.Template>
+                <ControlTemplate TargetType="Thumb">
+                    <Border Background="Transparent">
+                        <Border x:Name="ResizeLine" Width="2" HorizontalAlignment="Right" Background="Transparent"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ResizeLine" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="ResizeLine" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="ResizeLine" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Thumb.Template>
+        </Thumb>
 
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>

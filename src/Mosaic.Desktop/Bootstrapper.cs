@@ -6,6 +6,7 @@ using Mosaic.Kernel;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Settings.Contracts;
 using Mosaic.Shell.Wpf;
+using Mosaic.DesktopPresence.Contracts;
 
 namespace Mosaic.Desktop;
 
@@ -15,17 +16,19 @@ internal sealed class Bootstrapper : IAsyncDisposable
     private readonly ContributionRegistry _contributions = new();
     private readonly Dictionary<IModuleActivation, IDisposable> _uiRegistrations = [];
     private IDisposable? _shellSettingsRegistration;
+    private ISettingsCore? _settingsCore;
     private IHost? _host;
     private bool _disposed;
+    internal IDesktopPresenceApi? Presence { get; private set; }
     internal Bootstrapper()
     {
         _runtime.ModuleStarted += OnModuleStarted;
         _runtime.ModuleStopping += OnModuleStopping;
     }
-    internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs)
+    internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs, IDesktopWindowHost windowHost)
     {
         var configuration = AppConfiguration.Load(paths);
-        var hostSettings = new HostSettingSource(paths, new HostSettingsOverrides(configuration.Settings));
+        var hostSettings = new HostSettingSource(paths, configuration);
         var storage = new StorageConfiguration(
             "sqlite",
             hostSettings.GetValue("storage.location") as string ?? configuration.Storage.Location,
@@ -62,12 +65,15 @@ internal sealed class Bootstrapper : IAsyncDisposable
             dispatcher,
             dialogs)
         {
-            HostSettings = hostSettings
+            HostSettings = hostSettings,
+            WindowHost = windowHost
         };
         try
         {
             await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest));
+            Presence = context.Presence;
             var settingsApi = context.Settings?.Api;
+            _settingsCore = settingsApi;
             _shellSettingsRegistration = settingsApi?.Register(new ShellSettingSource());
             return new ShellWindow(_contributions, dialogs, settingsApi);
         }
@@ -86,6 +92,11 @@ internal sealed class Bootstrapper : IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        if (_settingsCore is not null && _shellSettingsRegistration is not null)
+        {
+            var ready = await _settingsCore.PrepareSourceStopAsync("shell");
+            if (!ready.IsSuccess) throw new InvalidOperationException(ready.Error!.Message);
+        }
         _shellSettingsRegistration?.Dispose();
         _shellSettingsRegistration = null;
         foreach (var registration in _uiRegistrations.Values) registration.Dispose();

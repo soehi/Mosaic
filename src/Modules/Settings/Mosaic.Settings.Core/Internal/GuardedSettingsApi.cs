@@ -5,6 +5,17 @@ namespace Mosaic.Settings.Core.Internal;
 
 internal sealed class GuardedSettingsApi(ISettingsCore inner, IModuleExecutionGate? gate, IDiagnosticSink? diagnostics) : ISettingsCore
 {
+    public async Task<OperationResult<ISettingsEditSession>> BeginEditSessionAsync(CancellationToken cancellationToken = default)
+    {
+        if (!TryEnter(out var lease)) return Unavailable<ISettingsEditSession>();
+        using (lease)
+        {
+            try { return await inner.BeginEditSessionAsync(cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { return Report<ISettingsEditSession>(exception); }
+        }
+    }
+    public Task<OperationResult> PrepareSourceStopAsync(string moduleId, CancellationToken cancellationToken = default) =>
+        inner.PrepareSourceStopAsync(moduleId, cancellationToken);
     public async Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default)
     {
         if (!TryEnter(out var lease)) return Unavailable<IReadOnlyList<SettingDefinition>>();
@@ -53,6 +64,28 @@ internal sealed class GuardedSettingsApi(ISettingsCore inner, IModuleExecutionGa
         {
             try { return await inner.ResetAsync(definitionIds, cancellationToken).ConfigureAwait(false); }
             catch (Exception exception) { return ReportReset(exception); }
+        }
+    }
+
+    public async Task<OperationResult<SettingsCommitResult>> ResetWithResultAsync(
+        string? moduleId = null, CancellationToken cancellationToken = default)
+    {
+        if (!TryEnter(out var lease)) return Unavailable<SettingsCommitResult>();
+        using (lease)
+        {
+            try { return await inner.ResetWithResultAsync(moduleId, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { return Report<SettingsCommitResult>(exception); }
+        }
+    }
+
+    public async Task<OperationResult<SettingsCommitResult>> ResetWithResultAsync(
+        IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default)
+    {
+        if (!TryEnter(out var lease)) return Unavailable<SettingsCommitResult>();
+        using (lease)
+        {
+            try { return await inner.ResetWithResultAsync(definitionIds, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { return Report<SettingsCommitResult>(exception); }
         }
     }
 

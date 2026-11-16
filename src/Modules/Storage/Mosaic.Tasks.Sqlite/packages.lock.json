@@ -8,20 +8,20 @@
       "mosaic.storage.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.1.0, )"
+          "Mosaic.Contracts": "[0.5.0, )"
         }
       },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.1.0, )"
+          "Mosaic.Contracts": "[0.5.0, )"
         }
       },
       "mosaic.tasks.persistence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.1.0, )",
-          "Mosaic.Tasks.Contracts": "[0.1.0, )"
+          "Mosaic.Contracts": "[0.5.0, )",
+          "Mosaic.Tasks.Contracts": "[0.5.0, )"
         }
       }
     }

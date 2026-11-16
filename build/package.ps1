@@ -1,13 +1,20 @@
 param(
-    [string]$ProductVersion = '0.2.0',
+    [string]$ProductVersion = '0.5.0',
     [switch]$NoPublish,
-    [string]$PublishDirectory = 'artifacts/win-x64',
+    [string]$PublishDirectory = 'artifacts/local-run',
     [switch]$SkipValidation)
 $ErrorActionPreference = 'Stop'
 $mosaicRoot = Split-Path $PSScriptRoot -Parent
 if (-not $NoPublish) { & (Join-Path $PSScriptRoot 'publish.ps1') }
 $mosaicPublish = if ([IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirectory } else { Join-Path $mosaicRoot $PublishDirectory }
 if (-not (Test-Path -LiteralPath (Join-Path $mosaicPublish 'Mosaic.Desktop.exe'))) { throw 'Publish the application first.' }
+$mosaicRuntimeDataDirectories = @('Data', 'Config', 'Logs')
+function Test-MosaicPayloadItem([IO.FileSystemInfo]$Item) {
+    if ($Item.Name -eq '.mosaic.instance.lock') { return $false }
+    $relative = [IO.Path]::GetRelativePath($mosaicPublish, $Item.FullName)
+    $firstSegment = ($relative -split '[\\/]')[0]
+    return $firstSegment -notin $mosaicRuntimeDataDirectories
+}
 $mosaicPackageDir = Join-Path $mosaicRoot 'artifacts/installer'
 New-Item -ItemType Directory -Force $mosaicPackageDir | Out-Null
 $mosaicNamespace = 'http://wixtoolset.org/schemas/v4/wxs'
@@ -25,14 +32,14 @@ function Get-MosaicId([string]$Path) { return [Convert]::ToHexString([Security.C
 $mosaicDirectories = @{ '' = 'INSTALLFOLDER' }
 $mosaicDirectoryRef = Add-MosaicNode $mosaicFragment 'DirectoryRef' @{ Id = 'INSTALLFOLDER' }
 $mosaicNodes = @{ '' = $mosaicDirectoryRef }
-foreach ($directory in Get-ChildItem -LiteralPath $mosaicPublish -Directory -Recurse | Sort-Object FullName) {
+foreach ($directory in Get-ChildItem -LiteralPath $mosaicPublish -Directory -Recurse | Where-Object { Test-MosaicPayloadItem $_ } | Sort-Object FullName) {
     $relative = [IO.Path]::GetRelativePath($mosaicPublish, $directory.FullName)
     $parent = [IO.Path]::GetDirectoryName($relative)
     $id = 'D' + (Get-MosaicId $relative)
     $mosaicDirectories[$relative] = $id
     $mosaicNodes[$relative] = Add-MosaicNode $mosaicNodes[$parent] 'Directory' @{ Id = $id; Name = $directory.Name }
 }
-foreach ($file in Get-ChildItem -LiteralPath $mosaicPublish -File -Recurse | Sort-Object FullName) {
+foreach ($file in Get-ChildItem -LiteralPath $mosaicPublish -File -Recurse | Where-Object { Test-MosaicPayloadItem $_ } | Sort-Object FullName) {
     if ($file.Extension -eq '.pdb') { continue }
     $relative = [IO.Path]::GetRelativePath($mosaicPublish, $file.FullName)
     $id = Get-MosaicId $relative

@@ -19,6 +19,7 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private string? _currentNavigationId;
     private string? _currentViewId;
     private string? _currentNavigationLabel;
+    private string? _currentNavigationLabelKey;
     private IDisposable? _localizationRegistration;
     private Mosaic.Settings.Contracts.ISettingsApi? _settings;
     private readonly ObservableCollection<NavigationItem> _navigationItems = [];
@@ -49,7 +50,7 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
             if (values.IsSuccess && values.Value is { } current)
             {
                 InitialValues = current;
-                ShellSettingsApplier.Apply(current);
+                await ShellSettingsApplier.ApplyAsync(current);
             }
         }
         if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
@@ -63,10 +64,15 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
             Content = _navigation.Current!.View;
             _currentViewId = item.ViewId;
             _currentNavigationLabel = item.Label;
-            PageTitle = TranslateNavigationLabel(item.Label, item.ViewId);
+            _currentNavigationLabelKey = item.LabelKey;
+            PageTitle = TranslateNavigationLabel(item.LabelKey, item.Label);
             CurrentNavigationId = item.Id;
         }
-        catch (Exception) { await _dialogs.ShowErrorAsync("页面加载失败，请重新启动应用。"); }
+        catch (Exception)
+        {
+            await _dialogs.ShowErrorAsync(ShellLocalization.Localize(
+                "Shell.Error.PageLoad", "页面加载失败，请重新启动应用。"));
+        }
     }
     private void OnContributionsChanged(object? sender, EventArgs e)
     {
@@ -86,7 +92,11 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         await previous;
         try { await release; }
-        catch (Exception) { await _dialogs.ShowErrorAsync("页面关闭未完成，请重新启动应用。"); }
+        catch (Exception)
+        {
+            await _dialogs.ShowErrorAsync(ShellLocalization.Localize(
+                "Shell.Error.PageClose", "页面关闭未完成，请重新启动应用。"));
+        }
     }
     internal async Task<bool> CanCloseAsync()
     {
@@ -106,8 +116,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         RebuildNavigationItems();
-        if (_currentViewId is { } viewId && _currentNavigationLabel is { } label)
-            PageTitle = TranslateNavigationLabel(label, viewId);
+        if (_currentNavigationLabel is { } label)
+            PageTitle = TranslateNavigationLabel(_currentNavigationLabelKey, label);
     }
 
     private void RebuildNavigationItems()
@@ -116,16 +126,13 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         foreach (var item in _registry.Navigation)
             _navigationItems.Add(new NavigationItem(
                 item.Id,
-                TranslateNavigationLabel(item.Label, item.ViewId),
+                TranslateNavigationLabel(item.LabelKey, item.Label),
                 item.IconKey,
                 item.ViewId,
-                item.Order));
+                item.Order,
+                item.LabelKey));
     }
 
-    private static string TranslateNavigationLabel(string label, string viewId) => viewId switch
-    {
-        "tasks.list" => ShellLocalization.Localize("Tasks.Navigation", label),
-        "settings.home" => ShellLocalization.Localize("Settings.Navigation", label),
-        _ => ShellLocalization.Localize("Shell.PageTitle", label)
-    };
+    private static string TranslateNavigationLabel(string? labelKey, string label) =>
+        labelKey is null ? label : ShellLocalization.Localize(labelKey, label);
 }

@@ -46,14 +46,17 @@ public sealed class TasksModule : IModuleActivation
     }
     public async Task StopAsync()
     {
+        if (_settings is not null && _settingsRegistration is not null)
+        {
+            var result = await _settings.PrepareSourceStopAsync("tasks-core").ConfigureAwait(false);
+            if (!result.IsSuccess) throw new InvalidOperationException(result.Error!.Message);
+        }
         _settingsRegistration?.Dispose();
         _settingsRegistration = null;
         await _gate.StopAsync().ConfigureAwait(false);
     }
     public async ValueTask DisposeAsync()
     {
-        _settingsRegistration?.Dispose();
-        _settingsRegistration = null;
-        await _gate.StopAsync().ConfigureAwait(false);
+        await StopAsync().ConfigureAwait(false);
     }
 }

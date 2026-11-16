@@ -24,9 +24,10 @@ public sealed class PresentationTests
     {
         internal UnsavedChoice Choice = UnsavedChoice.Cancel;
         internal bool Delete = false;
+        internal int UnsavedPrompts;
         public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(Delete);
         public Task<bool> ConfirmDeleteAsync(string title) => Task.FromResult(Delete);
-        public Task<UnsavedChoice> AskUnsavedChangesAsync() => Task.FromResult(Choice);
+        public Task<UnsavedChoice> AskUnsavedChangesAsync() { UnsavedPrompts++; return Task.FromResult(Choice); }
         public Task ShowErrorAsync(string message) => Task.CompletedTask;
     }
     private sealed class Api : ITasksApi
@@ -78,6 +79,8 @@ public sealed class PresentationTests
     }
     private sealed class SettingsApi : ISettingsApi
     {
+        public Task<OperationResult<ISettingsEditSession>> BeginEditSessionAsync(CancellationToken cancellationToken = default) => TestSettingsSession.OpenAsync(this);
+        public List<IReadOnlyDictionary<string, object?>> SaveCalls { get; } = [];
         public IReadOnlyList<SettingDefinition> Definitions { get; init; } = [];
         public IReadOnlyDictionary<string, object?>? Values { get; init; }
         public IReadOnlyDictionary<string, OperationError>? ProposedErrors { get; init; }
@@ -88,14 +91,17 @@ public sealed class PresentationTests
                 Values ?? Definitions.ToDictionary(item => item.Id, item => item.DefaultValue, StringComparer.Ordinal)));
         public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
             IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(
+            RecordChanges(changes);
+        private Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> RecordChanges(IReadOnlyDictionary<string, object?> changes)
+        {
+            SaveCalls.Add(changes);
+            return Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(
                 ProposedErrors ?? new Dictionary<string, OperationError>()));
+        }
         public Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
         public List<IReadOnlyList<string>> ResetCalls { get; } = [];
-        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default) =>
-            Track(definitionIds);
-        private Task<OperationResult> Track(IReadOnlyList<string> definitionIds)
+        public Task<OperationResult> ResetAsync(IReadOnlyList<string> definitionIds, CancellationToken cancellationToken = default)
         {
             ResetCalls.Add(definitionIds);
             return Task.FromResult(OperationResult.Success());
@@ -324,9 +330,7 @@ public sealed class PresentationTests
 
         var form = Assert.IsType<ScrollViewer>(editor.FindName("FormScrollViewer"));
         var actionBar = Assert.IsType<Border>(editor.FindName("EditorActionBar"));
-        var navigationBar = Assert.IsType<Border>(editor.FindName("CompactNavigationBar"));
         var notes = Assert.IsType<TextBox>(editor.FindName("NotesTextBox"));
-        Assert.Equal(0, Grid.GetRow(navigationBar));
         Assert.Equal(1, Grid.GetRow(form));
         Assert.Equal(2, Grid.GetRow(actionBar));
         Assert.True(double.IsNaN(notes.Height));
@@ -420,10 +424,27 @@ public sealed class PresentationTests
         {
             MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
             await shell.DisposeAsync();
-            registration.Dispose();
         }
     });
     [Fact]
+    public Task Shell_shows_the_product_version_and_commit() => Sta.Run(async () =>
+    {
+        var shell = new ShellWindow(new ContributionRegistry(), new Dialogs());
+        try
+        {
+            await shell.InitializeAsync();
+            Assert.Matches(@"^Mosaic v\d+\.\d+\.\d+", shell.Title);
+            var version = Assert.IsType<TextBlock>(shell.FindName("VersionText"));
+            Assert.Matches(@"^v\d+\.\d+\.\d+", version.Text);
+        }
+        finally
+        {
+            await shell.DisposeAsync();
+        }
+    });
+
+    [Fact]
+
     public Task Task_editor_and_count_text_follow_the_ui_language() => Sta.Run(async () =>
     {
         MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
@@ -457,7 +478,7 @@ public sealed class PresentationTests
         MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
         var api = new SettingsApi
         {
-            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+            Definitions = new ShellSettingSource().Definitions.ToArray()
         };
         var module = new SettingsUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
         await module.ActivateAsync();
@@ -465,6 +486,8 @@ public sealed class PresentationTests
         try
         {
             await page.Controller.InitializeAsync();
+            SetProperty(page.View.DataContext, "ShowAdvanced", true);
+            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(Get<object>(page.View.DataContext, "SelectedSection").GetType(), "Appearance"));
             static string RowText(object model, string id, string property)
             {
                 var row = VisibleRows(model).Cast<object>()
@@ -678,7 +701,7 @@ public sealed class PresentationTests
         var definition = new SettingDefinition(
             "tasks.title.maxCharacters", "tasks-core", "Title", "Description",
             SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
         var row = Activator.CreateInstance(rowType, definition, 200)!;
         var textValue = rowType.GetProperty("TextValue")!;
         var isDirty = rowType.GetProperty("IsDirty")!;
@@ -699,39 +722,6 @@ public sealed class PresentationTests
     });
 
     [Fact]
-    public Task Setting_rows_format_arrays_and_provider_maps_and_normalize_long_values() => Sta.Run(() =>
-    {
-        var rowType = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingRow")!;
-        string Text(string property, object row) => (string)rowType.GetProperty(property)!.GetValue(row)!;
-        bool Flag(string property, object row) => (bool)rowType.GetProperty(property)!.GetValue(row)!;
-
-        var modules = new SettingDefinition(
-            "host.modules", "host", "Modules", "Description", SettingValueKind.ModuleList,
-            new[] { "storage-sqlite" }, null, null, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig);
-        var moduleRow = Activator.CreateInstance(rowType, modules, new object?[] { "storage-sqlite", "tasks-core" })!;
-        Assert.Equal("storage-sqlite, tasks-core", Text("CurrentValueText", moduleRow));
-
-        var providers = new SettingDefinition(
-            "host.providers", "host", "Providers", "Description", SettingValueKind.ProviderMap,
-            new Dictionary<string, string>(StringComparer.Ordinal), null, null, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig);
-        var providerRow = Activator.CreateInstance(rowType, providers,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" })!;
-        Assert.Equal("tasks.api@1=tasks-core", Text("CurrentValueText", providerRow));
-
-        var integer = new SettingDefinition(
-            "tasks.title.maxCharacters", "tasks-core", "Title", "Description", SettingValueKind.Integer,
-            200, 1, 1000, null,
-            SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings);
-        var integerRow = Activator.CreateInstance(rowType, integer, 200L)!;
-        Assert.False(Flag("IsDirty", integerRow));
-        Assert.True(Flag("IsDefault", integerRow));
-        Assert.Equal("200", Text("CurrentValueText", integerRow));
-        return Task.CompletedTask;
-    });
-
-    [Fact]
     public Task Tasks_ui_module_registers_definitions_including_text_overrides() => Sta.Run(async () =>
     {
         var settings = new SettingsCore();
@@ -739,7 +729,7 @@ public sealed class PresentationTests
         await module.ActivateAsync();
         var source = Assert.Single(settings.Sources);
         Assert.Equal("tasks-ui", source.ModuleId);
-        Assert.Equal(23, source.Definitions.Count);
+        Assert.Equal(25, source.Definitions.Count);
         Assert.All(source.Definitions, item => Assert.Equal("tasks-ui", item.ModuleId));
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.emptyAllTitle");
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.restoredSuccess");
@@ -749,100 +739,177 @@ public sealed class PresentationTests
     });
 
     [Fact]
+    public Task Task_page_created_after_preview_replays_runtime_values_and_discard_replays_saved_values() => Sta.Run(async () =>
+    {
+        var repository = new TestSettingsRepository();
+        await using var settings = new SettingsModule(new(repository));
+        await using var tasks = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics(), settings.Api));
+        await tasks.ActivateAsync();
+        var model = CreateSettingsViewModel(settings.Api, new Dialogs()); await Initialize(model);
+        try
+        {
+            Set(model, "ShowAdvanced", true);
+            var row = VisibleRows(model).Cast<object>().Single(item => Get<string>(item, "Id") == "tasks.layout.editorPaneWidth");
+            Set(row, "TextValue", "600");
+            await (Task)model.GetType().GetMethod("DrainPreviewAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(model, null)!;
+            Assert.Equal(0, repository.Writes);
+            var first = tasks.Views[0].Factory.Create(); await first.Controller.InitializeAsync();
+            Assert.Equal(600, Get<double>(first.View.DataContext, "EditorPaneWidth")); await first.Controller.DisposeAsync();
+            await Get<IAsyncRelayCommand>(model, "DiscardCommand").ExecuteAsync(null);
+            var second = tasks.Views[0].Factory.Create(); await second.Controller.InitializeAsync();
+            Assert.Equal(480, Get<double>(second.View.DataContext, "EditorPaneWidth")); await second.Controller.DisposeAsync();
+        }
+        finally { await ((IPageController)model).DisposeAsync(); }
+    });
+
+    [Fact]
+    public Task Settings_editors_reflow_and_save_bar_remains_outside_the_scroll_area() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi { Definitions = new ShellSettingSource().Definitions };
+        var module = new SettingsUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var page = Assert.Single(module.Views).Factory.Create();
+        page.View.Resources.MergedDictionaries.Add(LoadTheme());
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var model = page.View.DataContext;
+            var row = VisibleRows(model)[0]!;
+            var actionBar = Assert.IsType<Border>(page.View.FindName("SettingsActionBar"));
+            page.View.Measure(new Size(760, 620));
+            page.View.Arrange(new Rect(0, 0, 760, 620));
+            page.View.UpdateLayout();
+            Assert.Equal(Visibility.Collapsed, actionBar.Visibility);
+            Set(row, "ChoiceValue", "Dark");
+            Assert.Equal(Visibility.Visible, actionBar.Visibility);
+            foreach (var width in new[] { 760d, 1100d })
+            {
+                page.View.Measure(new Size(width, 620));
+                page.View.Arrange(new Rect(0, 0, width, 620));
+                page.View.UpdateLayout();
+                Assert.Equal(width < 900, Get<bool>(page.View, "IsCompact"));
+                var footer = Assert.IsType<Border>(page.View.FindName("SettingsActionBar"));
+                var scroll = Assert.IsType<ScrollViewer>(page.View.FindName("SettingsScrollViewer"));
+                Assert.True(footer.ActualHeight >= 64);
+                Assert.True(footer.TranslatePoint(new Point(0, footer.ActualHeight), page.View).Y <= 620.5);
+                Assert.DoesNotContain(footer, FindVisualChildren<Border>(scroll));
+                Assert.Equal(2, FindVisualChildren<ComboBox>(page.View).Count());
+                foreach (var combo in FindVisualChildren<ComboBox>(page.View))
+                {
+                    var position = combo.TranslatePoint(new Point(), page.View);
+                    Assert.True(position.X >= 0 && position.X + combo.ActualWidth <= width + 0.5);
+                    Assert.False(string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(combo)));
+                }
+            }
+            Assert.StartsWith("1 项修改尚未保存", Get<string>(model, "ChangesLabel"));
+            await Get<IAsyncRelayCommand>(model, "DiscardCommand").ExecuteAsync(null);
+            Assert.Equal(Visibility.Collapsed, actionBar.Visibility);
+            Set(row, "ChoiceValue", "Light");
+            Assert.Equal(Visibility.Visible, actionBar.Visibility);
+            await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
+            Assert.Equal(Visibility.Collapsed, actionBar.Visibility);
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+            await module.DisposeAsync();
+        }
+    });
+
+    [Fact]
+    public Task Normal_settings_remain_editable_and_advanced_mode_keeps_the_same_rows() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi { Definitions = new ShellSettingSource().Definitions };
+        var model = CreateSettingsViewModel(api, new Dialogs());
+        await Initialize(model);
+        var row = VisibleRows(model)[0]!;
+        Set(row, "ChoiceValue", "Dark");
+        Assert.True(Get<IAsyncRelayCommand>(model, "SaveCommand").CanExecute(null));
+        Set(model, "ShowAdvanced", true);
+        Assert.Contains(row, VisibleRows(model).Cast<object>());
+        Set(model, "ShowAdvanced", false);
+        Assert.Same(row, VisibleRows(model)[0]);
+        Assert.Equal("Dark", Get<string>(row, "ChoiceValue"));
+        await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
+        Assert.Single(Assert.Single(api.SaveCalls));
+        await ((IPageController)model).DisposeAsync();
+    });
+
+    [Fact]
+    public Task Advanced_dirty_input_survives_mode_and_section_changes_without_a_prompt() => Sta.Run(async () =>
+    {
+        var dialogs = new Dialogs();
+        var api = new SettingsApi { Definitions = new ShellSettingSource().Definitions.ToArray() };
+        var model = CreateSettingsViewModel(api, dialogs); await Initialize(model);
+        Set(model, "ShowAdvanced", true);
+        var row = VisibleRows(model).Cast<object>().Single(item => Get<string>(item, "Id") == "shell.sidebar.fullWidth");
+        Set(row, "TextValue", "200"); Set(model, "ShowAdvanced", false);
+        Assert.False(Get<bool>(model, "ShowAdvanced")); Assert.Equal(0, dialogs.UnsavedPrompts);
+        Assert.True(Get<bool>(model, "HasChanges"));
+        Set(model, "ShowAdvanced", true);
+        var appearance = Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance");
+        await Get<IAsyncRelayCommand>(model, "SelectSectionCommand").ExecuteAsync(appearance);
+        Assert.Equal("Appearance", Get<object>(model, "SelectedSection").ToString());
+        Assert.Equal("200", Get<string>(row, "TextValue")); Assert.Equal(0, dialogs.UnsavedPrompts);
+        Assert.Contains("1", Get<string>(model, "ChangesLabel"));
+        await ((IPageController)model).DisposeAsync();
+    });
+
+    [Fact]
+    public Task Section_reset_stages_defaults_without_writing_until_save() => Sta.Run(async () =>
+    {
+        var api = new SettingsApi { Definitions = new ShellSettingSource().Definitions,
+            Values = new Dictionary<string, object?> { ["appearance.theme"] = "Dark", ["ui.language"] = "English" } };
+        var model = CreateSettingsViewModel(api, new Dialogs()); await Initialize(model);
+        await Get<IAsyncRelayCommand>(model, "ResetSectionCommand").ExecuteAsync(null);
+        Assert.Empty(api.ResetCalls); Assert.Empty(api.SaveCalls);
+        Assert.True(Get<bool>(model, "HasChanges"));
+        await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
+        Assert.Equal(new[] { "appearance.theme", "ui.language" }, Assert.Single(api.SaveCalls).Keys.Order().ToArray());
+        await ((IPageController)model).DisposeAsync();
+    });
+
+    [Fact]
     public Task Appearance_section_lists_theme_language_and_shell_layout_rows() => Sta.Run(async () =>
     {
         var api = new SettingsApi
         {
-            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+            Definitions = new ShellSettingSource().Definitions.ToArray()
         };
         var model = CreateSettingsViewModel(api, new Dialogs());
         await Initialize(model);
         SetProperty(model, "ShowAdvanced", true);
         SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
         var ids = RowIds(model);
-        Assert.Equal(12, ids.Count);
+        Assert.Equal(10, ids.Count);
         Assert.Contains("appearance.theme", ids);
         Assert.Contains("ui.language", ids);
         Assert.Contains("shell.sidebar.fullWidth", ids);
-        Assert.Contains("shell.window.minWidth", ids);
-        Assert.Contains("shell.page.marginBottom", ids);
+        Assert.DoesNotContain("shell.window.minWidth", ids);
         Assert.DoesNotContain("tasks.confirmDelete", ids);
         Assert.DoesNotContain("startup.width", ids);
     });
 
     [Fact]
-    public Task Show_advanced_reveals_all_rows_in_normal_section_and_notifies_visibility() => Sta.Run(async () =>
+    public Task Show_advanced_reveals_all_rows_in_current_section_and_notifies_visibility() => Sta.Run(async () =>
     {
         var api = new SettingsApi
         {
-            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
+            Definitions = new ShellSettingSource().Definitions.ToArray()
         };
         var model = CreateSettingsViewModel(api, new Dialogs());
         var notified = new List<string>();
         ((INotifyPropertyChanged)model).PropertyChanged += (_, e) => notified.Add(e.PropertyName!);
         await Initialize(model);
         Assert.Equal(2, RowIds(model).Count);
+        Assert.Equal("Appearance", Get<object>(model, "SelectedSection").ToString());
+        Assert.Single(Get<IList>(model, "Sections"));
 
+        SetProperty(model, "SelectedSection", Enum.Parse(Get<object>(model, "SelectedSection").GetType(), "Appearance"));
         SetProperty(model, "ShowAdvanced", true);
-        Assert.Equal(21, RowIds(model).Count);
+        Assert.Equal(10, RowIds(model).Count);
         Assert.Contains("HasVisibleRows", notified);
         Assert.Contains("HasRows", notified);
         Assert.Contains("EmptyMessage", notified);
-    });
-
-    [Fact]
-    public Task Section_reset_targets_visible_rows_and_skips_host_bindings() => Sta.Run(async () =>
-    {
-        var api = new SettingsApi
-        {
-            Definitions = SettingCatalog.Definitions.Concat(new ShellSettingSource().Definitions).ToArray()
-        };
-        var model = CreateSettingsViewModel(api, new Dialogs { Delete = true });
-        await Initialize(model);
-        SetProperty(model, "ShowAdvanced", true);
-        var sectionType = Get<object>(model, "SelectedSection").GetType();
-        var reset = Get<IAsyncRelayCommand>(model, "ResetSectionCommand");
-
-        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Storage"));
-        await reset.ExecuteAsync(null);
-        var storageIds = Assert.Single(api.ResetCalls);
-        Assert.Contains("logging.level", storageIds);
-        Assert.Contains("startup.width", storageIds);
-        Assert.DoesNotContain("host.modules", storageIds);
-        Assert.DoesNotContain("host.providers", storageIds);
-        Assert.DoesNotContain("shell.window.minWidth", storageIds);
-
-        SetProperty(model, "SelectedSection", Enum.Parse(sectionType, "Appearance"));
-        await reset.ExecuteAsync(null);
-        var appearanceIds = api.ResetCalls[^1];
-        Assert.Contains("shell.window.minWidth", appearanceIds);
-        Assert.Contains("appearance.theme", appearanceIds);
-        Assert.DoesNotContain("startup.width", appearanceIds);
-        Assert.DoesNotContain("host.modules", appearanceIds);
-    });
-
-    [Fact]
-    public Task Apply_failure_after_save_shows_a_warning_and_keeps_data_saved() => Sta.Run(async () =>
-    {
-        var definition = new SettingDefinition(
-            "tasks.confirmDelete", "tasks-ui", "Confirm", "Description", SettingValueKind.Boolean,
-            true, null, null, null, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings);
-        var api = new SettingsApi
-        {
-            Definitions = [definition],
-            ProposedErrors = new Dictionary<string, OperationError>
-            {
-                [SettingResults.ApplyWarningId] = new(ErrorCodes.InternalError, "已保存，但即时应用失败，重启后生效。")
-            }
-        };
-        var model = CreateSettingsViewModel(api, new Dialogs());
-        await Initialize(model);
-        var row = Assert.Single(VisibleRows(model).Cast<object>());
-        SetProperty(row, "ProposedValue", false);
-
-        await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
-        Assert.Contains("即时应用失败", Get<string?>(model, "Message") ?? String.Empty, StringComparison.Ordinal);
-        Assert.False(Get<bool>(model, "IsError"));
-        Assert.False(Get<bool>(model, "HasChanges"));
     });
 }

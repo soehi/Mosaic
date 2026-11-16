@@ -63,7 +63,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         _diagnostics = diagnostics;
         _settings = settings;
         _settingsTarget = settingsTarget;
-        settingsTarget?.Attach(ApplySettings);
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
@@ -75,6 +74,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         Editor.PropertyChanged += OnEditorPropertyChanged;
         Items.CollectionChanged += (_, _) => NotifyListState();
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
+        settingsTarget?.Attach(ApplySettings);
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
@@ -158,6 +158,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public bool HasMessage => !string.IsNullOrEmpty(Message);
     public bool ShowCharacterCount => _showCharacterCount;
     public double CompactBreakpoint => _layout.CompactBreakpoint;
+    public double EditorPaneWidth { get; private set; } = 480;
+    public double PaneGap { get; private set; } = 24;
     public double CompactActionsWidth => _layout.CompactActionsWidth;
     public double CompactActionsHeight => _layout.CompactActionsHeight;
     public double ListMinColumnWidth => _layout.ListMinColumnWidth;
@@ -213,7 +215,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     public async Task InitializeAsync()
     {
-        if (_settings is not null)
+        if (_settings is not null && _settingsTarget?.HasValues != true)
         {
             var values = await _settings.GetValuesAsync(_lifetime.Token);
             if (values.IsSuccess) await _dispatcher.InvokeAsync(() => ApplySettings(values.Value));
@@ -642,7 +644,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
         if (result.Error!.Code == ErrorCodes.Canceled) return;
         ClearList();
-        SetListError(TasksFeedbackKind.Api, result.Error.Message, result.Error.CorrelationId);
+        SetListError(TasksFeedbackKind.Api, TaskErrorLocalizer.Localize(result.Error), result.Error.CorrelationId);
     }
 
     private void ClearList()
@@ -680,7 +682,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         Message = "";
         _messageKind = TasksFeedbackKind.None;
         HasConflict = error.Code == ErrorCodes.Conflict;
-        SetError(TasksFeedbackKind.Api, error.Message, error.CorrelationId);
+        SetError(TasksFeedbackKind.Api, TaskErrorLocalizer.Localize(error, Editor.Current is null ? null : Editor.Constraints), error.CorrelationId);
     }
 
     private string Report(Exception exception)
@@ -693,6 +695,11 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.InvokeAsync(RefreshLocalizedText);
+            return;
+        }
         RefreshLocalizedText();
     }
 
@@ -807,6 +814,10 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             ReadString(values, "ui.text.deleteSuccess", TaskTextSettings.Defaults.DeleteSuccess),
             ReadString(values, "ui.text.completedSuccess", TaskTextSettings.Defaults.CompletedSuccess),
             ReadString(values, "ui.text.restoredSuccess", TaskTextSettings.Defaults.RestoredSuccess));
+        EditorPaneWidth = ReadDouble(values, "tasks.layout.editorPaneWidth", 480);
+        PaneGap = ReadDouble(values, "tasks.layout.paneGap", 24);
+        OnPropertyChanged(nameof(EditorPaneWidth));
+        OnPropertyChanged(nameof(PaneGap));
         _layout = new(
             ReadDouble(values, "tasks.layout.compactBreakpoint", TasksLayoutSettings.Defaults.CompactBreakpoint),
             ReadDouble(values, "tasks.editor.compactActionsWidth", TasksLayoutSettings.Defaults.CompactActionsWidth),

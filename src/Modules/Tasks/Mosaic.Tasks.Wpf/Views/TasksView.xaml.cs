@@ -38,7 +38,9 @@ public partial class TasksView : UserControl
     {
         if (e.PropertyName == nameof(TasksViewModel.IsEditorOpen))
             UpdatePaneVisibility();
-        else if (e.PropertyName == nameof(TasksViewModel.CompactBreakpoint))
+        else if (e.PropertyName is nameof(TasksViewModel.CompactBreakpoint)
+            or nameof(TasksViewModel.EditorPaneWidth) or nameof(TasksViewModel.PaneGap)
+            or nameof(TasksViewModel.ListMinColumnWidth))
         {
             _isCompact = null;
             UpdateResponsiveLayout(ActualWidth);
@@ -55,8 +57,6 @@ public partial class TasksView : UserControl
 
         var breakpoint = _model?.CompactBreakpoint ?? 920;
         var useCompactLayout = width < breakpoint;
-        if (_isCompact == useCompactLayout) return;
-
         _isCompact = useCompactLayout;
         if (useCompactLayout)
             ApplyCompactLayout();
@@ -77,10 +77,13 @@ public partial class TasksView : UserControl
         NewTaskButton.HorizontalAlignment = HorizontalAlignment.Right;
         NewTaskButton.Margin = new Thickness(24, 0, 0, 0);
 
-        TaskListColumn.Width = new GridLength(5, GridUnitType.Star);
+        TaskListColumn.Width = new GridLength(1, GridUnitType.Star);
         TaskListColumn.MinWidth = _model?.ListMinColumnWidth ?? 300;
-        ContentGapColumn.Width = new GridLength(24);
-        TaskEditorColumn.Width = new GridLength(3, GridUnitType.Star);
+        ContentGapColumn.Width = new GridLength(_model?.PaneGap ?? 24);
+        TaskEditorColumn.Width = new GridLength(Math.Clamp(
+            ActualWidth - LayoutRoot.Margin.Left - LayoutRoot.Margin.Right -
+            (_model?.PaneGap ?? 24) - (_model?.ListMinColumnWidth ?? 300),
+            360, _model?.EditorPaneWidth ?? 480));
         TaskListRow.Height = new GridLength(1, GridUnitType.Star);
         ContentGapRow.Height = new GridLength(0);
         TaskEditorRow.Height = new GridLength(0);
@@ -95,6 +98,8 @@ public partial class TasksView : UserControl
     private void ApplyCompactLayout()
     {
         LayoutRoot.Margin = new Thickness(18, 16, 18, 16);
+        HeaderPanel.Visibility = Visibility.Visible;
+        HeaderContentGapRow.Height = new GridLength(16);
         HeaderTextColumn.Width = new GridLength(1, GridUnitType.Star);
         HeaderActionColumn.Width = new GridLength(0);
         HeaderActionRow.Height = GridLength.Auto;
@@ -107,31 +112,26 @@ public partial class TasksView : UserControl
         TaskListColumn.MinWidth = 0;
         ContentGapColumn.Width = new GridLength(0);
         TaskEditorColumn.Width = new GridLength(0);
-        TaskListRow.Height = new GridLength(1, GridUnitType.Star);
         ContentGapRow.Height = new GridLength(0);
-        TaskEditorRow.Height = new GridLength(0);
         Grid.SetColumn(TaskListPane, 0);
         Grid.SetRow(TaskListPane, 0);
         Grid.SetColumn(TaskEditorPane, 0);
-        Grid.SetRow(TaskEditorPane, 0);
-        TaskEditorPane.SetCompactNavigationVisible(true);
+        Grid.SetRow(TaskEditorPane, 2);
         UpdatePaneVisibility();
     }
 
     private void UpdatePaneVisibility()
     {
-        if (_isCompact != true)
-        {
-            TaskListPane.Visibility = Visibility.Visible;
-            TaskEditorPane.Visibility = Visibility.Visible;
-            HeaderPanel.Visibility = Visibility.Visible;
-            return;
-        }
-
-        var showEditor = _model?.IsEditorOpen == true;
-        HeaderPanel.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
-        HeaderContentGapRow.Height = showEditor ? new GridLength(0) : new GridLength(18);
-        TaskListPane.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
-        TaskEditorPane.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
+        var compact = _isCompact == true;
+        var editorOpen = compact && _model?.IsEditorOpen == true;
+        TaskListPane.Visibility = !editorOpen ? Visibility.Visible : Visibility.Collapsed;
+        TaskEditorPane.Visibility = !compact || editorOpen ? Visibility.Visible : Visibility.Collapsed;
+        HeaderPanel.Visibility = !editorOpen ? Visibility.Visible : Visibility.Collapsed;
+        HeaderContentGapRow.Height = editorOpen
+            ? new GridLength(0)
+            : compact ? new GridLength(16) : new GridLength(22);
+        TaskListRow.Height = compact && editorOpen ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        TaskEditorRow.Height = compact && editorOpen ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        TaskEditorPane.SetCompactNavigationVisible(editorOpen);
     }
 }

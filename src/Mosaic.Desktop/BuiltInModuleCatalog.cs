@@ -8,6 +8,8 @@ using Mosaic.Storage.Sqlite;
 using Mosaic.Tasks.Core;
 using Mosaic.Tasks.Sqlite;
 using Mosaic.Tasks.Wpf;
+using Mosaic.DesktopPresence.Contracts;
+using Mosaic.DesktopPresence.Wpf;
 
 namespace Mosaic.Desktop;
 
@@ -34,6 +36,9 @@ internal sealed class ModuleRuntimeContext(
     internal SettingsSqliteModule? SettingsRepository { get; set; }
     internal SettingsModule? Settings { get; set; }
     internal IHostSettingSource? HostSettings { get; init; }
+    internal required IDesktopWindowHost WindowHost { get; init; }
+    internal ICompanionViewFactory? CompanionFactory { get; set; }
+    internal IDesktopPresenceApi? Presence { get; set; }
 }
 
 internal static class BuiltInModuleCatalog
@@ -73,12 +78,14 @@ internal static class BuiltInModuleCatalog
         }),
         [TasksUiModule.Definition.Id] = new(TasksUiModule.Definition, context =>
         {
-            return new TasksUiModule(new(
+            var module = new TasksUiModule(new(
                 context.Tasks?.Api ?? throw new InvalidOperationException("Task API was not assembled before task UI."),
                 context.Dispatcher,
                 context.Dialogs,
                 context.Diagnostics,
                 context.Settings?.Api));
+            context.CompanionFactory = module.CompanionFactory;
+            return module;
         })
         ,
         [SettingsSqliteModule.Definition.Id] = new(SettingsSqliteModule.Definition, context =>
@@ -95,6 +102,15 @@ internal static class BuiltInModuleCatalog
                 context.Diagnostics,
                 DeferredSources: context.DeferredSettingSources.ToArray()));
             return context.Settings;
+        }),
+        [DesktopPresenceModule.Definition.Id] = new(DesktopPresenceModule.Definition, context =>
+        {
+            var module = new DesktopPresenceModule(new(context.WindowHost,
+                context.CompanionFactory ?? throw new InvalidOperationException("Task companion capability was not assembled."),
+                context.Settings?.Api ?? throw new InvalidOperationException("Settings capability was not assembled."),
+                context.Dispatcher, context.Diagnostics));
+            context.Presence = module.Api;
+            return module;
         }),
         [SettingsUiModule.Definition.Id] = new(SettingsUiModule.Definition, context =>
         {

@@ -23,7 +23,7 @@ public sealed class SettingsUiModule(SettingsUiDependencies dependencies) : IMod
         "Owns settings navigation, page and staged value editing.");
     public ModuleManifest Manifest => Definition;
     public IReadOnlyList<NavigationItem> Navigation => _active
-        ? [new("settings.navigation", "设置", "settings", "settings.home", 900)]
+        ? [new("settings.navigation", "设置", "settings", "settings.home", 900, "Settings.Navigation")]
         : [];
     public IReadOnlyList<ViewContribution> Views => _active
         ? [new("settings.home", new SettingsViewFactory(dependencies))]

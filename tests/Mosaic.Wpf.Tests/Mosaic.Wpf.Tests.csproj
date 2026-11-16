@@ -10,6 +10,7 @@
 <ProjectReference Include="..\..\src\Modules\Settings\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
 <ProjectReference Include="..\..\src\Modules\Settings\Mosaic.Settings.Core\Mosaic.Settings.Core.csproj" />
 <ProjectReference Include="..\..\src\Modules\Settings\Mosaic.Settings.Wpf\Mosaic.Settings.Wpf.csproj" />
+<ProjectReference Include="../../src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/Mosaic.DesktopPresence.Wpf.csproj" />
 <PackageReference Include="xunit.v3" />
 <PackageReference Include="xunit.runner.visualstudio" />
 <PackageReference Include="Microsoft.NET.Test.Sdk" />

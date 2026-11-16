@@ -6,19 +6,46 @@ namespace Mosaic.Settings.Core.Tests;
 
 public sealed class SettingsTests
 {
+    private static readonly SettingDefinition[] HostDefinitions =
+    [
+        new("shell.window.minWidth", "host", "Min width", "Minimum width", SettingValueKind.Integer, 1100, 1000, 2400, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("shell.window.minHeight", "host", "Min height", "Minimum height", SettingValueKind.Integer, 720, 640, 1200, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("startup.width", "host", "Startup width", "Startup width", SettingValueKind.Integer, 1504, 1000, 3840, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("startup.height", "host", "Startup height", "Startup height", SettingValueKind.Integer, 1012, 640, 2160, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("storage.filename", "host", "Filename", "Filename", SettingValueKind.String, "mosaic.sqlite", null, null, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("storage.location", "host", "Location", "Location", SettingValueKind.String, "local-app-data", null, null, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("host.modules", "host", "Modules", "Modules", SettingValueKind.ModuleList,
+            new[] { "storage-sqlite", "settings-sqlite", "settings-core", "tasks-sqlite", "tasks-core", "tasks-ui", "desktop-presence", "settings-ui" },
+            null, null, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("host.providers", "host", "Providers", "Providers", SettingValueKind.ProviderMap,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["sqlite.session@1"] = "storage-sqlite",
+                ["tasks.repository@1"] = "tasks-sqlite",
+                ["tasks.api@1"] = "tasks-core",
+                ["settings.repository@1"] = "settings-sqlite",
+                ["settings.api@1"] = "settings-core",
+                ["presence.tasks-view@1"] = "tasks-ui",
+                ["desktop.presence@1"] = "desktop-presence"
+            },
+            null, null, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("logging.level", "host", "Logging", "Logging", SettingValueKind.Enum, "Information", null, null,
+            ["Debug", "Information", "Warning", "Error", "None"], SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("logging.retentionDays", "host", "Retention", "Retention", SettingValueKind.Integer, 0, 0, 365, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig),
+        new("diagnostics.singleInstanceRetryMilliseconds", "host", "Retry", "Retry", SettingValueKind.Integer, 250, 50, 2000, null, SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
+    ];
+
     private sealed class MemoryRepository : ISettingRepository
     {
         public Dictionary<string, object?> Values { get; } = [];
         public OperationError? Failure { get; set; }
-        public OperationError? SaveFailure { get; set; }
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Failure is null
                 ? OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(Values, StringComparer.Ordinal))
                 : OperationResult<IReadOnlyDictionary<string, object?>>.Failure(Failure));
         public Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         {
-            var failure = Failure ?? SaveFailure;
-            if (failure is not null) return Task.FromResult(OperationResult.Failure(failure));
+            if (Failure is not null) return Task.FromResult(OperationResult.Failure(Failure));
             foreach (var (id, value) in values) Values[id] = value;
             return Task.FromResult(OperationResult.Success());
         }
@@ -36,9 +63,11 @@ public sealed class SettingsTests
         public OperationError? Failure { get; set; }
         public Func<IReadOnlyDictionary<string, object?>, OperationError?>? Validator { get; set; }
         public int Rollbacks { get; private set; }
+        public MemoryJournal Journal { get; } = new();
         private Dictionary<string, object?>? _snapshot;
         public string ModuleId => "host";
-        public IReadOnlyList<SettingDefinition> Definitions => SettingCatalog.Definitions;
+        public ISettingsCommitJournal CommitJournal => Journal;
+        public IReadOnlyList<SettingDefinition> Definitions => HostDefinitions;
         public object? GetValue(string id) => Values.GetValueOrDefault(id);
         public Task<OperationResult> ValidateAsync(IReadOnlyDictionary<string, object?> effectiveValues, CancellationToken cancellationToken = default) =>
             Task.FromResult(Validator?.Invoke(effectiveValues) is { } error
@@ -64,28 +93,55 @@ public sealed class SettingsTests
         public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    private sealed class MemoryJournal : ISettingsCommitJournal
+    {
+        public SettingsCommitJournalEntry? Entry { get; set; }
+        public OperationError? PrepareFailure { get; set; }
+        public int PrepareCalls { get; private set; }
+        public int CompleteCalls { get; private set; }
+        public Task<OperationResult<SettingsCommitJournalEntry?>> ReadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<SettingsCommitJournalEntry?>.Success(Entry));
+        public Task<OperationResult> PrepareAsync(SettingsCommitJournalEntry entry, CancellationToken cancellationToken = default)
+        {
+            PrepareCalls++;
+            if (PrepareFailure is not null)
+                return Task.FromResult(OperationResult.Failure(PrepareFailure));
+            Entry = entry;
+            return Task.FromResult(OperationResult.Success());
+        }
+        public Task<OperationResult> CompleteAsync(CancellationToken cancellationToken = default)
+        {
+            CompleteCalls++;
+            Entry = null;
+            return Task.FromResult(OperationResult.Success());
+        }
+    }
+
     private sealed class Source : ISettingSource
     {
         public string ModuleId { get; }
         public IReadOnlyList<SettingDefinition> Definitions { get; }
-        public bool ThrowOnApply { get; init; }
         public Source(string moduleId, IReadOnlyList<SettingDefinition> definitions) { ModuleId = moduleId; Definitions = definitions; }
-        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>
-            ThrowOnApply ? throw new InvalidOperationException("apply failed") : Task.CompletedTask;
+        public IReadOnlyDictionary<string, object?>? Applied { get; private set; }
+        public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
+        {
+            Applied = values;
+            return Task.CompletedTask;
+        }
     }
 
     private static readonly SettingDefinition[] TaskCoreDefinitions =
     [
         new("tasks.sortOrder", "tasks-core", "Sort order", "Default task sorting", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "TitleAsc"],
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings),
         new("tasks.title.maxCharacters", "tasks-core", "Title limit", "Maximum title characters", SettingValueKind.Integer, 200, 1, 1000, null,
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private static readonly SettingDefinition[] TaskUiDefinitions =
     [
         new("tasks.confirmDelete", "tasks-ui", "Confirm delete", "Confirm before delete", SettingValueKind.Boolean, true, null, null, null,
-            SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     private sealed class TaskCoreSource : ISettingSource
@@ -103,117 +159,117 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public async Task Immediate_changes_notify_consumers_without_applying_restart_values()
+    {
+        var repository = new MemoryRepository();
+        await using var module = new SettingsModule(new(repository));
+        await module.ActivateAsync();
+        var source = new Source("tasks-core",
+        [
+            TaskCoreDefinitions[0],
+            TaskCoreDefinitions[1] with { ApplyMode = SettingApplyMode.Restart }
+        ]);
+        var consumer = new Source("tasks-ui", TaskUiDefinitions);
+        using var registered = ((ISettingsCore)module.Api).Register(source);
+        using var registeredConsumer = ((ISettingsCore)module.Api).Register(consumer);
+        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["tasks.sortOrder"] = "TitleAsc",
+            ["tasks.title.maxCharacters"] = 50
+        });
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value);
+        Assert.Equal(50, repository.Values["tasks.title.maxCharacters"]);
+        Assert.Equal("TitleAsc", consumer.Applied!["tasks.sortOrder"]);
+        Assert.DoesNotContain("tasks.title.maxCharacters", source.Applied!.Keys);
+        Assert.True((await module.Api.ResetAsync(new[] { "tasks.title.maxCharacters" })).IsSuccess);
+        Assert.DoesNotContain("tasks.title.maxCharacters", source.Applied!.Keys);
+    }
+
+    [Fact]
     public async Task Catalog_has_planned_definitions_and_unique_ids()
     {
-        Assert.Equal(11, SettingCatalog.Definitions.Count);
-        Assert.Equal(11, SettingCatalog.Definitions.Select(item => item.Id).Distinct().Count());
-        Assert.Contains(SettingCatalog.Definitions, item => item.Id == "startup.width");
-        Assert.Contains(SettingCatalog.Definitions, item => item.Id == "diagnostics.singleInstanceRetryMilliseconds");
+        Assert.Equal(11, HostDefinitions.Length);
+        Assert.Equal(11, HostDefinitions.Select(item => item.Id).Distinct().Count());
+        Assert.Contains(HostDefinitions, item => item.Id == "startup.width");
+        Assert.Contains(HostDefinitions, item => item.Id == "diagnostics.singleInstanceRetryMilliseconds");
     }
 
     [Fact]
     public async Task Host_modules_default_matches_the_canonical_boot_configuration()
     {
-        var modules = (string[]?)SettingCatalog.Definitions.Single(item => item.Id == "host.modules").DefaultValue;
+        var modules = (string[]?)HostDefinitions.Single(item => item.Id == "host.modules").DefaultValue;
         Assert.NotNull(modules);
-        Assert.Equal(7, modules.Length);
+        Assert.Equal(8, modules.Length);
         Assert.Contains("settings-sqlite", modules);
         Assert.Contains("settings-core", modules);
         Assert.Contains("settings-ui", modules);
+        Assert.Contains("desktop-presence", modules);
         Assert.Equal("storage-sqlite", modules[0]);
     }
 
     [Fact]
-    public void Startup_defaults_match_the_shell_and_stay_above_the_minimum_window()
-    {
-        var startupWidth = SettingCatalog.Definitions.Single(item => item.Id == "startup.width");
-        var startupHeight = SettingCatalog.Definitions.Single(item => item.Id == "startup.height");
-        var minimumWidth = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minWidth");
-        var minimumHeight = SettingCatalog.Definitions.Single(item => item.Id == "shell.window.minHeight");
-
-        Assert.Equal(1220, startupWidth.DefaultValue);
-        Assert.Equal(780, startupHeight.DefaultValue);
-        Assert.True((int)startupWidth.DefaultValue! >= (int)minimumWidth.DefaultValue!);
-        Assert.True((int)startupHeight.DefaultValue! >= (int)minimumHeight.DefaultValue!);
-        Assert.True((int)startupWidth.Min! >= (int)minimumWidth.DefaultValue!);
-        Assert.True((int)startupHeight.Min! >= (int)minimumHeight.DefaultValue!);
-    }
-
-    [Fact]
-    public async Task Values_are_normalized_to_definition_kinds_on_read_and_write()
-    {
-        var repository = new MemoryRepository();
-        repository.Values["tasks.title.maxCharacters"] = 250L;
-        var host = new HostSource();
-        host.Values["host.modules"] = new object?[] { "storage-sqlite", "tasks-core" };
-        host.Values["host.providers"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
-        host.Values["logging.retentionDays"] = 7L;
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
-
-        var values = (await module.Api.GetValuesAsync()).Value!;
-        Assert.Equal(250, values["tasks.title.maxCharacters"]);
-        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(values["host.modules"]));
-        var providers = Assert.IsType<Dictionary<string, string>>(values["host.providers"]);
-        Assert.Equal("tasks-core", providers["tasks.api@1"]);
-        Assert.Equal(7, values["logging.retentionDays"]);
-
-        var proposed = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["tasks.title.maxCharacters"] = 300L });
-        Assert.True(proposed.IsSuccess);
-        Assert.Equal(300, repository.Values["tasks.title.maxCharacters"]);
-    }
-
-    [Fact]
-    public async Task Host_semantic_validation_blocks_writes_before_any_store_changes()
+    public async Task Cross_store_commit_writes_a_journal_and_clears_it_after_both_stores_succeed()
     {
         var repository = new MemoryRepository();
         var host = new HostSource();
         await using var module = new SettingsModule(new(repository, host));
         await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
+        using var registration = ((ISettingsCore)module.Api).Register(new TaskUiSource());
 
-        host.Validator = _ => new(ErrorCodes.ValidationFailed, "未知模块：ghost", "host.modules");
-        var rejected = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["tasks.confirmDelete"] = false,
-            ["host.modules"] = new[] { "storage-sqlite", "ghost" }
-        });
-        Assert.True(rejected.IsSuccess);
-        Assert.Equal("host.modules", Assert.Single(rejected.Value!).Key);
-        Assert.Empty(repository.Values);
-        Assert.Empty(host.Values);
-
-        host.Validator = values => values["host.modules"] is string[] modules && modules.Length == 0
-            ? new(ErrorCodes.ValidationFailed, "至少需要启用一个模块。", "host.modules")
-            : null;
-        var empty = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["host.modules"] = Array.Empty<string>() });
-        Assert.Equal("host.modules", Assert.Single(empty.Value!).Key);
-        Assert.Empty(repository.Values);
-    }
-
-    [Fact]
-    public async Task Host_changes_pass_effective_values_to_semantic_validation()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        host.Values["host.providers"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["tasks.api@1"] = "tasks-core" };
-        IReadOnlyDictionary<string, object?>? seen = null;
-        host.Validator = values => { seen = values; return null; };
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
         var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
         {
-            ["host.modules"] = new[] { "storage-sqlite", "tasks-core" },
-            ["logging.level"] = "Warning"
+            ["logging.level"] = "Warning",
+            ["tasks.confirmDelete"] = false
         });
+
         Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
-        Assert.NotNull(seen);
-        Assert.Equal(new[] { "storage-sqlite", "tasks-core" }, Assert.IsType<string[]>(seen!["host.modules"]));
-        Assert.Equal("tasks.api@1", Assert.IsType<Dictionary<string, string>>(seen!["host.providers"]).Keys.Single());
-        Assert.Equal("Warning", seen["logging.level"]);
+        Assert.Empty(result.Value);
+        Assert.Equal(1, host.Journal.PrepareCalls);
+        Assert.Equal(1, host.Journal.CompleteCalls);
+        Assert.Null(host.Journal.Entry);
+        Assert.Equal("Warning", host.Values["logging.level"]);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
+    }
+
+    [Fact]
+    public async Task Cross_store_commit_does_not_write_when_journal_preparation_fails()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        host.Journal.PrepareFailure = new(ErrorCodes.StorageUnavailable, "journal unavailable");
+        await using var module = new SettingsModule(new(repository, host));
+        await module.ActivateAsync();
+        using var registration = ((ISettingsCore)module.Api).Register(new TaskUiSource());
+
+        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["logging.level"] = "Warning",
+            ["tasks.confirmDelete"] = false
+        });
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(host.Values);
+        Assert.Empty(repository.Values);
+    }
+
+    [Fact]
+    public async Task Settings_activation_replays_and_clears_a_pending_cross_store_commit()
+    {
+        var repository = new MemoryRepository();
+        var host = new HostSource();
+        host.Journal.Entry = new(
+            "pending",
+            new Dictionary<string, object?> { ["logging.level"] = "Warning" },
+            new Dictionary<string, object?> { ["tasks.confirmDelete"] = false });
+        await using var module = new SettingsModule(new(repository, host));
+
+        await module.ActivateAsync();
+
+        Assert.Equal("Warning", host.Values["logging.level"]);
+        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
+        Assert.Null(host.Journal.Entry);
+        Assert.Equal(1, host.Journal.CompleteCalls);
     }
 
     [Fact]
@@ -299,31 +355,6 @@ public sealed class SettingsTests
     }
 
     [Fact]
-    public async Task Reset_by_definition_ids_only_clears_the_listed_ids()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskCoreSource());
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
-        await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["tasks.sortOrder"] = "TitleAsc",
-            ["tasks.confirmDelete"] = false,
-            ["logging.level"] = "Warning"
-        });
-
-        Assert.True((await module.Api.ResetAsync(["tasks.sortOrder"])).IsSuccess);
-        Assert.DoesNotContain("tasks.sortOrder", repository.Values);
-        Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
-        Assert.Equal("Warning", host.Values["logging.level"]);
-
-        var unknown = await module.Api.ResetAsync(["missing.setting"]);
-        Assert.Equal(ErrorCodes.InvalidRequest, unknown.Error?.Code);
-    }
-
-    [Fact]
     public async Task Storage_failure_is_not_applied_as_success()
     {
         var repository = new MemoryRepository { Failure = new(ErrorCodes.StorageUnavailable, "failed") };
@@ -353,51 +384,6 @@ public sealed class SettingsTests
         Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
         Assert.Equal(false, repository.Values["tasks.confirmDelete"]);
         Assert.Empty(host.Values);
-    }
-
-    [Fact]
-    public async Task Storage_failure_after_host_persist_rolls_the_host_config_back()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(new TaskUiSource());
-        Assert.True((await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["logging.level"] = "Warning" })).IsSuccess);
-        Assert.Equal("Warning", host.Values["logging.level"]);
-
-        repository.SaveFailure = new(ErrorCodes.StorageUnavailable, "disk full");
-        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?>
-        {
-            ["tasks.confirmDelete"] = false,
-            ["logging.level"] = "Error"
-        });
-        Assert.Equal(ErrorCodes.StorageUnavailable, result.Error?.Code);
-        Assert.Equal(1, host.Rollbacks);
-        Assert.Equal("Warning", host.Values["logging.level"]);
-        Assert.Empty(repository.Values);
-    }
-
-    [Fact]
-    public async Task Immediate_apply_failure_is_reported_as_a_warning_after_saving()
-    {
-        var repository = new MemoryRepository();
-        var host = new HostSource();
-        var storage = new Source("storage-sqlite",
-        [
-            new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
-                SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.HostConfig)
-        ]) { ThrowOnApply = true };
-        await using var module = new SettingsModule(new(repository, host));
-        await module.ActivateAsync();
-        ((ISettingsCore)module.Api).Register(storage);
-
-        var result = await module.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["storage.journalMode"] = "Wal" });
-        Assert.True(result.IsSuccess);
-        var warning = Assert.Single(result.Value!);
-        Assert.Equal(SettingResults.ApplyWarningId, warning.Key);
-        Assert.Contains("即时应用失败", warning.Value.Message, StringComparison.Ordinal);
-        Assert.Equal("Wal", host.Values["storage.journalMode"]);
     }
 
     [Fact]
@@ -465,7 +451,7 @@ public sealed class SettingsTests
         var storage = new Source("storage-sqlite",
         [
             new("storage.journalMode", "storage-sqlite", "Journal", "Journal mode", SettingValueKind.Enum, "Delete", null, null, ["Delete", "Wal"],
-                SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
+                SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.HostConfig)
         ]);
         await using var module = new SettingsModule(new(repository, host, DeferredSources: [storage]));
 

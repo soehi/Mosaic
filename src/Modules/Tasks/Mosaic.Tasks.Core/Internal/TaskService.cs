@@ -10,11 +10,14 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
     private OperationError? Validate(string title, string notes)
     {
         var constraints = rules.Current;
-        if (constraints.TitleRequired && title.Trim().Length == 0) return new(ErrorCodes.ValidationFailed, "请输入任务标题。", "Title");
+        if (constraints.TitleRequired && title.Trim().Length == 0)
+            return new(ErrorCodes.ValidationFailed, "请输入任务标题。", "Title", MessageKey: "Tasks.Error.TitleRequired");
         if (title.Trim().EnumerateRunes().Count() > constraints.TitleMaxCharacters)
-            return new(ErrorCodes.ValidationFailed, $"标题最多 {constraints.TitleMaxCharacters} 个字符。", "Title");
+            return new(ErrorCodes.ValidationFailed, $"标题最多 {constraints.TitleMaxCharacters} 个字符。", "Title",
+                MessageKey: "Tasks.Error.TitleTooLong");
         if (notes.EnumerateRunes().Count() > constraints.NotesMaxCharacters)
-            return new(ErrorCodes.ValidationFailed, $"备注最多 {constraints.NotesMaxCharacters:N0} 个字符。", "Notes");
+            return new(ErrorCodes.ValidationFailed, $"备注最多 {constraints.NotesMaxCharacters:N0} 个字符。", "Notes",
+                MessageKey: "Tasks.Error.NotesTooLong");
         return null;
     }
     internal async Task<OperationResult<TaskItemDto>> CreateAsync(CreateTaskRequest request, CancellationToken ct)
@@ -30,7 +33,10 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
     {
         var found = await repository.FindAsync(id, ct).ConfigureAwait(false);
         if (!found.IsSuccess) return OperationResult<TaskItemDto>.Failure(found.Error!);
-        return found.Value is { } task ? OperationResult<TaskItemDto>.Success(task) : OperationResult<TaskItemDto>.Failure(new(ErrorCodes.NotFound, "任务不存在，可能已被删除。"));
+        return found.Value is { } task
+            ? OperationResult<TaskItemDto>.Success(task)
+            : OperationResult<TaskItemDto>.Failure(new(
+                ErrorCodes.NotFound, "任务不存在，可能已被删除。", MessageKey: "Tasks.Error.NotFound"));
     }
     internal async Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken ct)
     {
@@ -60,5 +66,6 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(updated) : OperationResult<TaskItemDto>.Failure(saved.Error!);
     }
     internal Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken ct) => repository.DeleteAsync(request.Id, request.ExpectedRevision, ct);
-    private static OperationError Conflict() => new(ErrorCodes.Conflict, "任务已更改或删除。请重新加载后再保存。");
+    private static OperationError Conflict() => new(
+        ErrorCodes.Conflict, "任务已更改或删除。请重新加载后再保存。", MessageKey: "Tasks.Error.Conflict");
 }

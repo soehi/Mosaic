@@ -1,0 +1,12 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Desktop.Startup.Title">Mosaic · Starting</sys:String>
+    <sys:String x:Key="Desktop.Startup.Preparing">Preparing the local workspace…</sys:String>
+    <sys:String x:Key="Desktop.Startup.FailedTitle">Mosaic · Unable to start</sys:String>
+    <sys:String x:Key="Desktop.Startup.FixConfiguration">Fix the configuration and restart.</sys:String>
+    <sys:String x:Key="Desktop.Startup.Failed">The local workspace could not start. Check data-folder permissions or review diagnostics in Logs, then try again.</sys:String>
+    <sys:String x:Key="Desktop.Fatal.Message">Mosaic encountered an unexpected error and will close safely. Restart and confirm the latest save result.</sys:String>
+    <sys:String x:Key="Desktop.Shutdown.Pending">Still waiting for accepted operations to finish. Choose Yes to keep waiting, or No to force exit (save results may be unknown; verify after restart).</sys:String>
+    <sys:String x:Key="Desktop.Shutdown.Title">Closing Mosaic</sys:String>
+</ResourceDictionary>

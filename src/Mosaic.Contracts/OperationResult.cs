@@ -1,6 +1,11 @@
 namespace Mosaic.Contracts;
 
-public sealed record OperationError(string Code, string Message, string? Field = null, string? CorrelationId = null);
+public sealed record OperationError(
+    string Code,
+    string Message,
+    string? Field = null,
+    string? CorrelationId = null,
+    string? MessageKey = null);
 
 public static class ErrorCodes
 {

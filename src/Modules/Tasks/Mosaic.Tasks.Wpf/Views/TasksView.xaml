@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
              xmlns:views="clr-namespace:Mosaic.Tasks.Wpf.Views"
+             Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"
+             FontSize="14"
+             Background="{DynamicResource {x:Static theme:MosaicTheme.CanvasBrushKey}}"
              ClipToBounds="True"
              UseLayoutRounding="True"
              SnapsToDevicePixels="True">
@@ -11,6 +14,7 @@
     </UserControl.Resources>
 
     <Grid x:Name="LayoutRoot"
+          Background="{DynamicResource {x:Static theme:MosaicTheme.CanvasBrushKey}}"
           ClipToBounds="True"
           UseLayoutRounding="True"
           SnapsToDevicePixels="True">
@@ -81,7 +85,7 @@
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
                         <TextBlock Text="{Binding CountLabel}"
                                    Margin="0,3,0,0"
-                                   FontSize="11"
+                                   FontSize="12"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                     </StackPanel>
                     <ComboBox Grid.Column="1"
@@ -109,7 +113,7 @@
                         Visibility="{Binding ShowListMessage, Converter={StaticResource BoolVisibility}}">
                     <TextBlock Text="{Binding Message}"
                                HorizontalAlignment="Center"
-                               FontSize="11"
+                               FontSize="12"
                                Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                 </Border>
 
@@ -203,7 +207,7 @@
                                         </TextBlock>
                                         <TextBlock Text="{Binding CreatedLabel}"
                                                    Margin="0,7,0,0"
-                                                   FontSize="11"
+                                                   FontSize="12"
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                                     </StackPanel>

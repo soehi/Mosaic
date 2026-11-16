@@ -1,6 +1,6 @@
 # Mosaic：细节实现计划（C# + WPF）
 
-状态：已按本计划实施第一版源码、测试、自包含发布和每用户 MSI。阶段 0–5 已完成本机验证；阶段 6 已完成本机安装验证，干净 Windows 环境及 DPI/输入法矩阵仍待独立验收。详见 [实施与验证记录](implementation-status.md)。
+状态：已按本计划实施源码、测试、自包含发布和每用户 MSI。阶段 0–5 已完成本机验证；阶段 6 已完成本机安装验证，干净 Windows 环境及 DPI/输入法矩阵仍待独立验收。0.5.0 完成默认配置单一权威、跨存储提交日志、导航本地化键、设置展示元数据下放和任务紧凑单栏；0.4.0 的跨分区持续预览及 0.3.0 的后台驻留继续保留。本机发布统一输出 `artifacts/local-run`。详见 [实施与验证记录](implementation-status.md)。
 
 用户已指定采用 C# + WPF。架构依据见 [整体架构思想](architecture-principles.md)，本次选型记录见 [技术方案变更](decisions/0001-csharp-wpf.md)。
 
@@ -71,7 +71,12 @@ src/
     Bootstrapper.cs                   # 构建宿主并装配模块
     AppConfiguration.cs
     BuiltInModuleCatalog.cs
+    HostSettingsCatalog.cs            # 宿主独有设置与 canonical 默认
+    HostSettingSource.cs              # 有效值、校验和原子写回
+    FileSettingsCommitJournal.cs      # 宿主与用户设置跨存储恢复日志
+    DesktopLocalization.cs            # 宿主诊断与退出文案
     ShutdownCoordinator.cs
+    Localization/                     # 宿主中英文资源
   Mosaic.Contracts/                   # 纯 .NET 通用模块与结果协议
     ModuleManifest.cs
     CapabilityId.cs
@@ -124,6 +129,8 @@ src/
         Internal/TasksViewModel.cs
         Internal/TaskEditorViewModel.cs
         Internal/TaskViewFactory.cs
+        Internal/TaskPeekViewFactory.cs # 独立只读任务摘要和会话
+        Internal/TaskErrorLocalizer.cs  # 稳定任务错误码的界面翻译
     Storage/
       Mosaic.Storage.Contracts/       # 不暴露数据库驱动类型
         IDatabaseSession.cs
@@ -139,6 +146,18 @@ src/
         TasksSqliteModule.cs
         Internal/SqliteTaskRepository.cs
         Migrations/001_CreateTasks.sql
+    Settings/
+      Mosaic.Settings.Contracts/
+      Mosaic.Settings.Core/
+        Internal/SettingsEditing.cs    # 编辑会话、预览、提交与回滚
+      Mosaic.Settings.Sqlite/
+      Mosaic.Settings.Wpf/
+        Internal/SettingsViewModel.cs  # 通用元数据投影与设置行生命周期
+    DesktopPresence/
+      Mosaic.DesktopPresence.Contracts/ # 宿主申请、状态和结果（纯 .NET）
+      Mosaic.DesktopPresence.Core/      # 串行状态机（纯 .NET）
+      Mosaic.DesktopPresence.Wpf/       # 边缘/弹窗、计时、定位与设置来源
+        PresencePopupView.xaml         # 通用弹窗容器，不解释任务数据
     # 后续功能按自己的职责增加模块，不预建空模块
 tests/
   Mosaic.Architecture.Tests/
@@ -148,6 +167,9 @@ tests/
   Mosaic.Tasks.Contract.Tests/
   Mosaic.Wpf.Tests/
   Mosaic.Desktop.SmokeTests/
+  Mosaic.DesktopPresence.Core.Tests/
+  Mosaic.Settings.Core.Tests/
+  Mosaic.Settings.Sqlite.Tests/
 build/                                # 发布、打包与边界检查脚本
 docs/                                 # 原则、计划及决策记录
 ```
@@ -162,14 +184,21 @@ docs/                                 # 原则、计划及决策记录
 | Kernel | Contracts |
 | Presentation.Contracts | Contracts；另可引用 WPF 框架类型 |
 | Presentation.Wpf | 无（共享主题与控件样式，仅依赖 WPF 框架） |
-| Shell.Wpf | Contracts、Presentation.Contracts、Presentation.Wpf |
+| Shell.Wpf | Contracts、Presentation.Contracts、Presentation.Wpf、Settings.Contracts |
 | Tasks.Contracts | Contracts |
 | Tasks.Persistence.Contracts | Contracts、Tasks.Contracts |
-| Tasks.Core | Contracts、Tasks.Contracts、Tasks.Persistence.Contracts |
+| Tasks.Core | Contracts、Tasks.Contracts、Tasks.Persistence.Contracts、Settings.Contracts |
 | Storage.Contracts | Contracts |
-| Storage.Sqlite | Contracts、Storage.Contracts |
+| Storage.Sqlite | Contracts、Storage.Contracts、Settings.Contracts |
 | Tasks.Sqlite | Contracts、Tasks.Contracts、Tasks.Persistence.Contracts、Storage.Contracts |
-| Tasks.Wpf | Contracts、Tasks.Contracts、Presentation.Contracts、Presentation.Wpf |
+| Tasks.Wpf | Contracts、Tasks.Contracts、Presentation.Contracts、Presentation.Wpf、Settings.Contracts |
+| Settings.Contracts | Contracts |
+| Settings.Core | Contracts、Settings.Contracts |
+| Settings.Sqlite | Contracts、Settings.Contracts、Storage.Contracts |
+| Settings.Wpf | Contracts、Settings.Contracts、Presentation.Contracts、Presentation.Wpf |
+| DesktopPresence.Contracts | Contracts |
+| DesktopPresence.Core | Contracts、DesktopPresence.Contracts；禁止 WPF/Tasks/Storage |
+| DesktopPresence.Wpf | Contracts、DesktopPresence.Contracts、DesktopPresence.Core、Presentation.Contracts、Presentation.Wpf、Settings.Contracts；禁止 Tasks/Storage 实现 |
 | Desktop | 通用基础设施及各模块公开入口，作为唯一装配根 |
 
 框架依赖另行限制：Microsoft.Data.Sqlite 只出现在 Storage.Sqlite；SQL 文本只出现在存储基础设施、任务存储适配器及相应测试；WPF 和 MVVM 依赖只出现在界面项目；业务与内核不引用数据库或界面框架。
@@ -370,6 +399,8 @@ ShellWindow 的 ItemsControl/ListBox 绑定导航只读集合，ContentControl �
 ### 8.2 任务界面
 
 - TasksViewModel 只依赖 ITasksApi 和获准使用的通用界面服务，不依赖仓储或驱动。
+- 任务页始终由左侧任务列表和右侧新建/编辑栏组成。右栏固定第 2 列，不因宽度变化移动到列表上方、左侧或铺满页面；宽度变化只触发紧凑排版。
+- “新建任务”按钮仍位于页头右侧，点击后更新或重置右侧编辑栏，不创建全屏编辑页。
 - 使用 ObservableCollection 承载列表显示，业务结果始终为独立快照；更新集合在 UI 线程执行。
 - 使用 AsyncRelayCommand 处理加载、创建、保存、完成切换和删除；执行异常明确观察和转换。
 - 表单保存失败保留输入，业务字段错误绑定到对应控件，不在 code-behind 中实现规则。
@@ -390,93 +421,98 @@ ShellWindow 的 ItemsControl/ListBox 绑定导航只读集合，ContentControl �
 
 修改启用状态第一版需重启。编译进应用的内置程序集不等于它已启用，反射不能作为正常功能发现和调用手段。
 
-### 8.4 窗口自适应：导航折叠与任务详情可用性
+### 8.4 窗口自适应：导航折叠与固定右侧编辑栏
 
-目标：窗口缩小时，任务详情页仍能访问全部字段和操作；空间继续不足时，左侧导航只保留图标，把宽度让给内容。自适应只调整显示与布局，不隐藏业务能力，也不改变模块契约。
+目标：任务页始终保持“左列表、右新建/编辑栏”，窗口缩小时仍能访问全部字段和操作。窗口空间不足时由左侧导航折叠释放宽度，紧凑模式只调整间距、页头动作排列和操作栏换行。自适应不隐藏业务能力，也不改变模块契约。
 
 职责划分：
 
 - 导航折叠由 `Mosaic.Shell.Wpf` 负责。外壳只使用通用 `NavigationItem.Label` 与 `NavigationItem.IconKey`，不认识任务模块。
-- 任务详情布局由 `Mosaic.Tasks.Wpf` 负责。外壳不判断任务字段、编辑器或操作按钮。
+- 任务双栏布局由 `Mosaic.Tasks.Wpf` 负责。外壳不判断任务字段、编辑器宽度、栏间距或操作按钮。
 - 两个模块各自响应所在控件的 `ActualWidth`，不通过全局服务或跨模块事件协调；窗口尺寸变化只触发纯视图重排，不重新创建 ViewModel。
 
 导航模式：
 
 | 模式 | 触发条件 | 外观 | 内容宽度 |
 | --- | --- | --- | --- |
-| 完整侧栏 | 窗口宽度 ≥ 1040 DIP | 190 DIP：Logo 与名称、导航图标与文字、底部状态文字 | 其余宽度 |
-| 图标栏 | 窗口宽度 < 1040 DIP；恢复到 ≥ 1060 DIP 才展开 | 64 DIP：Logo 标记、44×44 图标按钮；状态卡折叠为单个状态圆点，不保留卡片外框 | 内容区增加约 126 DIP |
+| 完整侧栏 | 默认窗口宽度 ≥ 1180 DIP | 190 DIP：Logo 与名称、导航图标与文字、底部状态文字 | 其余宽度 |
+| 图标栏 | 默认窗口宽度 < 1180 DIP；恢复到 ≥ 1200 DIP 才展开 | 64 DIP：Logo 标记、44×44 图标按钮；状态卡折叠为单个状态圆点，不保留卡片外框 | 内容区增加约 126 DIP |
 
-- 折叠与展开采用 20 DIP 滞回，避免在恰好 1040 DIP 附近抖动。
+- 折叠与展开采用 20 DIP 滞回，避免在恰好 1180 DIP 附近抖动。
 - 图标栏按钮以 `ToolTip` 和 `AutomationProperties.Name` 保留导航文字；图标由 `IconKey` 映射，缺失时回退为标签首字符。
 - 保留键盘焦点环、当前项高亮和 High Contrast 主题下的对比度；可点击目标不小于 40×40 DIP。
 - 图标栏只收起展示，不撤销导航注册；点击仍通过现有 `NavigateCommand` 进入同一页面。
-- 最小窗口 760 DIP 时，图标栏仍为内容区保留约 696 DIP，任务页因此可以使用窄布局。
+- 默认最小窗口 1100 DIP 时使用图标栏，为固定宽度右编辑栏和左侧列表保留足够空间；该阈值必须与窗口最小尺寸一起测试。
+- 设置导航继续贡献 `IconKey = "settings"`。外壳用动态前景色的矢量 `Geometry` 齿轮绘制，不使用 Unicode `⚙`；完整与图标侧栏共用同一图形和可访问名称。
 - 第一版按窗口宽度自动切换，不持久化手动折叠偏好；手动固定侧栏作为后续扩展，不改变通用契约。
 
-任务页面模式：
+任务页面结构：
 
-| 模式 | 触发条件 | 布局 |
+| 列/参数 | 默认值 | 行为 |
 | --- | --- | --- |
-| 并排 | 任务页可用宽度 ≥ 920 DIP | 列表与详情并排（现状） |
-| 单页切换 | 任务页可用宽度 < 920 DIP | 列表或详情一次显示一个；详情占满内容区 |
+| 列表列 | `*`，最小 300 DIP | 占满编辑栏和间距之外的空间；自身滚动 |
+| 栏间距 | `tasks.layout.paneGap = 24 DIP` | 可调 0–64；只改变视觉间隔 |
+| 编辑栏 | `tasks.layout.editorPaneWidth = 480 DIP` | 可调 360–720；始终位于第 2 列并可见 |
+| 紧凑阈值 | `tasks.layout.compactBreakpoint = 920 DIP` | 降低任务页内边距、压缩页头动作并允许操作栏换行 |
 
-- 窄模式默认显示列表；选中任务或新建任务后显示详情；详情提供“返回列表”，返回时沿用 `INavigationGuard` 的未保存确认。
-- 列表与详情面板保持同一实例，只切换可见性；跨断点调整窗口不得丢失输入、滚动位置或已选任务。
+- 删除 `ApplyCompactLayout` 中把编辑栏放到第 0 列、隐藏列表和让详情占满内容区的逻辑；不再存在“返回任务列表”的单页状态。
+- 列表与编辑栏保持同一实例、始终同时可见；调整窗口不得丢失输入、滚动位置或已选任务。
 - 详情内容在独立 `ScrollViewer` 中滚动，底部操作栏固定在可见区域，不随内容滚走。
 - 窄宽或矮窗下，操作按钮改为可换行的两行布局，保留完整文字和至少 40 DIP 高度，不缩成省略号或仅剩图标。
-- 详情页必须可达：标题、备注、字数与字段错误、冲突提示与“重新加载最新版本”、保存、完成切换、重新加载、删除、忙碌反馈、状态标签，以及窄模式“返回列表”。过滤、刷新和新建仍归列表页，返回列表后可操作。
-- 小于 920 DIP 时外边距降为 16–18 DIP；高度小于 680 DIP 时压缩标题与段间距，但不降低输入框和按钮的最小尺寸。
+- 详情必须可达：标题、备注、字数与字段错误、冲突提示与“重新加载最新版本”、保存、完成切换、重新加载、删除、忙碌反馈和状态标签。过滤、刷新与新建继续留在各自原区域。
+- 低于紧凑阈值时外边距降为 16–18 DIP；高度小于 680 DIP 时压缩标题与段间距，但不改变列顺序，也不降低输入框和按钮的最小尺寸。
 - 不引入横向滚动；文本换行；列表标题可省略，详情标题完整显示并换行。
 
 响应式状态：
 
 - `ShellWindow` 维护 `SidebarMode`（完整、图标栏），在 `SizeChanged` 中计算，重复应用同一模式不产生副作用。
-- `TasksView` 维护 `TaskPageMode`（并排、单页切换）和单页子状态（列表、详情），输入为自身 `ActualWidth`。
-- 宽转窄时，已有选中任务则直接进入详情，无选中则进入列表；窄转宽时恢复并排布局。
-- 保持 `MinWidth=760`、`MinHeight=620`；不把窗口缩到无法完整显示操作按钮的尺寸。
+- `TasksView` 维护 `IsCompactTasksLayout`，输入为自身 `ActualWidth`；两种状态都使用固定双栏，只改变间距和控件换行。
+- 页头“新建任务”动作在紧凑时可在页头内换行，但编辑栏位置不变。
+- 默认窗口尺寸为 1504×1012 DIP；默认 `MinWidth=1100`、`MinHeight=720`。启动尺寸大于当前工作区时只收缩本次显示并放回可见区域，不改写保存值。
 
 测试与验收：
 
-- 布局：在 STA/Dispatcher 环境渲染 760、839、920、1039、1040、1060、1220 DIP 宽度与 620、780 DIP 高度，断言侧栏宽度、页面模式及控件可见性。
-- 功能：760×620 下完成新建、保存、完成切换、重新加载、删除、冲突重载和未保存返回确认；筛选与刷新在列表页可用。
-- 可访问性：图标栏每项保留可读名称与提示；键盘可导航；High Contrast 及 100/125/150/200% DPI 下无裁剪或重叠。
-- 保护：断点往返不丢未保存输入；无任务模块时外壳的折叠仍正常；空配置和禁用任务界面下，宽窄状态都不产生任务控件或跨模块依赖。
-- 预览：渲染结果输出到 `artifacts/ui-preview/`，至少包含 `shell-760-rail`、`tasks-detail-760`、`tasks-detail-920` 等关键尺寸。
+- 布局：在 STA/Dispatcher 环境渲染 1100、1179、1180、1199、1200、1366、1504 DIP 宽度与 720、1012 DIP 高度，断言侧栏宽度、编辑栏列号为 2、列表与编辑栏同时可见。
+- 参数：将 `editorPaneWidth`、`paneGap`、`compactBreakpoint` 分别改到最小值、默认值和最大值，验证即时重排；无效或互相挤压的组合显示字段/跨字段错误。
+- 功能：在 1100×720 和 1504×1012 下完成新建、保存、完成切换、重新加载、删除、冲突重载和未保存离开确认；筛选与刷新始终可用。
+- 可访问性：图标栏每项保留可读名称与提示；设置齿轮在完整/图标侧栏、选中和 High Contrast 下可辨识；键盘可导航；100/125/150/200% DPI 下无裁剪或重叠。
+- 保护：紧凑阈值往返不丢未保存输入，也不改变列表/编辑栏顺序；无任务模块时外壳的折叠仍正常；空配置和禁用任务界面下不产生任务控件或跨模块依赖。
+- 预览：结果输出到 `artifacts/ui-preview/`，至少包含 `shell-1100-rail`、`tasks-fixed-right-1100`、`tasks-fixed-right-1504`、`settings-advanced-off`、`settings-advanced-on`。
 
 非目标：第一版不实现移动端抽屉、侧栏折叠动画、折叠偏好持久化和新的响应式能力契约；这些扩展可在不改动业务模块的前提下后续加入。
 
-### 8.5 过压缩防护：窗口小于最小设计尺寸
+### 8.5 过压缩防护：固定双栏与过小工作区
 
-背景：窗口压缩到最小尺寸附近时，问题通常不是“功能被移除”，而是文字截断、控件重叠或操作按钮被挤到视口外。防护原则是：任何小于设计下限的窗口都必须保持所有功能可达（滚动、换行、固定操作栏），而不是隐藏功能或渲染不可操作的裁剪状态。
+背景：窗口接近最小尺寸，或启动尺寸大于当前工作区时，任务页仍必须保持列表与右侧编辑栏。防护原则是保持列顺序、让内容在各自区域内滚动和换行；只有导航可以折叠，任务编辑栏不能变为单页覆盖。
 
 两层最小尺寸：
 
 | 层 | 最小尺寸 | 行为 |
 | --- | --- | --- |
-| 外壳窗口 | MinWidth=760、MinHeight=620 | WPF 阻止继续缩小，保证始终存在可操作窗口 |
-| 任务模块 | 列表 ≥ 420×480，详情 ≥ 560×480 | 低于该可用宽度时仍然可用：内容滚动、文字换行、操作栏固定 |
+| 外壳窗口 | 默认 MinWidth=1100、MinHeight=720 | WPF 阻止继续缩小，保证两侧都有可操作空间 |
+| 任务模块 | 列表 ≥ 300 DIP；编辑栏默认 480 DIP、最低 360 DIP | 固定左右双栏；内部滚动、文字换行、操作栏固定 |
 
 过压缩时的具体规则：
 
 - 顶栏右侧“MOSAIC / 工作空间”在窄窗折叠为“MOSAIC”或省略号，不与 `PageTitle` 抢占一行。
-- 页头标题与副标题允许换行，超长时省略；新建任务按钮在窄窗始终独立成行，保持最小点击宽度。
+- 页头标题与副标题允许换行，超长时省略；新建任务按钮在紧凑页头中可以换行，但始终保留最小点击宽度。
 - 列表行：完成图标列固定 30 DIP，标题与日期行使用省略，行高不随压缩继续降低。
 - 详情表单：备注框保留 `MinHeight=128`；矮窗（高度 < 680 DIP）改用剩余空间自适应高度并保持滚动，冲突横幅、字段错误和状态标签必须留在可见滚动区内。
 - 操作栏：窄宽时两行换行；删除按钮固定整行宽度，其余按钮最小宽度 96 DIP、高度 40 DIP；忙碌反馈和错误提示不覆盖按钮。
 - 图标栏 64 DIP、按钮 44×44 固定，不随内容宽度变化继续压缩。
 - 图标栏状态卡：文字折叠后只保留状态圆点（约 8–10 DIP）居中显示，移除卡片边框、背景和固定 44×44 外框；圆点以 `ToolTip` 和 `AutomationProperties.Name` 保留“本机工作空间 · 离线可用”完整语义。空文字的卡片边框禁止渲染，避免出现看起来可点击却无信息的占位方块。
+- 保存的启动尺寸超出当前工作区时，计算本次 `ActualWidth/ActualHeight` 和位置以完全落入工作区，但不回写 `startup.width/height`；下一次在更大屏幕仍使用保存值。
 - 若可用宽度低于任务模块声明的下限，应优先保持可滚动和可操作，不显示空白或“放不下”的替代状态。
 
 极端尺寸验收矩阵：
 
 | 渲染尺寸 | 覆盖状态 |
 | --- | --- |
-| 760×620 | 外壳图标栏（含状态圆点无空卡片）、任务列表、详情（单页） |
-| 640×520 | 任务列表、详情（单页） |
-| 560×480 | 详情（单页）、操作栏两行 |
-| 480×480 | 列表下限、详情滚动 |
-| 420×480 | 列表下限，仅任务模块独立预览 |
+| 1100×720 | 图标栏、任务列表、右侧编辑栏、操作栏紧凑换行 |
+| 1179×720 | 图标栏、固定右侧编辑栏；阈值前状态 |
+| 1180×720 | 完整侧栏、固定右侧编辑栏；阈值边界状态 |
+| 1366×768 | 常见笔记本工作区启动缩放，无右栏覆盖 |
+| 1504×1012 | 默认完整布局 |
 
 上述尺寸同时以 100/125/150/200% DPI 抽查。验证方式：渲染后使用 OCR 与边缘像素断言，检查文字是否裁出边界、控件是否重叠、操作按钮是否全部可达；该断言纳入自适应布局测试，不依赖人工目测。
 
@@ -547,15 +583,31 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 
 ### 阶段 7：窗口自适应布局
 
-交付：外壳导航完整与图标栏两态、20 DIP 滞回；任务页宽并排与窄单页详情；窄窗详情操作栏换行；STA 布局、可访问性与断点预览。
+交付：1504×1012 默认窗口、1100×720 最小窗口、过小工作区安全修正；外壳导航完整与图标栏两态、20 DIP 滞回；任务页固定左列表/右编辑栏；紧凑间距与操作栏换行；设置导航使用矢量齿轮；STA 布局、可访问性与预览。
 
-验收：760×620 下可完成全部任务字段和操作，且无横向滚动、裁剪或浮层混叠；极端尺寸矩阵（480×480 至 760×620）通过 OCR 与边缘像素断言；1040/1060 DIP 边界来回调整不抖动；图标栏保留可读名称与提示；跨断点不丢未保存输入；空配置和禁用任务界面下无越界依赖。
+验收：1100×720 和 1504×1012 下均可完成全部任务字段和操作，编辑栏始终位于第 2 列，窗口缩小时不铺满任务页；1179/1180/1199/1200 DIP 边界来回调整不抖动；保存启动尺寸大于工作区时仅缩放本次显示；图标栏与设置齿轮保留可读名称和主题对比度；跨紧凑阈值不丢未保存输入；空配置和禁用任务界面下无越界依赖。
 
 ### 阶段 8：设置功能（0.2.0）
 
-交付：settings-sqlite、settings-core、settings-ui 三个独立模块；普通设置 8 项、高级设置 47 项，覆盖语言、任务规则、外观布局、存储系统与文案；宿主 appsettings 来源、即时/重启生效语义、危险项确认与恢复默认。
+交付：settings-sqlite、settings-core、settings-ui 三个独立模块；57 项参数归入“任务、外观与布局、存储与系统、文案”四个分区，其中 8 项普通参数在高级关闭时仍可见，另外 49 项高级参数仅在高级开启后可见；覆盖语言、任务规则、固定右栏布局、外观、存储系统与文案；宿主 appsettings 来源、即时/重启生效语义、危险项确认与恢复默认。
 
-验收：55 项参数均可查看、修改、校验和恢复默认；即时项保存后生效，重启项明确显示 pending 且下次启动生效；旧 0.1.0 配置与数据库可加载；禁用模块的设置值保留并在重新启用后恢复；危险项（标题必填关闭、默认完成、Revision 起点、WAL、连接模式、数据库文件名/位置、禁用模块、恢复全部默认）均有警告与测试；设置表只由 settings-sqlite 访问。完整计划见 [设置功能规划](settings-plan.md)。
+验收：不存在“普通”分区；高级设置默认关闭时完整模块配置下只有任务、外观与布局两个分区，分别显示 6 项和 2 项普通参数且可直接保存，存储与系统和文案分区整体隐藏；开启后四个分区和全部 57 项参数均可查看、修改、校验和恢复默认；普通项在两种模式下只有一份行实例，分区恢复按当前可见定义 ID 限定范围。阶段 8 实施时关闭开关会询问未保存修改；阶段 10 将改为无询问并保留全部暂存值与预览。新增 `tasks.layout.editorPaneWidth` 与 `tasks.layout.paneGap` 即时生效；默认启动尺寸为 1504×1012、最小尺寸为 1100×720；即时项保存后生效，重启项明确显示 pending 且下次启动生效；旧 0.1.0 配置与数据库可加载；禁用模块的设置值保留并在重新启用后恢复；危险项均有警告与测试；设置表只由 settings-sqlite 访问。完整计划见 [设置功能规划](settings-plan.md)。
+
+### 阶段 9：后台驻留与边缘任务面板
+
+实施状态（2026-11-16）：0.3.0 源码与本地 EXE 已实现 P0–P4；状态机、设置、只读摘要、实际 WPF 边缘/弹窗创建与释放已自动化验证。主窗口关闭驻留、二次启动恢复草稿及保存 Exit 后退出已在桌面确认。多屏/DPI/全屏/系统会话及完整烟雾、安装升级仍未验收，P5 不标完成。
+
+交付：独立的 `desktop-presence` 模块；关闭主窗口与真正退出分流；右上侧方形边缘入口；悬停、单击、双击三种互斥触发；只读任务摘要；新增“驻留与边缘”设置分区；多屏、DPI、高对比度和键盘可访问性验收。
+
+验收：主窗口关闭后进程、模块、页面与数据库继续存活，恢复主窗口不重建页面；真正退出仍执行未保存确认、等待在途写入、逆序释放和单实例释放；Presence 不读取 Tasks/Storage 内部对象，任务摘要只调用 `ITasksApi`，完整 `TasksView` 不被复制；没有任务摘要贡献时不创建无内容驻留入口；系统会话结束与致命错误不进入驻留；边缘入口和弹窗始终位于当前工作区，DPI 与副屏变化后重新定位；关闭后任务列表已更新，弹窗打开能看到最新快照。完整计划见 [后台驻留与边缘任务面板规划](desktop-presence-plan.md)。
+
+### 阶段 10：设置跨分区持续预览
+
+状态：0.4.0 已实现本地源码及自动化验证；完整交互式桌面、系统会话、DPI 和安装升级仍待验收。
+
+交付：settings-core 增加单一活动编辑会话；设置定义增加 `SettingPreviewMode`；预览只应用可逆即时参数且不持久化；`SettingPreviewMode.None`、重启和 HostConfig 参数只暂存；settings-ui 在分区/高级开关切换时不再询问保存，而保留全页累计修改；离开设置页、切换功能页或真正退出应用时统一询问保存、放弃或取消。
+
+验收：任意分区切换与高级开关切换均不调用未保存对话框；所有可见/隐藏分区共用一个 Dirty 总账；合法可逆即时项持续预览，非法候选保留最后一次合法预览；不可逆即时项和重启参数运行值不提前改变；快速输入由 revision 和单消费者队列保证最新值生效；预览、延迟页面回放、Discard 回滚均不写数据库或 appsettings；显式保存和离开时保存都一次提交全页累计变更并统一处理危险项；离开前冻结输入并排空旧预览，Dirty 为零也不能在预览在途时直接离开；校验/持久化/回滚失败留页，持久化成功但即时应用失败按 ApplyWarning 处理；显式保存成功后会话继续编辑并以新值重置回滚基线；关闭主窗口进入驻留不等于离开设置页，不弹确认，真正退出应用时才触发；消费来源先撤销预览再注销，页面异常释放执行异步取消/回滚。完整规则见 [设置功能规划](settings-plan.md) 第 13 节。
 
 阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
 
@@ -570,7 +622,10 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 | 仓储契约 | 相同用例用于测试仓储和 SQLite，覆盖读取排序、条件写入和删除 |
 | 数据库集成 | 重开、参数化查询、事务、迁移摘要、版本过高、失败备份和锁等待 |
 | MVVM/界面测试 | STA/Dispatcher、命令状态、线程更新、导航贡献、未保存守卫和慢查询 |
-| 自适应布局 | 侧栏断点与滞回、任务详情单页切换、图标可访问名称、断点往返保留输入 |
+| 自适应布局 | 侧栏断点与滞回、任务固定右侧编辑栏、紧凑阈值往返、设置矢量齿轮、默认/最小窗口及工作区缩放 |
+| 设置界面 | 高级关闭时仅两分区及 8 项普通参数、空普通分区整栏隐藏、高级开启后四分区及 57 项可达、普通项单实例；阶段 10 起分区与高级开关切换零确认，保存/放弃按全页累计范围 |
+| 设置持续预览 | 分区切换零弹窗、跨分区累计暂存、可逆即时预览、不可逆/重启仅暂存、单活动会话、快速输入最新代次、统一离开一次确认、回滚与页面释放 |
+| 后台驻留 | 关闭驻留与服务存活、恢复不重建、显式退出排空、三种触发互斥、任务摘要只走公开 API、多屏/DPI 定位、设置可见性与高对比度 |
 | 桌面验收 | 干净 Windows 环境启动，创建编辑完成删除、禁用、关窗、安装升级重开 |
 
 WPF 控件测试使用独立 STA 线程与 Dispatcher，不直接用普通并行测试线程创建 Window。纯 ViewModel 测试注入 IUiDispatcher/IUserDialogService 替身。桌面自动化先用 Windows UI Automation API 做关键烟雾流程，范围以可重复验证为准，不为每个控件建立脆弱测试。
@@ -585,7 +640,7 @@ pwsh -File build/test.ps1 -NoBuild
 dotnet test --solution Mosaic.sln -c Release --no-build --no-restore
 dotnet format Mosaic.sln --verify-no-changes --no-restore
 dotnet run --project src/Mosaic.Desktop
-dotnet publish src/Mosaic.Desktop -c Release -r win-x64 --self-contained true -o artifacts/win-x64
+dotnet publish src/Mosaic.Desktop -c Release -r win-x64 --self-contained true -o artifacts/local-run
 ```
 
 各项目已生成 packages.lock.json，锁定还原已验证。上述 test 命令应先按相同配置完成构建；测试使用独立数据库和 STA Dispatcher。每用户安装包由 `build/package.ps1` 构建。

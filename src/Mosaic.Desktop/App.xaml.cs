@@ -15,18 +15,28 @@ public partial class App : Application
     private ShellWindow? _shell;
     private bool _fatal;
     private int _shutdownRequested;
+    private IDisposable? _desktopLocalization;
+    private readonly DesktopWindowHost _windowHost = new();
+    private ShutdownCoordinator? _coordinator;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        _desktopLocalization = DesktopLocalization.Register();
         MosaicThemeManager.Attach(Resources);
         DispatcherUnhandledException += OnDispatcherException;
         var diagnostic = new Window
         {
-            Title = "Mosaic · 启动",
+            Title = DesktopLocalization.Localize("Desktop.Startup.Title", "Mosaic · 启动"),
             Width = 580,
             Height = 260,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            Content = new TextBlock { Text = "正在准备本机工作空间…", Margin = new Thickness(32), FontSize = 18, TextWrapping = TextWrapping.Wrap }
+            Content = new TextBlock
+            {
+                Text = DesktopLocalization.Localize("Desktop.Startup.Preparing", "正在准备本机工作空间…"),
+                Margin = new Thickness(32),
+                FontSize = 18,
+                TextWrapping = TextWrapping.Wrap
+            }
         };
         MainWindow = diagnostic;
         diagnostic.Show();
@@ -37,14 +47,19 @@ public partial class App : Application
             _paths = AppPaths.FromArguments(e.Args);
             _instance = new(_paths.Root, ReportFailure, ReadSingleInstanceRetry(_paths));
             if (!_instance.IsPrimary) { await _instance.NotifyAsync(); await FinishAsync(); return; }
-            _instance.Listen(() => Dispatcher.BeginInvoke(() =>
+            _instance.Listen(() => Dispatcher.BeginInvoke(new Action(async () =>
             {
-                if (MainWindow is { } window) { if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal; window.Show(); window.Activate(); }
-            }));
-            shell = await _bootstrapper.StartAsync(_paths, new UiDispatcher(Dispatcher), new UserDialogService());
+                if (_bootstrapper.Presence is { } presence) await presence.RequestRestoreAsync();
+                else if (_windowHost.Window is not null) await _windowHost.RestoreMainWindowAsync();
+                else MainWindow?.Activate();
+            })));
+            shell = await _bootstrapper.StartAsync(_paths, new UiDispatcher(Dispatcher), new UserDialogService(), _windowHost);
             _shell = shell;
+            _windowHost.Window = shell;
             await shell.InitializeAsync();
-            new ShutdownCoordinator(shell, _bootstrapper, FinishAsync, ReportFailure).Attach();
+            _coordinator = new ShutdownCoordinator(shell, _bootstrapper, FinishAsync, ReportFailure);
+            _windowHost.Coordinator = _coordinator;
+            _coordinator.Attach();
             MainWindow = shell;
             shell.Show(); _fatal = true; diagnostic.Close(); _fatal = false;
         }
@@ -59,14 +74,16 @@ public partial class App : Application
             }
             try { await _bootstrapper.DisposeAsync(); } catch (Exception cleanup) { ReportFailure(cleanup); }
             ReportFailure(ex); _fatal = true;
-            diagnostic.Title = "Mosaic · 无法启动";
+            diagnostic.Title = DesktopLocalization.Localize("Desktop.Startup.FailedTitle", "Mosaic · 无法启动");
             System.Windows.Automation.AutomationProperties.SetName(diagnostic, diagnostic.Title);
             diagnostic.Content = new TextBlock
             {
                 Margin = new Thickness(32),
                 FontSize = 15,
                 TextWrapping = TextWrapping.Wrap,
-                Text = ex is ConfigurationException ? ex.Message + "\n\n修正配置后重新启动。" : "本机工作空间启动失败。请检查数据目录权限或查看 Logs 中的诊断记录后重试。"
+                Text = ex is ConfigurationException
+                    ? ex.Message + "\n\n" + DesktopLocalization.Localize("Desktop.Startup.FixConfiguration", "修正配置后重新启动。")
+                    : DesktopLocalization.Localize("Desktop.Startup.Failed", "本机工作空间启动失败。请检查数据目录权限或查看 Logs 中的诊断记录后重试。")
             };
             diagnostic.Hide(); diagnostic.Show();
             diagnostic.Closed += async (_, _) => await FinishAsync();
@@ -104,19 +121,30 @@ public partial class App : Application
         try
         {
             if (MainWindow is { } window) window.IsEnabled = false;
-            MessageBox.Show("Mosaic 遇到未预期的错误，将受控关闭。请重新启动并确认最近的保存结果。", "Mosaic");
+            MessageBox.Show(
+                DesktopLocalization.Localize(
+                    "Desktop.Fatal.Message",
+                    "Mosaic 遇到未预期的错误，将受控关闭。请重新启动并确认最近的保存结果。"),
+                "Mosaic");
         }
         catch (Exception ex) { ReportFailure(ex); }
         _ = StopAfterFailureAsync();
     }
     private async Task StopAfterFailureAsync()
     {
+        if (_coordinator is not null) { await _coordinator.ForceExitAsync(); return; }
         if (_shell is not null)
         {
             try { await _shell.DisposeAsync(); } catch (Exception ex) { ReportFailure(ex); }
         }
         try { await _bootstrapper.DisposeAsync(); } catch (Exception ex) { ReportFailure(ex); }
         await FinishAsync();
+    }
+    protected override async void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        base.OnSessionEnding(e);
+        if (_coordinator is not null) await _coordinator.ForceExitAsync();
+        else await StopAfterFailureAsync();
     }
     private async Task FinishAsync()
     {
@@ -130,5 +158,6 @@ public partial class App : Application
         }
         try { Shutdown(); }
         catch (Exception ex) { ReportFailure(ex); }
+        finally { _desktopLocalization?.Dispose(); _desktopLocalization = null; }
     }
 }

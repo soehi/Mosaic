@@ -4,9 +4,9 @@
 
 已确认技术方案：C# + WPF，采用 .NET 10、MVVM 和 SQLite。
 
-当前版本：0.1.0。已实现模块化 WPF 应用、SQLite 持久化、任务增删改、完成/恢复、筛选、冲突反馈及未保存编辑确认。
+当前本地开发版本：0.5.0。已实现模块化 WPF、SQLite 任务与设置、跨分区设置持续预览、宿主与用户设置提交日志，以及关闭主窗口后驻留、边缘任务速览和恢复草稿。实际验证范围见实施记录。
 
-Windows 安装包：[下载 Mosaic 0.1.0](https://github.com/soehi/Mosaic/releases/download/v0.1.0/Mosaic-0.1.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.5.0](https://github.com/soehi/Mosaic/releases/download/v0.5.0/Mosaic-0.5.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 
@@ -31,7 +31,7 @@ dotnet run --project src/Mosaic.Desktop
 pwsh -File build/package.ps1 -NoPublish
 ```
 
-本机构建产物位于 `artifacts/win-x64` 和 `artifacts/installer`。
+本机仅使用一个完整发布目录 `artifacts/local-run`，安装包输出到 `artifacts/installer`；bin/obj 为开发构建缓存。
 
 安装到 `%LOCALAPPDATA%\Programs\Mosaic`，开始菜单提供 Mosaic 入口。数据、配置、日志分别位于 `%LOCALAPPDATA%\Mosaic\Data`、`Config`、`Logs`。首次复制默认配置，后续无效配置保留原文件并显示诊断；模块配置修改后重启生效。`modules: []` 不打开数据库。卸载保留用户数据。
 
@@ -45,5 +45,8 @@ pwsh -File build/package.ps1 -NoPublish
 - [实施与验证记录](docs/implementation-status.md)：实际交付、测试覆盖和待验收事项。
 - [设置功能规划](docs/settings-plan.md)：可参数化清单、普通/高级设置边界与模块化方案。
 - [Mosaic 0.1.0 发布说明](docs/releases/v0.1.0.md)：安装信息、校验值和验证结果。
+- [Mosaic 0.5.0 发布说明](docs/releases/v0.5.0.md)：架构收口、验证范围和安装包信息。
 
 核心约束：每项职责只有一个归属模块；跨模块只允许通过公开协议提出调用申请，禁止访问内部实现和数据；缺少能力时先判断职责归属，再扩展公开接口或创建模块；宿主负责装配；导航和页面入口由已激活功能的贡献参数生成。
+
+后台驻留与模块边界见 [驻留规划](docs/desktop-presence-plan.md)。新工作空间默认关闭主窗口后进入驻留；通过边缘入口可恢复或退出。已有配置不会隐式启用 Presence，需在模块列表和能力绑定中明确加入。

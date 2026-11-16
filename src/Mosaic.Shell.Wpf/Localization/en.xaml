@@ -2,6 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <sys:String x:Key="Shell.Tagline">Every task leaves a trace</sys:String>
+    <sys:String x:Key="Shell.ResizeSidebar">Drag to resize the navigation. Double-click or press Home to reset; arrow keys adjust width.</sys:String>
     <sys:String x:Key="Shell.WorkspaceStatus">Local workspace</sys:String>
     <sys:String x:Key="Shell.WorkspaceStatusDetail">Offline ready · Data stays on this PC</sys:String>
     <sys:String x:Key="Shell.WorkspaceStatusAccessibility">Local workspace, offline ready</sys:String>
@@ -9,4 +10,10 @@
     <sys:String x:Key="Shell.EmptyTitle">Workspace is ready</sys:String>
     <sys:String x:Key="Shell.EmptyDescription">No features are enabled. Update module configuration and restart.</sys:String>
     <sys:String x:Key="Shell.PageTitle">Workspace</sys:String>
+    <sys:String x:Key="Shell.Dialog.Delete.Title">Delete task</sys:String>
+    <sys:String x:Key="Shell.Dialog.Delete.Message">Permanently delete “{0}”?</sys:String>
+    <sys:String x:Key="Shell.Dialog.Unsaved.Title">Unsaved changes</sys:String>
+    <sys:String x:Key="Shell.Dialog.Unsaved.Message">The current edit has not been saved.&#x0a;&#x0a;Yes: save and leave&#x0a;No: discard changes&#x0a;Cancel: continue editing</sys:String>
+    <sys:String x:Key="Shell.Error.PageLoad">The page could not load. Restart the app.</sys:String>
+    <sys:String x:Key="Shell.Error.PageClose">The page did not close completely. Restart the app.</sys:String>
 </ResourceDictionary>

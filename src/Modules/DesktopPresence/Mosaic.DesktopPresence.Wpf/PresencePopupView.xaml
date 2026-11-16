@@ -1,0 +1,47 @@
+<UserControl x:Class="Mosaic.DesktopPresence.Wpf.PresencePopupView" x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
+             FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="14" UseLayoutRounding="True"
+             Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}">
+    <Border Margin="6" CornerRadius="14" BorderThickness="1"
+            Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+            BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Border x:Name="HeaderFrame" Padding="18,16,14,14" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock x:Name="BrandLabel" Text="MOSAIC" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,5"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                        <TextBlock Text="{DynamicResource Presence.Title}" FontSize="20" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="Subtitle" Text="{DynamicResource Presence.Subtitle}" Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="×" FontSize="21" MinWidth="32" MinHeight="32" Padding="0" Margin="10,0,0,0"
+                            VerticalAlignment="Top" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                            Click="Dismiss" ToolTip="{DynamicResource Presence.Dismiss}" AutomationProperties.Name="{DynamicResource Presence.Dismiss}"
+                            AutomationProperties.AutomationId="PresenceDismiss"/>
+                </Grid>
+            </Border>
+            <ContentControl x:Name="ContentHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+            <Border Grid.Row="2" Padding="14,12,14,14" BorderThickness="0,1,0,0"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Button Content="{DynamicResource Presence.Restore}" MinHeight="40" MinWidth="0" Padding="12,8"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}" Click="Restore"
+                                AutomationProperties.AutomationId="PresenceRestore"/>
+                        <Button Grid.Column="1" Content="{DynamicResource Presence.ExitShort}" ToolTip="{DynamicResource Presence.Exit}" MinHeight="40" MinWidth="0" Padding="10,8" Margin="8,0,0,0"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" Click="Exit"
+                                AutomationProperties.AutomationId="PresenceExit"/>
+                    </Grid>
+                    <TextBlock x:Name="DismissHint" Margin="0,10,0,0" FontSize="11" TextAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

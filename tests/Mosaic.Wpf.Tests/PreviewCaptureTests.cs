@@ -28,7 +28,12 @@ public sealed class PreviewCaptureTests
         var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         application.Resources.MergedDictionaries.Add(LoadTheme());
 
-        await CaptureShell(output, 1220, 780, "shell-wide.png");
+        await CaptureShell(output, 1504, 1012, "shell-wide.png");
+        await CaptureShell(output, 1100, 720, "shell-1100-rail.png");
+        await CaptureTasksOnly(output, 1100, 720, "tasks-fixed-right-1100.png", selectTask: true);
+        await CaptureTasksOnly(output, 1504, 1012, "tasks-fixed-right-1504.png", selectTask: true);
+        await CaptureSettings(output, 1504, 1012, "settings-advanced-off.png");
+        await CaptureSettings(output, 1504, 1012, "settings-advanced-on.png", advanced: true);
         await CaptureShell(output, 760, 620, "shell-760-rail.png");
         await CaptureShell(output, 760, 620, "shell-rail-dot-only.png");
         await CaptureTasksOnly(output, 760, 620, "tasks-detail-760.png", selectTask: true);
@@ -37,6 +42,8 @@ public sealed class PreviewCaptureTests
         await CaptureTasksOnly(output, 460, 640, "tasks-list-narrow.png", selectTask: false);
         await CaptureSettings(output, 1220, 780, "settings-wide.png");
         await CaptureSettings(output, 760, 620, "settings-760.png");
+        await CaptureSettings(output, 1100, 720, "settings-dark.png", variant: MosaicThemeVariant.Dark);
+        await CaptureSettings(output, 1100, 720, "settings-high-contrast.png", variant: MosaicThemeVariant.HighContrast);
     });
 
     private static async Task CaptureShell(string output, double width, double height, string fileName)
@@ -96,14 +103,21 @@ public sealed class PreviewCaptureTests
         await page.Controller.DisposeAsync();
     }
 
-    private static async Task CaptureSettings(string output, double width, double height, string fileName)
+    private static async Task CaptureSettings(string output, double width, double height, string fileName, bool advanced = false,
+        MosaicThemeVariant variant = MosaicThemeVariant.Light)
     {
         var dialogs = new Dialogs();
         var (api, tasks, module) = await CreateAssemblyAsync(dialogs);
         await module.ActivateAsync();
         var page = Assert.Single(module.Views).Factory.Create();
         await page.Controller.InitializeAsync();
-        var resources = LoadTheme();
+        page.View.DataContext.GetType().GetProperty("ShowAdvanced")!.SetValue(page.View.DataContext, advanced);
+        var resources = new ResourceDictionary();
+        resources.MergedDictionaries.Add(LoadTheme());
+        resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri($"/Mosaic.Presentation.Wpf;component/Themes/Palettes/{variant}.xaml", UriKind.Relative)
+        });
         var host = new Grid { Resources = resources };
         host.Children.Add(page.View);
         Arrange(host, width, height);
@@ -178,10 +192,10 @@ public sealed class PreviewCaptureTests
 
     private sealed class SettingsCollector : ISettingsCore
     {
+        public Task<OperationResult<ISettingsEditSession>> BeginEditSessionAsync(CancellationToken cancellationToken = default) => TestSettingsSession.OpenAsync(this);
         private readonly List<ISettingSource> _sources = [];
         public IReadOnlyList<SettingDefinition> Definitions =>
-            SettingCatalog.Definitions
-                .Concat(new ShellSettingSource().Definitions)
+            new ShellSettingSource().Definitions
                 .Concat(_sources.SelectMany(item => item.Definitions))
                 .ToArray();
         public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
@@ -210,6 +224,7 @@ public sealed class PreviewCaptureTests
 
     private sealed class SettingsApi(IReadOnlyList<SettingDefinition> definitions) : ISettingsApi
     {
+        public Task<OperationResult<ISettingsEditSession>> BeginEditSessionAsync(CancellationToken cancellationToken = default) => TestSettingsSession.OpenAsync(this);
         public IReadOnlyList<SettingDefinition> Definitions { get; } = definitions;
         public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success(Definitions));

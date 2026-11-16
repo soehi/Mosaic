@@ -30,7 +30,7 @@ public sealed class BoundaryTests
             var xml = XDocument.Load(file);
             foreach (var reference in xml.Descendants("ProjectReference")) Assert.Contains(Path.GetFileNameWithoutExtension(reference.Attribute("Include")!.Value.Replace('\\', '/')), whitelist[name]);
             foreach (var package in xml.Descendants("PackageReference")) CheckFramework(name, package.Attribute("Include")!.Value);
-            var framework = name is "Mosaic.Desktop" or "Mosaic.Shell.Wpf" or "Mosaic.Presentation.Contracts" or "Mosaic.Presentation.Wpf" or "Mosaic.Tasks.Wpf" or "Mosaic.Settings.Wpf" ? "net10.0-windows" : "net10.0";
+            var framework = name is "Mosaic.Desktop" or "Mosaic.Shell.Wpf" or "Mosaic.Presentation.Contracts" or "Mosaic.Presentation.Wpf" or "Mosaic.Tasks.Wpf" or "Mosaic.Settings.Wpf" or "Mosaic.DesktopPresence.Wpf" ? "net10.0-windows" : "net10.0";
             using var stream = File.OpenRead(Path.Combine(Path.GetDirectoryName(file)!, "bin", Configuration, framework, name + ".dll"));
             using var pe = new PEReader(stream);
             var metadata = pe.GetMetadataReader();
@@ -45,8 +45,8 @@ public sealed class BoundaryTests
     private static void CheckFramework(string project, string dependency)
     {
         if (dependency.StartsWith("Microsoft.Data.Sqlite", StringComparison.Ordinal) || dependency.StartsWith("SQLitePCLRaw", StringComparison.Ordinal)) Assert.Equal("Mosaic.Storage.Sqlite", project);
-        if (dependency.StartsWith("CommunityToolkit.Mvvm", StringComparison.Ordinal)) Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf" });
-        if (dependency is "PresentationFramework" or "PresentationCore" or "WindowsBase") Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf" });
+        if (dependency.StartsWith("CommunityToolkit.Mvvm", StringComparison.Ordinal)) Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf" });
+        if (dependency is "PresentationFramework" or "PresentationCore" or "WindowsBase") Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf" });
         if (dependency.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)) Assert.Equal("Mosaic.Desktop", project);
     }
     [Fact]
@@ -57,7 +57,7 @@ public sealed class BoundaryTests
         foreach (var project in Directory.GetFiles(Path.Combine(Root, "src"), "*.csproj", SearchOption.AllDirectories))
         {
             var name = Path.GetFileNameWithoutExtension(project);
-            var framework = name is "Mosaic.Desktop" or "Mosaic.Shell.Wpf" or "Mosaic.Presentation.Contracts" or "Mosaic.Presentation.Wpf" or "Mosaic.Tasks.Wpf" or "Mosaic.Settings.Wpf" ? "net10.0-windows" : "net10.0";
+            var framework = name is "Mosaic.Desktop" or "Mosaic.Shell.Wpf" or "Mosaic.Presentation.Contracts" or "Mosaic.Presentation.Wpf" or "Mosaic.Tasks.Wpf" or "Mosaic.Settings.Wpf" or "Mosaic.DesktopPresence.Wpf" ? "net10.0-windows" : "net10.0";
             using var file = File.OpenRead(Path.Combine(Path.GetDirectoryName(project)!, "bin", Configuration, framework, name + ".dll"));
             using var pe = new PEReader(file); var metadata = pe.GetMetadataReader();
             foreach (var handle in metadata.TypeDefinitions)
@@ -66,7 +66,7 @@ public sealed class BoundaryTests
                 // WPF may emit this one compiler helper on clean builds and omit it incrementally.
                 if (metadata.GetString(type.Namespace) == "XamlGeneratedNamespace" && metadata.GetString(type.Name) == "GeneratedInternalTypeHelper")
                 {
-                    Assert.Contains(name, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf" });
+                    Assert.Contains(name, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf" });
                     continue;
                 }
                 if ((type.Attributes & TypeAttributes.VisibilityMask) is TypeAttributes.Public or TypeAttributes.NestedPublic)
@@ -83,12 +83,12 @@ public sealed class BoundaryTests
             var source = File.ReadAllText(file);
             Assert.DoesNotContain("InternalsVisibleTo", source);
             Assert.False(Regex.IsMatch(source, @"Assembly\.Load|Type\.GetType|Activator\.CreateInstance|ServiceLocator"), file);
-            if (!file.Contains("Mosaic.Desktop")) Assert.False(Regex.IsMatch(source, @"IServiceProvider|IHost\b|GetRequiredService|GetService<"), file);
+            if (ProjectOf(file) != "Mosaic.Desktop") Assert.False(Regex.IsMatch(source, @"IServiceProvider|IHost\b|GetRequiredService|GetService<"), file);
             if (!file.Contains("Mosaic.Storage.Sqlite") && !file.Contains("Mosaic.Tasks.Sqlite") && !file.Contains("Mosaic.Settings.Sqlite"))
                 Assert.False(Regex.IsMatch(source, @"(?i)\b(SELECT .+ FROM|INSERT INTO|UPDATE .+ SET|CREATE TABLE|DELETE FROM)\b"), file);
             if (!file.Contains("Mosaic.Settings.Sqlite"))
                 Assert.False(Regex.IsMatch(source, @"(?i)\b(from|into|update|create table)\s+settings\b"), file);
-            if (file.Contains("Mosaic.Tasks.Core") || file.Contains("Mosaic.Kernel")) Assert.DoesNotContain("System.Windows", source);
+            if (file.Contains("Mosaic.Tasks.Core") || file.Contains("Mosaic.Kernel") || ProjectOf(file) == "Mosaic.DesktopPresence.Core") Assert.DoesNotContain("System.Windows", source);
         }
     }
     [Fact]
@@ -100,7 +100,8 @@ public sealed class BoundaryTests
             ["tasks-core"] = "Mosaic.Tasks.Core",
             ["tasks-ui"] = "Mosaic.Tasks.Wpf",
             ["shell"] = "Mosaic.Shell.Wpf",
-            ["storage-sqlite"] = "Mosaic.Storage.Sqlite"
+            ["storage-sqlite"] = "Mosaic.Storage.Sqlite",
+            ["desktop-presence"] = "Mosaic.DesktopPresence.Wpf"
         };
         var pattern = new Regex(@"(?:new|Definition)\(\s*""([a-z][a-z0-9.]*)"",\s*""([a-z][a-z0-9-]*)""");
         foreach (var file in Directory.GetFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories)

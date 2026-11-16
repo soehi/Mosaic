@@ -20,11 +20,14 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
     private readonly TaskUiSettingsTarget _settingsTarget = new();
     public static ModuleManifest Definition { get; } = new(
         "tasks-ui",
-        [],
+        [new("presence.tasks-view", 1)],
         [new("tasks.api", 1)],
         "Owns task navigation, views and view models.");
     public ModuleManifest Manifest => Definition;
-    public IReadOnlyList<NavigationItem> Navigation => _active ? [new("tasks.navigation", "任务", "check-square", "tasks.list", 100)] : [];
+    public ICompanionViewFactory CompanionFactory => new TaskPeekViewFactory(dependencies, () => _active);
+    public IReadOnlyList<NavigationItem> Navigation => _active
+        ? [new("tasks.navigation", "任务", "check-square", "tasks.list", 100, "Tasks.Navigation")]
+        : [];
     public IReadOnlyList<ViewContribution> Views => _active ? [new("tasks.list", new TaskViewFactory(dependencies, _settingsTarget))] : [];
     public Task ActivateAsync(CancellationToken cancellationToken = default)
     {
@@ -37,19 +40,21 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
         return Task.CompletedTask;
     }
 
-    public Task StopAsync()
+    public async Task StopAsync()
     {
+        if (dependencies.Settings is not null && _settingsRegistration is not null)
+        {
+            var result = await dependencies.Settings.PrepareSourceStopAsync("tasks-ui");
+            if (!result.IsSuccess) throw new InvalidOperationException(result.Error!.Message);
+        }
         _active = false;
         _settingsRegistration?.Dispose();
         _settingsRegistration = null;
-        return Task.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
     {
-        _active = false;
-        _settingsRegistration?.Dispose();
-        _settingsRegistration = null;
+        await StopAsync();
         _localizationRegistration?.Dispose();
         _localizationRegistration = null;
         await ValueTask.CompletedTask;

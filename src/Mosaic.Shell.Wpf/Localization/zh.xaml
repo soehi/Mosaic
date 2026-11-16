@@ -2,6 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <sys:String x:Key="Shell.Tagline">让每一件事，有迹可循</sys:String>
+    <sys:String x:Key="Shell.ResizeSidebar">拖动调整导航栏宽度；双击恢复默认。键盘左右键调整，Home 恢复。</sys:String>
     <sys:String x:Key="Shell.WorkspaceStatus">本机工作空间</sys:String>
     <sys:String x:Key="Shell.WorkspaceStatusDetail">离线可用 · 数据保存在此电脑</sys:String>
     <sys:String x:Key="Shell.WorkspaceStatusAccessibility">本机工作空间，离线可用</sys:String>
@@ -9,4 +10,10 @@
     <sys:String x:Key="Shell.EmptyTitle">工作空间已就绪</sys:String>
     <sys:String x:Key="Shell.EmptyDescription">当前没有启用的功能。修改模块配置并重启后即可使用。</sys:String>
     <sys:String x:Key="Shell.PageTitle">工作空间</sys:String>
+    <sys:String x:Key="Shell.Dialog.Delete.Title">删除任务</sys:String>
+    <sys:String x:Key="Shell.Dialog.Delete.Message">确定永久删除「{0}」？</sys:String>
+    <sys:String x:Key="Shell.Dialog.Unsaved.Title">未保存的更改</sys:String>
+    <sys:String x:Key="Shell.Dialog.Unsaved.Message">当前编辑尚未保存。&#x0a;&#x0a;是：保存并离开&#x0a;否：放弃更改&#x0a;取消：继续编辑</sys:String>
+    <sys:String x:Key="Shell.Error.PageLoad">页面加载失败，请重新启动应用。</sys:String>
+    <sys:String x:Key="Shell.Error.PageClose">页面关闭未完成，请重新启动应用。</sys:String>
 </ResourceDictionary>

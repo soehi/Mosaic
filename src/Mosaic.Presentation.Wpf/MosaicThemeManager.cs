@@ -20,6 +20,8 @@ public static class MosaicThemeManager
     private static bool _observing;
     private static bool _followSystem = true;
     private static MosaicThemeVariant _fixedVariant = MosaicThemeVariant.Light;
+    public static MosaicThemeVariant Current { get; private set; } = MosaicThemeVariant.Light;
+    public static event EventHandler? ThemeChanged;
 
     public static void Attach(ResourceDictionary resources)
     {
@@ -88,6 +90,8 @@ public static class MosaicThemeManager
             Source = new Uri($"/Mosaic.Presentation.Wpf;component/Themes/Palettes/{fileName}", UriKind.Relative)
         };
         resources.MergedDictionaries.Add(_activePalette);
+        Current = variant;
+        ThemeChanged?.Invoke(null, EventArgs.Empty);
     }
 
     private static MosaicThemeVariant DetectSystemVariant()

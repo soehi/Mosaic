@@ -9,6 +9,6 @@ try {
     if ($LASTEXITCODE) { throw 'Restore failed.' }
     dotnet restore src/Mosaic.Desktop -r win-x64 -p:SelfContained=true --no-dependencies --locked-mode -m:1 @mosaicRestoreArgs
     if ($LASTEXITCODE) { throw 'Self-contained runtime restore failed.' }
-    dotnet publish src/Mosaic.Desktop -c $Configuration -r win-x64 --self-contained true --no-restore -m:1 -o artifacts/win-x64
+    dotnet publish src/Mosaic.Desktop -c $Configuration -r win-x64 --self-contained true --no-restore -m:1 -o artifacts/local-run
     if ($LASTEXITCODE) { throw 'Publish failed.' }
 } finally { Pop-Location }

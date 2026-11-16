@@ -10,11 +10,23 @@ public sealed class DesktopTests
     {
         get { var p = new DirectoryInfo(AppContext.BaseDirectory); while (p is not null && !File.Exists(Path.Combine(p.FullName, "Mosaic.sln"))) p = p.Parent; return p!.FullName; }
     }
-    private static string Executable => Environment.GetEnvironmentVariable("MOSAIC_SMOKE_EXE") ?? Path.Combine(Root, "artifacts/win-x64/Mosaic.Desktop.exe");
+    private static string Executable => Environment.GetEnvironmentVariable("MOSAIC_SMOKE_EXE") ?? Path.Combine(Root, "artifacts/local-run/Mosaic.Desktop.exe");
     private static string NewRoot() { var path = Path.Combine(Root, "artifacts/smoke-data", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(path); return path; }
-    private static Process Start(string dataRoot)
+    private static Process Start(string dataRoot, bool presence = false)
     {
-        var info = new ProcessStartInfo(Executable) { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden };
+        var configPath = Path.Combine(dataRoot, "Config/appsettings.json");
+        if (!File.Exists(configPath))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+            var config = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(Path.Combine(Root, "src/Mosaic.Desktop/appsettings.json")))!;
+            if (!presence)
+            {
+                config["modules"] = JsonSerializer.SerializeToElement(config["modules"].Deserialize<string[]>()!.Where(id => id != "desktop-presence"));
+                config["providers"] = JsonSerializer.SerializeToElement(config["providers"].Deserialize<Dictionary<string, string>>()!.Where(item => item.Value != "desktop-presence").ToDictionary());
+            }
+            File.WriteAllText(configPath, JsonSerializer.Serialize(config));
+        }
+        var info = new ProcessStartInfo(Executable) { UseShellExecute = false };
         info.ArgumentList.Add("--data-root"); info.ArgumentList.Add(dataRoot);
         return Process.Start(info)!;
     }
@@ -72,6 +84,42 @@ public sealed class DesktopTests
         finally { Cleanup(process); }
     }
 
+    [Fact]
+    public async Task Presence_parks_keeps_draft_restores_on_second_launch_and_exits_explicitly()
+    {
+        var root = NewRoot(); using var process = Start(root, presence: true);
+        try
+        {
+            Text(await Control(process, "TaskTitle"), "未保存的驻留草稿");
+            process.Refresh(); Assert.True(process.CloseMainWindow());
+            var edge = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "PresenceEdge"))), "Missing edge entry");
+            Click(Id(edge, "PresenceTrigger")!);
+            var popup = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "PresencePopup"))), "Missing task overview");
+            Assert.Null(Id(popup, "TaskTitle"));
+            Click(Id(popup, "PresenceRestore")!);
+            Assert.Equal("未保存的驻留草稿", ((ValuePattern)(await Control(process, "TaskTitle")).GetCurrentPattern(ValuePattern.Pattern)).Current.Value);
+            using (var secondary = Start(root, presence: true)) await secondary.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            // Clear only the unsaved test input so explicit exit can proceed without a prompt.
+            Text(await Control(process, "TaskTitle"), "");
+            process.Refresh(); Assert.True(process.CloseMainWindow());
+            edge = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "PresenceEdge"))), "Missing second edge entry");
+            Click(Id(edge, "PresenceTrigger")!);
+            popup = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "PresencePopup"))), "Missing second overview");
+            Click(Id(popup, "PresenceExit")!);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(0, process.ExitCode);
+        }
+        finally { Cleanup(process); }
+    }
+
     [Theory]
     [InlineData("empty")]
     [InlineData("backend")]
@@ -89,7 +137,12 @@ public sealed class DesktopTests
             config["modules"] = JsonSerializer.SerializeToElement(Array.Empty<string>());
             config["providers"] = JsonSerializer.SerializeToElement(new Dictionary<string, string>());
         }
-        if (scenario == "backend") config["modules"] = JsonSerializer.SerializeToElement(new[] { "storage-sqlite", "settings-sqlite", "settings-core", "tasks-sqlite", "tasks-core" });
+        if (scenario == "backend")
+        {
+            var enabled = new[] { "storage-sqlite", "settings-sqlite", "settings-core", "tasks-sqlite", "tasks-core" };
+            config["modules"] = JsonSerializer.SerializeToElement(enabled);
+            config["providers"] = JsonSerializer.SerializeToElement(config["providers"].Deserialize<Dictionary<string, string>>()!.Where(item => enabled.Contains(item.Value)).ToDictionary());
+        }
         if (scenario == "disabled-provider") config["modules"] = JsonSerializer.SerializeToElement(new[] { "storage-sqlite", "tasks-sqlite" });
         if (scenario == "missing") config["modules"] = JsonSerializer.SerializeToElement(new[] { "tasks-ui" });
         if (scenario == "traversal") config["storage"] = JsonSerializer.SerializeToElement(new { engine = "sqlite", location = "local-app-data", filename = "../escape.sqlite" });
@@ -100,7 +153,7 @@ public sealed class DesktopTests
         using var process = Start(root);
         try
         {
-            var window = await Until(() => Window(process) is { } w && w.Current.Name == (scenario is "empty" or "backend" ? "Mosaic" : "Mosaic · 无法启动") ? w : null, "Expected window not found");
+            var window = await Until(() => Window(process) is { } w && (scenario is "empty" or "backend" ? w.Current.Name.StartsWith("Mosaic v", StringComparison.Ordinal) : w.Current.Name == "Mosaic · 无法启动") ? w : null, "Expected window not found");
             Assert.Null(Id(window, "TaskTitle"));
             Assert.Equal(scenario == "backend", File.Exists(Path.Combine(root, "Data/mosaic.sqlite")));
             Assert.Equal(before, File.ReadAllText(configPath));

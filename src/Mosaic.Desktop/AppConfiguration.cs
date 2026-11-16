@@ -4,11 +4,6 @@ using System.Text.Json.Serialization;
 namespace Mosaic.Desktop;
 
 internal sealed record StorageConfiguration(string Engine, string Location, string Filename);
-internal sealed record HostSettingsOverrides(
-    IReadOnlyDictionary<string, JsonElement>? Values)
-{
-    public static readonly HostSettingsOverrides Empty = new(new Dictionary<string, JsonElement>(StringComparer.Ordinal));
-}
 
 internal sealed record AppConfiguration(
     int ConfigVersion,
@@ -36,6 +31,21 @@ internal sealed record AppConfiguration(
         catch (JsonException) { throw new ConfigurationException("配置 JSON 格式无效，请修正 Config/appsettings.json。"); }
         if (configuration is not { ConfigVersion: 1, Modules: not null, Providers: not null, Storage: not null })
             throw new ConfigurationException("配置版本或必填内容无效。");
+        // Existing tasks-ui gained an additive capability. Upgrade its binding only; do not enable Presence implicitly.
+        if (configuration.Modules.Contains("tasks-ui", StringComparer.Ordinal))
+            configuration.Providers.TryAdd("presence.tasks-view@1", "tasks-ui");
+        if (configuration.Settings is { } overrides && overrides.TryGetValue("host.providers", out var providerElement))
+        {
+            var enabled = overrides.TryGetValue("host.modules", out var moduleElement)
+                ? moduleElement.Deserialize<string[]>() ?? [] : configuration.Modules;
+            var bindings = providerElement.Deserialize<Dictionary<string, string>>();
+            if (enabled.Contains("tasks-ui", StringComparer.Ordinal) && bindings is not null && bindings.TryAdd("presence.tasks-view@1", "tasks-ui"))
+            {
+                var upgraded = new Dictionary<string, JsonElement>(overrides, StringComparer.Ordinal)
+                { ["host.providers"] = JsonSerializer.SerializeToElement(bindings) };
+                configuration = configuration with { Settings = upgraded };
+            }
+        }
         if (configuration.Modules.Distinct(StringComparer.Ordinal).Count() != configuration.Modules.Length || configuration.Modules.Any(m => m is null || !BuiltInModuleCatalog.Definitions.ContainsKey(m)))
             throw new ConfigurationException("模块列表包含未知或重复的模块。");
         if (configuration.Providers.Any(p =>

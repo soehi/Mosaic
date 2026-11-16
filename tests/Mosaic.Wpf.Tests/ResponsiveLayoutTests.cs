@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Input;
@@ -18,7 +19,7 @@ namespace Mosaic.Wpf.Tests;
 public sealed class ResponsiveLayoutTests
 {
     [Fact]
-    public Task Task_page_uses_single_page_navigation_on_the_same_view_instances() => Sta.Run(async () =>
+    public Task Task_page_keeps_both_panes_on_the_same_view_instances() => Sta.Run(async () =>
     {
         var api = new Api();
         var page = await CreateTaskPage(api, new Dialogs());
@@ -45,7 +46,8 @@ public sealed class ResponsiveLayoutTests
         Assert.Equal(Visibility.Visible, list.Visibility);
         Assert.Equal(Visibility.Collapsed, editor.Visibility);
         Assert.Equal(0, Grid.GetColumn(editor));
-        Assert.Equal(0, Grid.GetRow(editor));
+        Assert.Equal(2, Grid.GetRow(editor));
+        Assert.Equal(Visibility.Collapsed, compactNavigation.Visibility);
 
         Arrange(view, 839, 620);
         Assert.Equal(Visibility.Visible, list.Visibility);
@@ -57,6 +59,8 @@ public sealed class ResponsiveLayoutTests
         Assert.Equal(Visibility.Collapsed, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
         Assert.Equal(Visibility.Visible, compactNavigation.Visibility);
+        Assert.Equal(0, Grid.GetColumn(editor));
+        Assert.Equal(2, Grid.GetRow(editor));
 
         Set(editorModel, "Title", "断点往返后仍未保存的标题");
         Arrange(view, 1220, 780);
@@ -69,6 +73,8 @@ public sealed class ResponsiveLayoutTests
         Assert.Equal(Visibility.Collapsed, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
         Assert.Equal(Visibility.Visible, compactNavigation.Visibility);
+        Assert.Equal(0, Grid.GetColumn(editor));
+        Assert.Equal(2, Grid.GetRow(editor));
         Assert.Equal("断点往返后仍未保存的标题", Get<string>(editorModel, "Title"));
         Assert.True(actionBar.ActualHeight > 0);
         Assert.Equal(1, Grid.GetRow(deleteButton));
@@ -115,7 +121,7 @@ public sealed class ResponsiveLayoutTests
     });
 
     [Fact]
-    public Task Shell_sidebar_uses_the_1040_rail_and_1060_expand_hysteresis() => Sta.Run(async () =>
+    public Task Shell_sidebar_uses_the_1180_rail_and_1200_expand_hysteresis() => Sta.Run(async () =>
     {
         var registry = new ContributionRegistry();
         var dialogs = new Dialogs();
@@ -139,10 +145,10 @@ public sealed class ResponsiveLayoutTests
         Assert.False(shell.IsSidebarCompact);
         Assert.Equal(190, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
-        ResizeShell(shell, 1040, 780);
+        ResizeShell(shell, 1180, 780);
         Assert.False(shell.IsSidebarCompact);
 
-        ResizeShell(shell, 1039, 780);
+        ResizeShell(shell, 1179, 780);
         Assert.True(shell.IsSidebarCompact);
         Assert.Equal(64, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
         await shell.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -161,10 +167,10 @@ public sealed class ResponsiveLayoutTests
         Assert.True(shell.IsSidebarCompact);
         Assert.Equal(64, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
-        ResizeShell(shell, 1059, 780);
+        ResizeShell(shell, 1199, 780);
         Assert.True(shell.IsSidebarCompact);
 
-        ResizeShell(shell, 1060, 780);
+        ResizeShell(shell, 1200, 780);
         Assert.False(shell.IsSidebarCompact);
         Assert.Equal(190, Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn")).Width.Value);
 
@@ -174,6 +180,75 @@ public sealed class ResponsiveLayoutTests
 
         await shell.DisposeAsync();
         shell.Close();
+    });
+
+    [Fact]
+    public Task Sidebar_drag_resizes_with_limits_and_navigation_borders_remain_inside_the_sidebar() => Sta.Run(async () =>
+    {
+        var registry = new ContributionRegistry();
+        var dialogs = new Dialogs();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
+        await module.ActivateAsync();
+        using var registration = registry.Register(module.Navigation, module.Views);
+        var shell = new ShellWindow(registry, dialogs) { ShowInTaskbar = false, ShowActivated = false };
+        shell.Resources.MergedDictionaries.Add(LoadTheme());
+        try
+        {
+            await shell.InitializeAsync();
+            shell.Show();
+            ResizeShell(shell, 1220, 780);
+            var column = Assert.IsType<ColumnDefinition>(shell.FindName("SidebarColumn"));
+            var handle = Assert.IsType<Thumb>(shell.FindName("SidebarResizeHandle"));
+            var sidebar = Assert.IsType<Border>(shell.FindName("Sidebar"));
+            var navigation = Assert.IsType<ItemsControl>(shell.FindName("NavigationItems"));
+            void AssertInside()
+            {
+                shell.UpdateLayout();
+                foreach (var button in FindVisualChildren<Button>(navigation))
+                {
+                    var position = button.TranslatePoint(new Point(), sidebar);
+                    Assert.True(position.X >= 0);
+                    Assert.True(position.X + button.ActualWidth <= sidebar.ActualWidth - 1 + 0.5);
+                }
+            }
+            void Drag(double change, bool cancel = false)
+            {
+                handle.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+                handle.RaiseEvent(new DragDeltaEventArgs(change, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+                handle.RaiseEvent(new DragCompletedEventArgs(change, 0, cancel) { RoutedEvent = Thumb.DragCompletedEvent });
+                shell.UpdateLayout();
+            }
+            AssertInside();
+            Drag(70);
+            Assert.Equal(260, column.Width.Value);
+            AssertInside();
+            Drag(-1000);
+            Assert.Equal(160, column.Width.Value);
+            AssertInside();
+            Drag(1000);
+            Assert.Equal(320, column.Width.Value);
+            AssertInside();
+            Drag(-80, cancel: true);
+            Assert.Equal(320, column.Width.Value);
+            ResizeShell(shell, 1100, 720);
+            Assert.True(shell.IsSidebarCompact);
+            AssertInside();
+            Drag(150);
+            Assert.False(shell.IsSidebarCompact);
+            Assert.Equal(214, column.Width.Value);
+            AssertInside();
+            ResizeShell(shell, 1179, 720);
+            Assert.True(shell.IsSidebarCompact);
+            ResizeShell(shell, 1220, 780);
+            Assert.Equal(214, column.Width.Value);
+            AssertInside();
+        }
+        finally
+        {
+            await shell.DisposeAsync();
+            shell.Close();
+            await module.DisposeAsync();
+        }
     });
 
     [Fact]
@@ -253,6 +328,7 @@ public sealed class ResponsiveLayoutTests
 
         await Get<IAsyncRelayCommand<TaskItemDto>>(model, "SelectCommand").ExecuteAsync(api.Item);
         Arrange(view, 560, 480);
+        Assert.Equal(Visibility.Collapsed, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
         Assert.True(toggle.ActualWidth >= 96);
         Assert.True(toggle.ActualHeight >= 40);
@@ -265,6 +341,7 @@ public sealed class ResponsiveLayoutTests
         Assert.True(actionBar.TranslatePoint(new Point(0, actionBar.ActualHeight), editor).Y <= editor.ActualHeight + 0.5);
 
         Arrange(view, 480, 480);
+        Assert.Equal(Visibility.Collapsed, list.Visibility);
         Assert.Equal(Visibility.Visible, editor.Visibility);
         Assert.True(toggle.ActualWidth >= 96);
         Assert.True(delete.ActualHeight >= 40);

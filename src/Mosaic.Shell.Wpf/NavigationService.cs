@@ -8,6 +8,7 @@ internal sealed class NavigationService(ContributionRegistry registry, IUserDial
     internal string? CurrentViewId { get; private set; }
     internal async Task<bool> NavigateAsync(string viewId)
     {
+        if (CurrentViewId == viewId) return true;
         var factory = registry.Find(viewId);
         if (factory is null) { await dialogs.ShowErrorAsync("该页面暂不可用。"); return false; }
         if (Current is not null && !await Current.Controller.CanLeaveAsync()) return false;

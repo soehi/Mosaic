@@ -18,6 +18,7 @@ internal sealed class TaskEditorViewModel : ObservableObject
         TitleRequired: true,
         DefaultCompleted: false,
         RevisionStart: 1);
+    internal TaskConstraintsDto Constraints => _constraints;
     private bool _validationErrors;
 
     public TaskItemDto? Current => _current;
@@ -156,12 +157,12 @@ internal sealed class TaskEditorViewModel : ObservableObject
         NotesError = "";
         if (error.Field == "Title")
         {
-            TitleError = error.Message;
+            TitleError = TaskErrorLocalizer.Localize(error, _constraints);
             return true;
         }
         if (error.Field == "Notes")
         {
-            NotesError = error.Message;
+            NotesError = TaskErrorLocalizer.Localize(error, _constraints);
             return true;
         }
         return false;

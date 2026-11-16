@@ -7,29 +7,30 @@ using Mosaic.Settings.Core;
 
 namespace Mosaic.Desktop;
 
-internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides startupValues) : IHostSettingSource
+internal sealed class HostSettingSource : IHostSettingSource
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+    private readonly AppPaths _paths;
+    private readonly ISettingsCommitJournal _commitJournal;
     private readonly SemaphoreSlim _lock = new(1, 1);
-    private readonly Dictionary<string, JsonElement> _runtimeOverrides = new(
-        startupValues.Values ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-        StringComparer.Ordinal);
+    private readonly Dictionary<string, JsonElement> _runtimeOverrides;
     private Dictionary<string, JsonElement>? _rollbackOverrides;
-    private string BackupPath => paths.ConfigPath + ".bak";
-    private static readonly IReadOnlyList<SettingDefinition> HostDefinitions = SettingCatalog.ForHost()
-        .Select(definition => definition.Id switch
-        {
-            "host.modules" => definition with { DefaultValue = BuiltInModuleCatalog.DefaultModules.ToArray() },
-            "host.providers" => definition with { DefaultValue = new Dictionary<string, string>(BuiltInModuleCatalog.DefaultProviders, StringComparer.Ordinal) },
-            _ => definition
-        })
-        .ToArray();
+    private string BackupPath => _paths.ConfigPath + ".bak";
+    private static readonly IReadOnlyList<SettingDefinition> HostDefinitions = HostSettingsCatalog.Create();
+
+    internal HostSettingSource(AppPaths paths, AppConfiguration configuration)
+    {
+        _paths = paths;
+        _commitJournal = new FileSettingsCommitJournal(paths);
+        _runtimeOverrides = BuildEffectiveValues(configuration);
+    }
 
     public string ModuleId => "host";
+    public ISettingsCommitJournal CommitJournal => _commitJournal;
     public IReadOnlyList<SettingDefinition> Definitions => HostDefinitions;
 
     public object? GetValue(string id)
@@ -40,8 +41,7 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
             if (runtimeValue.ValueKind == JsonValueKind.Null) return null;
             return Normalize(definition, JsonNodeToObject(JsonNode.Parse(runtimeValue.GetRawText())!));
         }
-        var node = ReadJson()["settings"]?[id];
-        return node is null ? null : Normalize(definition, JsonNodeToObject(node));
+        return null;
     }
 
     private static object? Normalize(SettingDefinition? definition, object? value) =>
@@ -57,8 +57,12 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
         var providers = effectiveValues.TryGetValue("host.providers", out var providerValue) && providerValue is IReadOnlyDictionary<string, string> map
             ? map
             : BuiltInModuleCatalog.DefaultProviders;
-        if (modules.Length == 0)
-            return Task.FromResult(OperationResult.Failure(new(ErrorCodes.ValidationFailed, "至少需要启用一个模块。", "host.modules")));
+        foreach (var (sizeId, minimumId) in new[] { ("startup.width", "shell.window.minWidth"), ("startup.height", "shell.window.minHeight") })
+        {
+            if (effectiveValues.TryGetValue(sizeId, out var size) && effectiveValues.TryGetValue(minimumId, out var minimum)
+                && Convert.ToDouble(size) < Convert.ToDouble(minimum))
+                return Task.FromResult(OperationResult.Failure(new(ErrorCodes.ValidationFailed, "启动尺寸不得小于窗口最小尺寸。", sizeId)));
+        }
         var unknown = modules.Where(id => !BuiltInModuleCatalog.Definitions.ContainsKey(id)).ToArray();
         if (unknown.Length > 0)
             return Task.FromResult(OperationResult.Failure(new(
@@ -101,15 +105,15 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
             }
             root["settings"] = settings;
 
-            var directory = Path.GetDirectoryName(paths.ConfigPath)!;
+            var directory = Path.GetDirectoryName(_paths.ConfigPath)!;
             Directory.CreateDirectory(directory);
-            var temporaryPath = paths.ConfigPath + ".tmp";
+            var temporaryPath = _paths.ConfigPath + ".tmp";
             var previousOverrides = new Dictionary<string, JsonElement>(_runtimeOverrides, StringComparer.Ordinal);
             try
             {
                 await File.WriteAllTextAsync(temporaryPath, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
-                if (File.Exists(paths.ConfigPath)) File.Replace(temporaryPath, paths.ConfigPath, BackupPath);
-                else File.Move(temporaryPath, paths.ConfigPath);
+                if (File.Exists(_paths.ConfigPath)) File.Replace(temporaryPath, _paths.ConfigPath, BackupPath);
+                else File.Move(temporaryPath, _paths.ConfigPath);
                 foreach (var (id, value) in values)
                 {
                     using var document = JsonDocument.Parse(value is null ? "null" : JsonSerializer.Serialize(value, JsonOptions));
@@ -141,7 +145,7 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
         try
         {
             if (!File.Exists(BackupPath)) return OperationResult.Success();
-            File.Replace(BackupPath, paths.ConfigPath, null);
+            File.Replace(BackupPath, _paths.ConfigPath, null);
             if (_rollbackOverrides is not null)
             {
                 _runtimeOverrides.Clear();
@@ -171,9 +175,38 @@ internal sealed class HostSettingSource(AppPaths paths, HostSettingsOverrides st
 
     private JsonObject ReadJson()
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(paths.ConfigPath));
-        return JsonSerializer.Deserialize<JsonObject>(document.RootElement.GetRawText(), JsonOptions)
-            ?? throw new InvalidOperationException("Host configuration root is not an object.");
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(_paths.ConfigPath));
+            return JsonSerializer.Deserialize<JsonObject>(document.RootElement.GetRawText(), JsonOptions)
+                ?? throw new ConfigurationException("配置根必须是 JSON 对象。");
+        }
+        catch (JsonException)
+        {
+            throw new ConfigurationException("配置损坏，请修正 Config/appsettings.json。");
+        }
+    }
+
+    private static Dictionary<string, JsonElement> BuildEffectiveValues(AppConfiguration configuration)
+    {
+        var overrides = configuration.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        values["host.modules"] = overrides.TryGetValue("host.modules", out var modules)
+            ? modules.Clone()
+            : JsonSerializer.SerializeToElement(configuration.Modules);
+        values["host.providers"] = overrides.TryGetValue("host.providers", out var providers)
+            ? providers.Clone()
+            : JsonSerializer.SerializeToElement(configuration.Providers);
+        values["storage.filename"] = overrides.TryGetValue("storage.filename", out var filename)
+            ? filename.Clone()
+            : JsonSerializer.SerializeToElement(configuration.Storage.Filename);
+        values["storage.location"] = overrides.TryGetValue("storage.location", out var location)
+            ? location.Clone()
+            : JsonSerializer.SerializeToElement(configuration.Storage.Location);
+        foreach (var definition in HostDefinitions)
+            if (overrides.TryGetValue(definition.Id, out var value))
+                values[definition.Id] = value.Clone();
+        return values;
     }
 
     private static object? JsonNodeToObject(JsonNode node)

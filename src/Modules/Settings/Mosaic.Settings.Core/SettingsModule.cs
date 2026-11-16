@@ -16,6 +16,7 @@ public sealed class SettingsModule : IModuleActivation
     private readonly IModuleExecutionGate? _gate;
     private readonly SettingsService _service;
     private readonly IReadOnlyList<ISettingSource>? _deferredSources;
+    private readonly List<IDisposable> _registrations = [];
 
     public SettingsModule(SettingsDependencies dependencies)
         : this(dependencies, new(dependencies.Repository, dependencies.HostSource)) { }
@@ -36,14 +37,22 @@ public sealed class SettingsModule : IModuleActivation
     public ModuleManifest Manifest => Definition;
     public ISettingsCore Api { get; }
     internal SettingsService Service => _service;
-    public Task ActivateAsync(CancellationToken cancellationToken = default)
+    public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var recovered = await _service.RecoverPendingCommitAsync(cancellationToken).ConfigureAwait(false);
+        if (!recovered.IsSuccess)
+            throw new InvalidOperationException("设置提交恢复失败：" + recovered.Error!.Message);
         _gate?.Activate();
         if (_deferredSources is not null)
-            foreach (var source in _deferredSources) _service.Register(source);
-        return Task.CompletedTask;
+            foreach (var source in _deferredSources) _registrations.Add(_service.Register(source));
     }
-    public Task StopAsync() => _gate?.StopAsync() ?? Task.CompletedTask;
-    public async ValueTask DisposeAsync() { if (_gate is not null) await _gate.StopAsync().ConfigureAwait(false); }
+    public async Task StopAsync()
+    {
+        await _service.StopEditingAsync().ConfigureAwait(false);
+        foreach (var registration in _registrations) registration.Dispose();
+        _registrations.Clear();
+        if (_gate is not null) await _gate.StopAsync().ConfigureAwait(false);
+    }
+    public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
 }

@@ -37,6 +37,7 @@
     <sys:String x:Key="Tasks.Required">Required</sys:String>
     <sys:String x:Key="Tasks.Optional">Optional</sys:String>
     <sys:String x:Key="Tasks.List.Created">Created {0}</sys:String>
+    <sys:String x:Key="Tasks.List.Accessibility">{0}, {1}, {2}</sys:String>
     <sys:String x:Key="Tasks.Count.All">{0} tasks</sys:String>
     <sys:String x:Key="Tasks.Count.All.One">1 task</sys:String>
     <sys:String x:Key="Tasks.Count.Open">{0} open</sys:String>
@@ -52,5 +53,18 @@
     <sys:String x:Key="Tasks.Error.ToggleFailed">State change incomplete. Reload to confirm.</sys:String>
     <sys:String x:Key="Tasks.Error.DeleteFailed">Delete incomplete. Refresh the list to confirm.</sys:String>
     <sys:String x:Key="Tasks.Error.ReloadFailed">Reload failed. Your edits are preserved.</sys:String>
+    <sys:String x:Key="Tasks.Error.NotFound">The task no longer exists. It may have been deleted.</sys:String>
+    <sys:String x:Key="Tasks.Error.Conflict">The task changed or was deleted. Reload before saving again.</sys:String>
+    <sys:String x:Key="Tasks.Error.StorageUnavailable">Local storage is temporarily unavailable. Try again.</sys:String>
+    <sys:String x:Key="Tasks.Error.CapabilityUnavailable">Tasks are currently unavailable.</sys:String>
+    <sys:String x:Key="Tasks.Error.Canceled">The operation was canceled.</sys:String>
+    <sys:String x:Key="Tasks.Error.Internal">The task operation failed. Try again.</sys:String>
     <sys:String x:Key="Tasks.Message.Reloaded">Reloaded</sys:String>
+    <sys:String x:Key="Tasks.Peek.Empty">No matching tasks</sys:String>
+    <sys:String x:Key="Tasks.Peek.Open">Open</sys:String>
+    <sys:String x:Key="Tasks.Peek.Completed">Completed</sys:String>
+    <sys:String x:Key="Tasks.Peek.Untitled">Untitled task</sys:String>
+    <sys:String x:Key="Tasks.Peek.More">Showing {0} of {1} tasks. Open the main window for more.</sys:String>
+    <sys:String x:Key="Tasks.Peek.Snapshot">Current task snapshot</sys:String>
+    <sys:String x:Key="Tasks.Peek.Count">{0} tasks · {1} open</sys:String>
 </ResourceDictionary>

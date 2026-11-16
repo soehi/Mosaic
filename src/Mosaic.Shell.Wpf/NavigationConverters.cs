@@ -14,7 +14,7 @@ internal sealed class NavigationIconConverter : IMultiValueConverter
             "check-square" => "✓",
             "folder" => "▰",
             "calendar" => "◷",
-            "settings" => "⚙",
+            "settings" => string.Empty,
             _ => string.IsNullOrWhiteSpace(label) ? "•" : StringInfo.GetNextTextElement(label)
         };
     }
