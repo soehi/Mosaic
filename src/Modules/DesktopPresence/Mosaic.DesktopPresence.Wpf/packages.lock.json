@@ -8,20 +8,20 @@
       "mosaic.desktoppresence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.6.0, )"
+          "Mosaic.Contracts": "[0.7.0, )"
         }
       },
       "mosaic.desktoppresence.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.6.0, )",
-          "Mosaic.DesktopPresence.Contracts": "[0.6.0, )"
+          "Mosaic.Contracts": "[0.7.0, )",
+          "Mosaic.DesktopPresence.Contracts": "[0.7.0, )"
         }
       },
       "mosaic.presentation.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.6.0, )"
+          "Mosaic.Contracts": "[0.7.0, )"
         }
       },
       "mosaic.presentation.wpf": {
@@ -30,7 +30,7 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.6.0, )"
+          "Mosaic.Contracts": "[0.7.0, )"
         }
       }
     },

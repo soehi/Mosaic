@@ -8,7 +8,7 @@
       "mosaic.desktoppresence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.6.0, )"
+          "Mosaic.Contracts": "[0.7.0, )"
         }
       }
     },

@@ -67,4 +67,11 @@
     <sys:String x:Key="Tasks.Peek.More">Showing {0} of {1} tasks. Open the main window for more.</sys:String>
     <sys:String x:Key="Tasks.Peek.Snapshot">Current task snapshot</sys:String>
     <sys:String x:Key="Tasks.Peek.Count">{0} tasks · {1} open</sys:String>
+    <sys:String x:Key="Tasks.Peek.ViewDetails">View task details</sys:String>
+    <sys:String x:Key="Tasks.Peek.Back">← Back to tasks</sys:String>
+    <sys:String x:Key="Tasks.Peek.Deleted">Task deleted or unavailable</sys:String>
+    <sys:String x:Key="Tasks.Peek.DetailError">Unable to load task details</sys:String>
+    <sys:String x:Key="Tasks.Peek.NoNotes">No notes</sys:String>
+    <sys:String x:Key="Tasks.Peek.CreatedAt">Created</sys:String>
+    <sys:String x:Key="Tasks.Peek.UpdatedAt">Updated</sys:String>
 </ResourceDictionary>

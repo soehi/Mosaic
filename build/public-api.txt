@@ -122,3 +122,4 @@ Mosaic.Tasks.Wpf.TasksUiDependencies
 Mosaic.Tasks.Wpf.TasksUiModule
 Mosaic.Tasks.Wpf.Views.TaskEditorView
 Mosaic.Tasks.Wpf.Views.TasksView
+Mosaic.Presentation.Contracts.ICompanionNavigation

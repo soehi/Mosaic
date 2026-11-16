@@ -1,5 +1,20 @@
 # Mosaic：实施与验证记录
 
+## 0.7.0：速览任务按钮与只读详情（2026-11-16）
+
+- 根因位置：Tasks.Wpf/Internal/TaskPeekView.xaml 使用不可操作 Border；TaskPeekRow 不保留 TaskId；TaskPeekViewModel 只有列表状态；PresenceSurface.ShowPopupAsync 的 PreviewKeyDown 先行吞掉 Esc 与方向键，无法容纳内容内部返回与正文阅读。
+- 改动位置：Tasks.Wpf/Internal/TaskPeekView.xaml/.cs 改为 Button 并转发稳定行身份；TaskPeekViewFactory.cs 的 TaskPeekRow/TaskPeekViewModel 增加 TaskId、详情查询、取消与请求代次、返回及滚动/焦点恢复；新增 TaskPeekDetailsView.cs 独占只读任务字段和可复制备注呈现；Tasks.Wpf/Localization/zh.xaml、en.xaml 补详情资源。
+- 改动位置：Presentation.Contracts/PresentationContracts.cs 新增可选 ICompanionNavigation；PresenceSurface.cs 消费通用返回协议、移除方向键拦截、协调键盘阅读与外部点击；Presence 不读取任务身份或字段。Tasks Core、SQL、设置定义无需改动，旧配置与任务库无迁移项。
+- 验证位置：Wpf.Tests/PresenceTests.cs 新增同名身份、A→B迟到、删除重试、关闭取消测试；public-api.txt 同步新增通用协议。Directory.Build.props、WiX、package.ps1、锁文件、发布内容源/索引/清单、README及计划同步0.7.0。本次发布内容从同源生成更新任务。
+- Release构建0警告/0错误；148项非桌面自动化全部通过，含WPF54项。正式本地EXE与MSI已更新为0.7.0；旧0.6.0测试工作空间连续启动两次只有一条0.7.0更新任务，旧任务保留；无需迁移。MSI跳过ICE，完整安装升级验收未执行。完整实机DPI、多屏、鼠标捕获矩阵及干净Windows安装升级仍待独立验收。实际拖出与多置顶任务窗未实施。
+
+
+## 已确认待实施计划：速览按钮、任务详情与拖出准备（2026-11-16）
+
+- 用户已确认：点击在速览面板内查看只读标题、备注、完成状态与时间，可返回列表；未来拖出成为多个独立置顶任务小窗。本轮仅定稿规划，程序基线为 0.6.0；尚未实现按钮详情或拖出悬浮，见 [专项计划](peek-task-details-plan.md)。
+- 当前缺口位置：`TaskPeekView.xaml` 使用不可点击的 Border；`TaskPeekRow` 无稳定 TaskId；`TaskPeekViewModel` 只有列表查询；`PresenceSurface.ShowPopupAsync` 的 PreviewKeyDown 当前会先处理 Esc/上下键，需要与详情返回及正文滚动协调。
+- 文档改动位置：新增 `docs/peek-task-details-plan.md`；同步总实施计划阶段 12、旧速览专项计划与驻留计划的后续入口、README 和本记录。新功能的源码测试与视觉验收尚未执行。
+
 ## 0.6.0：任务速览与更新简要（2026-11-16）
 
 - 根因位置：PresenceSurface.PositionWindows 把 maxHeight 当实际高度；TaskPeekViewModel.UpdateView 逐项大卡片和 PresencePopupView.xaml 的重操作栏形成空白与视觉负担。Tasks 的 TaskService.CreateAsync / ITaskRepository / SqliteTaskRepository 原本没有可持久化的幂等创建事实。
@@ -307,3 +322,5 @@ pwsh -File build/test-install.ps1
 正式代码签名证书尚未提供，EXE/MSI 未签名。提醒、同步、分组、优先级、插件市场等仍不进入首版。
 
 0.2.0 的交互式桌面 smoke（CRUD、空配置、坏 JSON）与安装/升级保留设置复验同样需要正常交互式 Windows 会话；受限会话中 `empty`/`backend`/`invalid` 的窗口发现与关闭超时属环境限制，非功能回归。
+
+0.7.0安装包：Mosaic-0.7.0-win-x64.msi，51913664字节，SHA-256 93ACA6B893412C0FA881158D939868019AFD1C3E875B11E8382A871161267A75。

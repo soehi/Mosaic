@@ -4,6 +4,7 @@
              xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
              AutomationProperties.AutomationId="TaskPeekView">
     <Grid>
+    <Grid x:Name="ListPage">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <TextBlock x:Name="Summary" FontSize="12" Margin="0,0,0,8"
                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
@@ -20,9 +21,10 @@
                     <ItemsControl x:Name="Rows">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Padding="{Binding Padding}" Margin="{Binding Margin}" BorderThickness="0,0,0,1"
+                                <Button Click="OpenTask" Padding="{Binding Padding}" Margin="{Binding Margin}" BorderThickness="1" HorizontalContentAlignment="Stretch"
+                                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                         BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
-                                        AutomationProperties.Name="{Binding AccessibleName}" ToolTip="{Binding Title}" Cursor="Arrow">
+                                        AutomationProperties.Name="{Binding AccessibleName}" ToolTip="{DynamicResource Tasks.Peek.ViewDetails}">
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                         <Path Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center"
@@ -54,7 +56,7 @@
                                         <TextBlock Grid.Column="2" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" FontSize="12" VerticalAlignment="Center"
                                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                                     </Grid>
-                                </Border>
+                                </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -63,5 +65,7 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
+    </Grid>
+    <ContentControl x:Name="DetailHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
     </Grid>
 </UserControl>

@@ -78,7 +78,8 @@ public sealed class PresenceTests
             Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([]));
         public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default) => Query(query, cancellationToken);
         public Task<OperationResult<TaskItemDto>> CreateAsync(CreateTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal Func<Guid, CancellationToken, Task<OperationResult<TaskItemDto>>> Get = (_, _) => throw new NotSupportedException();
+        public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default) => Get(id, cancellationToken);
         public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -90,6 +91,58 @@ public sealed class PresenceTests
         view.Measure(new Size(380, 560)); view.Arrange(new Rect(0, 0, 380, 560)); view.UpdateLayout();
         return Descendants(view).OfType<TextBlock>().Select(text => text.Text).ToArray();
     }
+
+    [Fact]
+    public Task Details_use_stable_identity_ignore_late_results_and_return_without_edits() => Sta.Run(async () =>
+    {
+        var a = Item("同名任务"); var b = Item("同名任务") with { Notes = "B full notes" };
+        var late = new TaskCompletionSource<OperationResult<TaskItemDto>>();
+        CancellationToken aToken = default;
+        var api = new Api
+        {
+            Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([a,b])),
+            Get = (id, ct) => { if (id == a.Id) { aToken = ct; return late.Task; } Assert.Equal(b.Id,id); return Task.FromResult(OperationResult<TaskItemDto>.Success(b)); }
+        };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All",12,"Theme","Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        var rows = Descendants(session.View).OfType<Button>().Where(button => button.DataContext?.GetType().Name == "TaskPeekRow").ToArray();
+        Assert.Equal(2, rows.Length);
+        rows[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        rows[1].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.True(aToken.IsCancellationRequested);
+        late.SetResult(OperationResult<TaskItemDto>.Success(a with { Notes = "stale A notes" }));
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Texts(session.View);
+        var fields = Descendants(session.View).OfType<TextBox>().ToArray();
+        Assert.Contains(fields, field => field.Text == "B full notes");
+        Assert.All(fields, field => Assert.True(field.IsReadOnly));
+        Assert.DoesNotContain(fields, field => field.Text == "stale A notes");
+        Assert.True(((ICompanionNavigation)session).TryGoBack());
+        Assert.False(((ICompanionNavigation)session).TryGoBack());
+        await session.CloseAsync();
+    });
+
+    [Fact]
+    public Task Deleted_details_can_retry_and_close_while_query_is_pending() => Sta.Run(async () =>
+    {
+        var item = Item("Deleted"); var pending = new TaskCompletionSource<OperationResult<TaskItemDto>>();
+        var calls = 0; CancellationToken token = default;
+        var api = new Api { Query = (_,_) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item])),
+            Get = (_, ct) => { if (++calls == 1) return Task.FromResult(OperationResult<TaskItemDto>.Failure(new(ErrorCodes.NotFound,"gone"))); token = ct; return pending.Task; } };
+        await using var module = new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));
+        await module.ActivateAsync(); await using var session = module.CompanionFactory.Create(new("All",12,"Theme","Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        Descendants(session.View).OfType<Button>().Single(button => button.DataContext?.GetType().Name == "TaskPeekRow").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Texts(session.View);
+        Assert.Contains(Descendants(session.View).OfType<TextBox>(), field => field.Text.Contains("删除"));
+        var retry = Descendants(session.View).OfType<Button>().Last(button => button.Content as string == "重试");
+        retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await session.CloseAsync(); Assert.True(token.IsCancellationRequested);
+        pending.SetResult(OperationResult<TaskItemDto>.Success(item));
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Assert.False(((ICompanionNavigation)session).TryGoBack());
+    });
 
     [Fact]
     public Task Settings_register_26_rows_project_3_normal_validate_save_and_revoke() => Sta.Run(async () =>
@@ -204,7 +257,7 @@ public sealed class PresenceTests
         more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var menu = Assert.IsType<ContextMenu>(more.ContextMenu);
         Assert.True(menu.IsOpen);
-        Assert.True((bool)surface.GetType().GetMethod("Inside", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(surface, null)!);
+        Assert.True((bool)surface.GetType().GetMethod("Inside", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(surface, [true])!);
         Assert.True((bool)view.GetType().GetMethod("CloseMenuForEscape", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, null)!);
         Assert.False(menu.IsOpen); Assert.True(popup.IsVisible);
         Assert.False((bool)view.GetType().GetMethod("CloseMenuForEscape", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, null)!);

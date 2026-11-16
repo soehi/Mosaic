@@ -135,7 +135,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _dismiss.Stop();
         if (!Inside()) await DismissAsync();
     }
-    private bool Inside() => _toolTipActive || _edgeMenu?.IsOpen == true ||
+    private bool Inside(bool includeFocus = true) => (includeFocus && _popup?.IsKeyboardFocusWithin == true) || _toolTipActive || _edgeMenu?.IsOpen == true ||
         (_popup?.Content is PresencePopupView view && view.IsFloatingInteractionActive) ||
         (_edge is not null && PresenceScreen.PointerInside(_edge)) || (_popup is not null && PresenceScreen.PointerInside(_popup));
     private void ScheduleDismiss()
@@ -149,7 +149,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         if (_popup is null) return;
         var pressed = PresenceScreen.LeftPressed;
         var outside = !Inside();
-        if (pressed && !_lastPressed && outside) await DismissAsync();
+        if (pressed && !_lastPressed && !Inside(includeFocus: false)) await DismissAsync();
         _lastPressed = pressed;
         if (!outside) _dismiss.Stop();
         else if (!_dismiss.IsEnabled) ScheduleDismiss();
@@ -179,11 +179,11 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _popup.MouseLeave += (_, _) => ScheduleDismiss();
         _popup.PreviewKeyDown += async (_, e) =>
         {
-            if (e.Key == Key.Escape) { e.Handled = true; if (!popupView.CloseMenuForEscape()) await DismissAsync(); }
-            else if (e.Key is Key.Down or Key.Up)
+            if (e.Key == Key.Escape)
             {
-                _popup?.MoveFocus(new TraversalRequest(e.Key == Key.Down ? FocusNavigationDirection.Next : FocusNavigationDirection.Previous));
                 e.Handled = true;
+                if (!popupView.CloseMenuForEscape() && !(_session is ICompanionNavigation navigation && navigation.TryGoBack()))
+                    await DismissAsync();
             }
         };
         _popup.Closing += async (_, e) => { if (_closingWindows) return; e.Cancel = true; await DismissAsync(); };

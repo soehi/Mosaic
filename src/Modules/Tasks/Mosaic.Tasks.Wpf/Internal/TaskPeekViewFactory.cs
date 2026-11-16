@@ -19,20 +19,20 @@ internal sealed class TaskPeekViewFactory(TasksUiDependencies dependencies, Func
     }
 }
 
-internal sealed record TaskPeekRow(string Title, string Status, bool IsCompleted, CompanionViewOptions Options, Brush? CustomColor)
+internal sealed record TaskPeekRow(Guid Id, string Title, string Status, bool IsCompleted, CompanionViewOptions Options, Brush? CustomColor)
 {
-    public string AccessibleName => Title + "，" + Status;
+    public string AccessibleName => Title + "，" + Status + "，" + TaskLocalization.Localize("Tasks.Peek.ViewDetails", "查看任务详情");
     public string Geometry => IsCompleted ? "M 2,9 L 7,14 L 17,3" : "M 18,9 A 8,8 0 1 1 2,9 A 8,8 0 1 1 18,9";
     public bool HasCustomColor => CustomColor is not null;
-    public Thickness Padding => new(0, Options.RowPaddingY, 0, Options.RowPaddingY);
-    public Thickness Margin => new(0, 0, 0, Options.RowGap);
+    public Thickness Padding => new(8, Options.RowPaddingY, 8, Options.RowPaddingY);
+    public Thickness Margin => new(0, 0, 0, Math.Max(4, Options.RowGap));
     public double FontSize => Options.TitleFontSize;
     public double LineHeight => Options.TitleFontSize * 1.4;
     public double MaximumTitleHeight => LineHeight * Options.TitleMaxLines;
     public Visibility StatusVisibility => Options.ShowStatusText ? Visibility.Visible : Visibility.Collapsed;
 }
 
-internal sealed class TaskPeekViewModel : ICompanionViewSession
+internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavigation
 {
     private readonly TasksUiDependencies _dependencies;
     private readonly CompanionViewOptions _options;
@@ -45,11 +45,99 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession
     private int _generation;
     private bool _failed;
     private bool _loading = true;
+    private Guid? _selectedId;
+    private int _detailGeneration;
+    private CancellationTokenSource? _detailCancellation;
+    private TaskItemDto? _detail;
+    private bool _detailLoading;
+    private bool _detailFailed;
+    private bool _detailMissing;
+    private readonly TaskPeekDetailsView _detailsView = new();
+    private double _listOffset;
+    private async void OpenDetails(TaskPeekRow row)
+    {
+        if (_closed) return;
+        if (_selectedId is null) _listOffset = _view.ListScroll.VerticalOffset;
+        _selectedId = row.Id;
+        _detail = null;
+        _view.ListPage.Visibility = Visibility.Collapsed;
+        _view.DetailHost.Content = _detailsView;
+        _view.DetailHost.Visibility = Visibility.Visible;
+        _detailsView.Back = () => TryGoBack();
+        _detailsView.Retry = () => StartDetailQuery(row.Id);
+        var query = StartDetailQuery(row.Id);
+        _detailsView.BackButton.Focus();
+        await query;
+    }
+    private Task StartDetailQuery(Guid id)
+    {
+        _detailCancellation?.Cancel();
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _detailCancellation = cancellation;
+        var query = LoadDetailAsync(id, ++_detailGeneration, cancellation);
+        _allQueries = Task.WhenAll(_allQueries, query);
+        return query;
+    }
+    private async Task LoadDetailAsync(Guid id, int generation, CancellationTokenSource cancellation)
+    {
+        _detailLoading = true; _detailFailed = false; _detailMissing = false; RenderDetails();
+        try
+        {
+            var result = await _dependencies.Api.GetAsync(id, cancellation.Token);
+            await _dependencies.Dispatcher.InvokeAsync(() =>
+            {
+                if (_closed || cancellation.IsCancellationRequested || generation != _detailGeneration || _selectedId != id) return;
+                _detailLoading = false; _detailFailed = !result.IsSuccess;
+                _detailMissing = result.Error?.Code == Mosaic.Contracts.ErrorCodes.NotFound;
+                _detail = result.IsSuccess ? result.Value : null;
+                RenderDetails();
+            });
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            _dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), exception);
+            await _dependencies.Dispatcher.InvokeAsync(() =>
+            {
+                if (_closed || generation != _detailGeneration || _selectedId != id) return;
+                _detailLoading = false; _detailFailed = true; RenderDetails();
+            });
+        }
+        finally { if (ReferenceEquals(_detailCancellation, cancellation)) _detailCancellation = null; cancellation.Dispose(); }
+    }
+    private void RenderDetails()
+    {
+        if (_selectedId is null || _closed) return;
+        _detailsView.Render(_detail, _detailLoading, _detailFailed, _detailMissing);
+        LayoutInvalidated?.Invoke(this, EventArgs.Empty);
+    }
+    public bool TryGoBack()
+    {
+        if (_selectedId is not { } id || _closed) return false;
+        ++_detailGeneration; _detailCancellation?.Cancel(); _selectedId = null;
+        _view.DetailHost.Visibility = Visibility.Collapsed; _view.ListPage.Visibility = Visibility.Visible;
+        _view.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_closed || _selectedId is not null) return;
+            _view.ListScroll.ScrollToVerticalOffset(_listOffset);
+            var container = _view.Rows.ItemContainerGenerator.ContainerFromItem(_view.Rows.Items.Cast<TaskPeekRow>().FirstOrDefault(row => row.Id == id));
+            if (container is System.Windows.DependencyObject node) FindButton(node)?.Focus();
+        }));
+        LayoutInvalidated?.Invoke(this, EventArgs.Empty); return true;
+    }
+    private static System.Windows.Controls.Button? FindButton(DependencyObject node)
+    {
+        if (node is System.Windows.Controls.Button button) return button;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+            if (FindButton(VisualTreeHelper.GetChild(node, index)) is { } found) return found;
+        return null;
+    }
 
     internal TaskPeekViewModel(TasksUiDependencies dependencies, CompanionViewOptions options)
     {
         _dependencies = dependencies; _options = options;
         _view.Retry.Click += Retry;
+        _view.OpenRequested += OpenDetails;
         MosaicLocalizationManager.LanguageChanged += LanguageChanged;
         MosaicThemeManager.ThemeChanged += LanguageChanged;
         UpdateView();
@@ -65,7 +153,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession
         return query;
     }
     private async void Retry(object sender, RoutedEventArgs e) { if (!_loading) await InitializeAsync(); }
-    private void LanguageChanged(object? sender, EventArgs e) { if (!_closed) UpdateView(); }
+    private void LanguageChanged(object? sender, EventArgs e) { if (!_closed) { UpdateView(); RenderDetails(); } }
 
     private async Task LoadAsync(int generation, CancellationToken cancellationToken)
     {
@@ -112,7 +200,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession
             Brush? brush = color != "Theme" && !SystemParameters.HighContrast && MosaicThemeManager.Current != MosaicThemeVariant.HighContrast &&
                 color.Length == 7 && color[0] == '#' && color[1..].All(Uri.IsHexDigit)
                 ? new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)) : null;
-            return new TaskPeekRow(title, status, item.IsCompleted, _options, brush);
+            return new TaskPeekRow(item.Id, title, status, item.IsCompleted, _options, brush);
         }).ToArray();
         _view.More.Text = TaskLocalization.Format("Tasks.Peek.More", "显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。", _options.MaxItems, _items.Count);
         _view.More.Visibility = !state && _items.Count > _options.MaxItems ? Visibility.Visible : Visibility.Collapsed;
@@ -122,7 +210,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession
     public Task CloseAsync()
     {
         if (_closed) return Task.CompletedTask;
-        _closed = true; ++_generation; _lifetime.Cancel();
+        _closed = true; ++_generation; ++_detailGeneration; _detailCancellation?.Cancel();
+        _view.OpenRequested -= OpenDetails; _lifetime.Cancel();
         MosaicLocalizationManager.LanguageChanged -= LanguageChanged;
         MosaicThemeManager.ThemeChanged -= LanguageChanged;
         _view.Retry.Click -= Retry;

@@ -45,3 +45,5 @@ public interface IUserDialogService
     Task<UnsavedChoice> AskUnsavedChangesAsync();
     Task ShowErrorAsync(string message);
 }
+
+public interface ICompanionNavigation { bool TryGoBack(); }

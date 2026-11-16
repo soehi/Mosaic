@@ -67,4 +67,11 @@
     <sys:String x:Key="Tasks.Peek.More">显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。</sys:String>
     <sys:String x:Key="Tasks.Peek.Snapshot">当前任务快照</sys:String>
     <sys:String x:Key="Tasks.Peek.Count">共 {0} 项 · {1} 项未完成</sys:String>
+    <sys:String x:Key="Tasks.Peek.ViewDetails">查看任务详情</sys:String>
+    <sys:String x:Key="Tasks.Peek.Back">← 返回任务列表</sys:String>
+    <sys:String x:Key="Tasks.Peek.Deleted">任务已删除或不存在</sys:String>
+    <sys:String x:Key="Tasks.Peek.DetailError">无法读取任务详情</sys:String>
+    <sys:String x:Key="Tasks.Peek.NoNotes">暂无备注</sys:String>
+    <sys:String x:Key="Tasks.Peek.CreatedAt">创建时间</sys:String>
+    <sys:String x:Key="Tasks.Peek.UpdatedAt">更新时间</sys:String>
 </ResourceDictionary>
