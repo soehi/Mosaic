@@ -4,10 +4,13 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using System.Windows.Media;
 using System.Reflection;
+using System.Linq.Expressions;
 using System.Windows.Media.Imaging;
+using System.Windows.Controls.Primitives;
 using Mosaic.Contracts;
 using Mosaic.DesktopPresence.Contracts;
 using Mosaic.DesktopPresence.Wpf;
+using Mosaic.FloatingWindows.Contracts;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
 using Mosaic.Settings.Contracts;
@@ -140,6 +143,39 @@ public sealed class PresenceTests
         Filter(session.View, "Completed").RaiseEvent(new RoutedEventArgs(RadioButton.CheckedEvent)); await Drain();
         Assert.Equal(TaskFilter.Completed, queries.Last()); Assert.Contains("恢复未完成", System.Windows.Automation.AutomationProperties.GetName(Completion(session.View)));
         Assert.False(((ICompanionNavigation)session).TryGoBack());
+    });
+
+    [Fact]
+    public Task Peek_drag_hint_does_not_steal_capture_and_capture_loss_finishes_drag() => Sta.Run(async () =>
+    {
+        var item = Item("拖出回归");
+        var detachCount = 0;
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item])) };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        var view = session.View; var type = view.GetType();
+        type.GetField("CanDetach", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<bool>)(() => true));
+        type.GetField("DetachRequested", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<object, FloatingPlacementHint?, CancellationToken, Task>)((_, _, _) => { detachCount++; return Task.CompletedTask; }));
+        var host = new Window { Content = view, Width = 300, Height = 200, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+        host.Show();
+        var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
+        card.Measure(new Size(400, double.PositiveInfinity)); card.Arrange(new Rect(0, 0, 400, 36));
+        try
+        {
+            type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, card);
+            type.GetField("_start", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
+            type.GetField("_grab", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
+            type.GetMethod("ActivateDrag", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, [new Point(60, 60)]);
+            Assert.True((bool)type.GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
+            Assert.Null(Descendants(view).OfType<Popup>().FirstOrDefault());
+            await (Task)type.GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(view, [card, new Point(-500, -500), new Point(-500, -500)])!;
+            Assert.Equal(1, detachCount);
+            Assert.False((bool)type.GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
+            Assert.Null((UIElement?)type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view));
+        }
+        finally { host.Close(); }
     });
 
     [Fact]

@@ -14,7 +14,7 @@
 | `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs:191` | 列表查询固定使用 `CompanionViewOptions.Filter`；会话内没有筛选切换状态和重新查询入口。 |
 | `src/Mosaic.Presentation.Contracts/PresentationContracts.cs:15` | 通用速览选项只有初始筛选，没有完成开关和筛选开关的显示参数。 |
 | `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSettings.cs:14` | 已有 `desktop.popup.filter` 作为默认筛选，但只是下次弹窗初始值，不是面板内控件。 |
-| `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs:20–37` | 拖出手势绑定在整行 Button 的 `PreviewMouseLeftButtonDown/Move/Up`；当前实现已允许从按钮内部拖出，但用户反馈仍要求明确“整个任务标签”覆盖，包括起于标题区域。需要统一命中与点击判定，并在后续加入圆圈/筛选控件后排除新控件。 |
+| `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs:20–37` | 拖出手势绑定在任务卡 Button 的 `PreviewMouseLeftButtonDown/Move/Up`，标题、状态文字和内边距起点均已覆盖；后续修复定位到真实拖动阈值路径的捕获问题，见 [速览整卡拖出修复计划](peek-card-drag-fix-plan.md)。 |
 
 职责归属不变：完成语义和持久化归 Tasks Core，通过 `tasks.api` 公开申请提交；速览 UI 归 Tasks UI；面板默认选项由 Presence 读取设置后通过 `CompanionViewOptions` 传递；Floating Windows、Storage 和主任务页不需要改动。
 
@@ -63,7 +63,7 @@ Presence 新增 2 项设置，继续归“驻留与边缘”分区：
 
 筛选控件放在 Summary 同一行的右侧或下方，按小宽度换行；三个选项使用单选语义按钮，视觉上是紧凑分段控件。控件加载失败或选项被设置关闭时，不保留空占位。
 
-拖动命中优先级为：完成按钮和筛选控件按各自交互处理，不启动拖出；任务标签 Button 及其内部非控件区域（标题 TextBlock、状态 TextBlock、内边距和空隙）可启动拖出手势。系统阈值内松手仍触发原有 `Click` 打开详情；达到拖动阈值后 `_suppressClick` 阻止点击。当前 `TaskPeekView` 的预览手势已绑定整行 Button，因此标题起点本应可拖；规划实现后必须新增自动化断言，证明从标题、状态文字和内边距区域拖动都命中，并把这一覆盖写入回归，防止后续模板改动只把手势绑回标题控件。
+拖动命中优先级为：完成按钮和筛选控件按各自交互处理，不启动拖出；任务标签 Button 及其内部非控件区域（标题 TextBlock、状态 TextBlock、内边距和空隙）可启动拖出手势。系统阈值内松手仍触发原有 `Click` 打开详情；达到拖动阈值后 `_suppressClick` 阻止点击。阈值路径的 Popup 捕获缺陷与修复方案见 [速览整卡拖出修复计划](peek-card-drag-fix-plan.md)；实施该修复后必须以真实指针从标题、状态文字和内边距区域拖出作为验收，自动化路由断言只做回归护栏。
 
 若实施时把行拆为完成按钮 + 任务卡片两列，只能把手势绑到任务卡片 Button；不得把拖动手势绑定到速览面板容器并吞掉列表滚动或筛选。右键菜单仍在任务卡片上；菜单打开与拖动手势互斥。
 

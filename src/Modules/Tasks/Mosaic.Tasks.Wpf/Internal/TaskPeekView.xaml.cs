@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using Mosaic.FloatingWindows.Contracts;
 namespace Mosaic.Tasks.Wpf.Internal;
@@ -28,7 +29,8 @@ internal partial class TaskPeekView : UserControl
     private Point _start;
     private Point _grab;
     private bool _dragging, _suppressClick;
-    private Popup? _preview;
+    private DragHintAdorner? _preview;
+    private KeyEventHandler? _escapeHandler;
     private CancellationTokenSource? _opening;
     internal TaskPeekView() { InitializeComponent(); }
     private void OpenTask(object sender, RoutedEventArgs e)
@@ -48,38 +50,56 @@ internal partial class TaskPeekView : UserControl
         var point = e.GetPosition(this);
         if (!_dragging && (Math.Abs(point.X - _start.X) > SystemParameters.MinimumHorizontalDragDistance || Math.Abs(point.Y - _start.Y) > SystemParameters.MinimumVerticalDragDistance))
         {
-            _dragging = true; _suppressClick = true; _candidate.CaptureMouse(); DragChanged?.Invoke(true);
-            _preview = new Popup
-            {
-                PlacementTarget = this,
-                Placement = PlacementMode.Relative,
-                AllowsTransparency = true,
-                IsHitTestVisible = false,
-                StaysOpen = true,
-                Child = new TextBlock { Text = TaskLocalization.Localize("Tasks.Floating.Drag", "松手以创建小窗 · Esc取消"), Padding = new Thickness(8), Background = System.Windows.SystemColors.InfoBrush, Foreground = System.Windows.SystemColors.InfoTextBrush }
-            };
-            _preview.IsOpen = true;
+            ActivateDrag(point);
         }
-        if (_dragging) { e.Handled = true; if (_preview is not null) { _preview.HorizontalOffset = point.X + 12; _preview.VerticalOffset = point.Y + 12; } }
+        if (_dragging) { e.Handled = true; _preview?.Update(point); AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange(); }
+    }
+    internal void ActivateDrag(Point position)
+    {
+        if (_candidate is null) return;
+        _dragging = true; _suppressClick = true; _candidate.CaptureMouse(); DragChanged?.Invoke(true);
+        _preview = new DragHintAdorner(this, TaskLocalization.Localize("Tasks.Floating.Drag", "松手以创建小窗 · Esc取消"));
+        AdornerLayer.GetAdornerLayer(this)?.Add(_preview);
+        _escapeHandler = (_, args) => { if (args.Key == Key.Escape) CancelDrag(); };
+        Window.GetWindow(this)?.PreviewKeyDown += _escapeHandler;
+        _preview.Update(position);
+        AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange();
     }
     private async void EndGesture(object sender, MouseButtonEventArgs e)
     {
-        if (!_dragging || _candidate?.DataContext is not TaskPeekRow row) { _candidate = null; return; }
+        if (!_dragging || _candidate is null) { _candidate = null; return; }
         e.Handled = true;
-        var screen = PointToScreen(e.GetPosition(this)); var grab = _grab;
+        var button = _candidate; _candidate = null;
+        await FinishDrag(button, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
+    }
+    private async void CaptureLost(object sender, MouseEventArgs e)
+    {
+        if (!_dragging || _candidate is null) return;
+        var button = _candidate; _candidate = null;
+        await FinishDrag(button, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
+    }
+    internal async Task FinishDrag(Button button, Point windowPosition, Point viewPosition)
+    {
+        if (button.DataContext is not TaskPeekRow row) { CancelDrag(); return; }
         var window = Window.GetWindow(this);
-        var local = window?.PointFromScreen(screen);
-        var outside = window is not null && local is { } point && (point.X < 0 || point.Y < 0 || point.X > window.ActualWidth || point.Y > window.ActualHeight);
+        var outside = window is not null && (windowPosition.X < 0 || windowPosition.Y < 0 || windowPosition.X > window.ActualWidth || windowPosition.Y > window.ActualHeight);
         var opening = new CancellationTokenSource(); _opening = opening;
-        try { if (outside && DetachRequested is { } request) await request(row, new(screen.X, screen.Y, grab.X, grab.Y), opening.Token); }
+        var screen = window?.PointToScreen(viewPosition);
+        try { if (outside && screen is not null && DetachRequested is { } request) await request(row, new(screen.Value.X, screen.Value.Y, _grab.X, _grab.Y), opening.Token); }
         finally { if (ReferenceEquals(_opening, opening)) { _opening = null; CancelDrag(); } opening.Dispose(); }
     }
-    private void CaptureLost(object sender, MouseEventArgs e) { if (_dragging) CancelDrag(); }
     internal bool CancelDrag()
     {
         var opening = _opening; _opening = null; opening?.Cancel();
         var was = _dragging; _dragging = false;
-        if (_preview is not null) { _preview.IsOpen = false; _preview = null; }
+        if (_preview is not null)
+        {
+            AdornerLayer.GetAdornerLayer(this)?.Remove(_preview);
+            _preview = null;
+        }
+        var host = Window.GetWindow(this);
+        if (_escapeHandler is not null && host is not null) host.PreviewKeyDown -= _escapeHandler;
+        _escapeHandler = null;
         var button = _candidate; _candidate = null;
         if (button?.IsMouseCaptured == true) button.ReleaseMouseCapture();
         if (was) DragChanged?.Invoke(false);

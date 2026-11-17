@@ -14,6 +14,9 @@
         <Style x:Key="PeekFilterButton" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
             <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="MinHeight" Value="26"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
@@ -24,7 +27,7 @@
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                                 <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"/>
-                                <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
+                                <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
@@ -47,7 +50,7 @@
             </Grid.RowDefinitions>
             <WrapPanel Margin="0,0,0,8">
                 <TextBlock x:Name="Summary" FontSize="12" Margin="0,0,0,8" Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                <WrapPanel x:Name="Filters">
+                <WrapPanel x:Name="Filters" VerticalAlignment="Center">
                     <RadioButton Tag="All" AutomationProperties.AutomationId="PeekFilterAll" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked" Padding="6,4"/>
                     <RadioButton Tag="Open" AutomationProperties.AutomationId="PeekFilterOpen" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked" Padding="6,4"/>
                     <RadioButton Tag="Completed" AutomationProperties.AutomationId="PeekFilterCompleted" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked" Padding="6,4"/>

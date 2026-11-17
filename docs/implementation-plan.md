@@ -726,3 +726,7 @@ Presentation.Contracts增加通用内容工厂/分离来源/交互协议，并�
 ## 0.9.1 安装器桌面快捷方式补充
 
 `build/installer/Package.wxs` 新增 `DesktopFolder` 独立 MSI 组件，快捷方式目标和工作目录均引用最终 `INSTALLFOLDER`，并由 `Application` Feature 拥有。`build/test-package-shortcuts.ps1` 在打包后回读 MSI `Shortcut` 与 `FeatureComponents` 表；`build/test-install.ps1` 在真实安装、升级后验证桌面快捷方式，在卸载后验证删除。应用模块与设置不新增依赖。完整 WPF 套件还定位到 `ShellSettingsApplier.ApplyAsync` 在应用级 Dispatcher 停止后仍向其投递设置预览的问题；现优先使用已附着的 `ShellWindow.Dispatcher`，避免窗口级调用跨线程等待。
+
+## 0.10.1 速览整卡拖出修复补充
+
+已实施：新增内部 `DragHintAdorner`（Tasks WPF），拖动提示从抢占鼠标捕获的 `Popup` 改为 `AdornerLayer` 呈现；`TaskPeekView` 的 `CaptureLost`/`EndGesture` 收敛到统一终局判定，面板外判定直接使用窗口坐标，并补 Esc 取消。模块边界不变：拖出申请仍走公开分离来源，不新增设置、依赖或迁移。根因、实施步骤与验收矩阵见 [速览整卡拖出修复计划](peek-card-drag-fix-plan.md)。

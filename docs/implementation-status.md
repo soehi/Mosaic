@@ -1,5 +1,12 @@
 # Mosaic：实施与验证记录
 
+## 0.10.1：整卡拖出捕获修复与速览筛选样式（2026-11-17）
+
+- 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs:45–77`（`MoveGesture`/`EndGesture`/`CaptureLost`）超过拖动阈值后打开 `Popup`，`Popup` 打开时抢占鼠标捕获，按钮收到 `LostMouseCapture` 后被旧逻辑当作失败取消；快速拖动时按钮收不到 `MouseLeftButtonUp`，缺少终局兜底。视觉问题位于 `TaskPeekView.xaml:14–43`（`PeekFilterButton`）：分段控件缺少统一高度与清晰选中边界，弱化可读性。
+- 改动位置：新增 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/DragHintAdorner.cs`，把拖动提示改为 `AdornerLayer` 上的只呈现组件；`TaskPeekView.xaml.cs` 新增 `ActivateDrag`，`EndGesture`/`CaptureLost` 收敛到 `FinishDrag`，按最后指针位置申请拖出或取消，并挂接/清理 Esc 处理器；`TaskPeekView.xaml` 优化筛选分段控件高度、光标、焦点与选中边界；`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 新增“拖动提示不抢捕获、捕获丢失仍按窗口外位置终局”回归。版本同步到 `Directory.Build.props`、`build/package.ps1`、`build/installer/Mosaic.Installer.wixproj`。
+- 模块边界：Tasks UI 继续通过公开 `IFloatingDetachSource` 申请拖出；Presence/Floating Windows/Storage 不改；无设置、数据库、配置或装配迁移。
+- 验证：Release 构建 0 警告/0 错误；非桌面自动化 172/172 通过（WPF 68/68）。真实指针拖出、DPI 与多屏矩阵仍待独立桌面验收。
+
 ## 0.10.0：速览完成切换、筛选与整卡拖动起点（2026-11-17）
 
 - 用户要求：任务速览左侧圆圈可标记完成；面板支持全部/未完成/已完成筛选且默认全部；任务拖拽框覆盖整个任务标签，起点在任务按钮内也可拖出，点击标签详情功能不变。
@@ -18,6 +25,12 @@
 
 - 最终验证（2026-11-17）：Release 构建 0 警告/0 错误；非桌面测试 171/171（WPF 67/67）通过；最终自包含 EXE 的速览桌面 Smoke 1/1 通过，完成/恢复后按筛选移除，重开数据库确认原任务 Revision 1→3、最终未完成。MSI 打包与桌面快捷方式数据库检查通过。安装包 51,974,276 字节，SHA-256 `466689E2640F916D3AB7A725D81C4482EB0A4601DA76184160F1322C4A787963`，版本 0.10.0；EXE FileVersion 0.10.0.0。MSI 使用 `-SkipValidation`，本轮没有执行真实安装升级或完整桌面矩阵。
 - 桌面验证补充：`TaskPeekView.xaml` 筛选改用 Checked 事件，保证 UIA SelectionItem、键盘与鼠标选择一致；测试夹具通过公开设置仓储关闭更新简要任务和自动收起，避免误选另一任务及面板自动消失。测试不改变真实工作空间。
+
+### 已确认待修复：整卡拖出在真实指针下失效（0.10.1 规划）
+
+- 用户反馈：从任务按钮内部按下无法拖出小窗；本轮仅定稿规划，未改源码、测试或发布产物，设置维持 98 项。
+- 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs:45–63`（`MoveGesture`）超过阈值后打开拖动提示 `Popup`，Popup 打开时抢占鼠标捕获；`:77`（`CaptureLost`）把这次捕获转移当作失败调用 `CancelDrag()`，导致拖动在激活瞬间被取消。快速拖动时按钮收不到 `MouseLeftButtonUp`，`:65–77`（`EndGesture`）不执行，也缺少兜底。既有 `tests/Mosaic.Wpf.Tests/PresenceTests.cs:90–115` 只验证按下路由、不跨阈值，因此测试通过而真实拖动失败。
+- 拟改动位置：`TaskPeekView.xaml.cs` 改用不抢捕获的 `DragHintAdorner`（新增内部类型）呈现提示，`CaptureLost` 改为按最后指针位置执行终局判定，`EndGesture`/兜底共用 `FinishDrag`，面板外判定改为窗口坐标并补 Esc 取消；新增 WPF 捕获/终局回归与真实指针拖出桌面 Smoke。详见 [专项计划](peek-card-drag-fix-plan.md)。
 
 ## 0.9.1：安装器自动创建桌面快捷方式（2026-11-17）
 

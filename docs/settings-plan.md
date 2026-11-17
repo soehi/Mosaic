@@ -737,7 +737,7 @@ settings-core 继续负责按 `ModuleId` 路由；settings-ui 不接触来源实
 
 ## 17. 后续规划：速览完成切换与筛选
 
-状态：2026-11-17，0.10.0 已实施。当前完整配置 98 项（16 普通/82 高级），新增两项属于 Presence。
+状态：2026-11-17，0.10.1 已实施；当前完整配置仍为 98 项（16 普通/82 高级），0.10.0 新增两项属于 Presence，0.10.1 不改设置。
 
 已新增 Presence 普通定义 `desktop.popup.completionToggle`（true）和 `desktop.popup.filterSwitch`（true），归“驻留与边缘”，均为 Immediate + Reversible 展示开关；总数增至 98 项（16 普通/82 高级）。`desktop.popup.filter` 保持为弹窗初始筛选，不是面板内临时筛选。
 
