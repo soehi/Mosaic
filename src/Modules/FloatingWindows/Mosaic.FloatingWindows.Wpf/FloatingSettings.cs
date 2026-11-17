@@ -14,7 +14,10 @@ internal sealed class FloatingSettings(Func<IReadOnlyDictionary<string,object?>,
         Define("floating.minWidth","小窗最小宽度","可逆预览，不覆盖已保存的窗口尺寸",220,180,480,preview:true),
         Define("floating.minExpandedHeight","展开最小高度","可逆预览，不覆盖已保存的窗口尺寸",180,120,480,preview:true),
         Define("floating.maxOpenWindows","小窗数量上限","降低后不关闭已有窗口，超额恢复记录保留",8,1,32),
-        Define("floating.boundsSaveDelayMilliseconds","布局保存延迟","移动缩放后的合并保存延迟（毫秒）；退出强制排空",300,50,2000)
+        Define("floating.boundsSaveDelayMilliseconds","布局保存延迟","移动缩放后的合并保存延迟（毫秒）；退出强制排空",300,50,2000),
+        Define("floating.dragBandHeight","顶部拖动带","顶部可见区域的拖动命中高度（DIP），不增加留白",12,8,20,preview:true),
+        Define("floating.cardPadding","卡片内边距","外框内边距（DIP）；预览不覆盖保存尺寸",8,4,16,preview:true),
+        Define("floating.contentGap","内容间距","内容内部行间距（DIP）",4,0,12,preview:true)
     ];
     private static SettingDefinition Define(string id,string title,string description,object value,int? min=null,int? max=null,bool normal=false,bool restart=false,bool preview=false)=>
         new(id,"floating-windows",title,description,value is bool?SettingValueKind.Boolean:SettingValueKind.Integer,value,min,max,null,SettingsGroup.FloatingWindows,normal?SettingCategory.Normal:SettingCategory.Advanced,restart?SettingApplyMode.Restart:SettingApplyMode.Immediate,SettingPersistence.UserSettings,PreviewMode:preview?SettingPreviewMode.Reversible:SettingPreviewMode.None,DisplayNameKey:"Floating.Setting."+id,DescriptionKey:"Floating.Setting."+id+".Description");

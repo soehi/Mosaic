@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.8.0",
+  "currentReleaseId": "mosaic-0.9.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -178,6 +178,24 @@
         "本轮验证不代替全部实机多屏与100–200% DPI矩阵、干净Windows安装升级及系统会话验收。"
       ],
       "contentSha256": "C9FD04C89E753AC1B375C8F3F9209B027BEFD5BC9909DBC114056611261A3AEB"
+    },
+    {
+      "releaseId": "mosaic-0.9.0",
+      "version": "0.9.0",
+      "releasedOn": "2026-11-17",
+      "previousReleaseId": "mosaic-0.8.0",
+      "added": [
+        "新增顶部拖动带、卡片内边距和内容间距三个高级设置，支持保存前可逆预览。"
+      ],
+      "improved": [
+        "悬浮任务窗工具与任务内容共用首行，移除独立工具栏和固定空白高度，长标题按内容换行增长。",
+        "移动、缩放及光标共用命中规则：可见顶边与顶部圆角移动，侧边下部和底边缩放，工具和正文保持原有交互。"
+      ],
+      "fixed": [
+        "修复只能点中拖动标记才可移动的问题；透明外侧、禁用按钮、正文选择和滚动区域不会误触拖动。",
+        "沿用既有布局保存和退出恢复管线，密度预览不改写窗口尺寸偏好；无需配置或数据库结构迁移，旧配置缺失项采用默认值。"
+      ],
+      "contentSha256": "5C8ADA21840A5E7EBBF13DBD5118D914EBB746FA8FB8CFA1A094279112636EA6"
     }
   ]
 }

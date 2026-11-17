@@ -39,8 +39,8 @@ internal sealed record FloatingScreen(string Id,Rect Pixels,double Scale)
     }
     private static double NaturalHeight(Window window,double width)
     {
-        if(window.Content is not FrameworkElement content)return 88;
-        content.Measure(new Size(width,double.PositiveInfinity));return Math.Max(88,Math.Ceiling(content.DesiredSize.Height)+8);
+        if(window.Content is not FrameworkElement content)return 60;
+        content.Measure(new Size(width,double.PositiveInfinity));return Math.Max(60,Math.Ceiling(content.DesiredSize.Height));
     }
     internal static (FloatingScreen Screen,Point Relative) Locate(Window window)
     {

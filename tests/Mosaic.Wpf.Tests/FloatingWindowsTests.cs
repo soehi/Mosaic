@@ -110,7 +110,7 @@ public sealed class FloatingWindowsTests
         await using var settings=new SettingsModule(new(new SettingsRepository()));await settings.ActivateAsync();
         await using var tasks=new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));await tasks.ActivateAsync();
         await using var module=new FloatingWindowsModule(new(repo,tasks.FloatingFactory,tasks.DetachSource,settings.Api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Diagnostics(),()=>Task.CompletedTask));await module.ActivateAsync();await module.Api.OpenAsync(reference);
-        var definitions=(await settings.Api.ListDefinitionsAsync()).Value.Where(def=>def.ModuleId=="floating-windows").ToArray();Assert.Equal(9,definitions.Length);Assert.Equal(2,definitions.Count(def=>def.Category==SettingCategory.Normal));
+        var definitions=(await settings.Api.ListDefinitionsAsync()).Value.Where(def=>def.ModuleId=="floating-windows").ToArray();Assert.Equal(12,definitions.Length);Assert.Equal(2,definitions.Count(def=>def.Category==SettingCategory.Normal));
         await using(var edit=(await settings.Api.BeginEditSessionAsync()).Value)
         {
             var preview=await edit.PreviewAsync(new Dictionary<string,object?>{["floating.minWidth"]=280},1);Assert.True(preview.IsSuccess);
@@ -127,6 +127,60 @@ public sealed class FloatingWindowsTests
         Assert.False((await module.PrepareExitAsync()).IsSuccess);Assert.True(tasks.DetachSource.IsAvailable);
         repo.Fail=false;Assert.True((await module.Api.CloseAsync(reference)).IsSuccess);
     });
+    [Theory]
+    [InlineData(8,4,0)]
+    [InlineData(12,8,4)]
+    [InlineData(20,16,12)]
+    public Task Unified_hit_regions_exclude_tools_controls_and_transparent_corners(int band,int padding,int gap) => Sta.Run(async()=>
+    {
+        var api=new Api();var item=Item() with {Title="短标题",Notes=""};api.Items[item.Id]=item;
+        var reference=new FloatingContentReference("tasks-ui",item.Id.ToString("D"));var repo=new Repository();
+        var stored=new SettingsRepository{Values={["floating.dragBandHeight"]=band,["floating.cardPadding"]=padding,["floating.contentGap"]=gap}};
+        await using var settings=new SettingsModule(new(stored));await settings.ActivateAsync();
+        await using var tasks=new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));await tasks.ActivateAsync();
+        await using var module=new FloatingWindowsModule(new(repo,tasks.FloatingFactory,tasks.DetachSource,settings.Api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Diagnostics(),()=>Task.CompletedTask));await module.ActivateAsync();await module.Api.OpenAsync(reference);
+        var window=Windows(module).Single();window.UpdateLayout();
+        var surface=typeof(FloatingWindowsModule).GetField("_surface",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(module)!;
+        var entry=((IDictionary)surface.GetType().GetField("_windows",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!).Values.Cast<object>().Single();
+        var input=entry.GetType().GetField("Input",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(entry)!;
+        int Hit(double x,double y)=>(int)input.GetType().GetMethod("HitTest",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(input,[new Point(x,y)])!;
+        Assert.Equal(-1,Hit(2,2));Assert.Equal(-1,Hit(4,4));
+        Assert.Equal(2,Hit(window.Width/2,4));Assert.Equal(2,Hit(10,7));
+        Assert.Equal(10,Hit(5,window.Height/2));Assert.Equal(11,Hit(window.Width-5,window.Height/2));Assert.Equal(15,Hit(window.Width/2,window.Height-5));
+        foreach(var button in Descendants(window).OfType<ButtonBase>().Where(button=>button.IsVisible))
+        {
+            var rect=button.TransformToAncestor(window).TransformBounds(new Rect(button.RenderSize));
+            Assert.Equal(1,Hit(rect.Left+1,rect.Top+1));Assert.Equal(1,Hit(rect.Right-1,rect.Bottom-1));
+            button.IsEnabled=false;Assert.Equal(1,Hit(rect.Left+rect.Width/2,rect.Top+rect.Height/2));button.IsEnabled=true;
+        }
+        if(padding==8)Assert.InRange(window.Height,64,76);
+        var expand=Descendants(window).OfType<Button>().Single(button=>button.Content is StackPanel);
+        var tools=Descendants(window).OfType<Button>().Single(button=>System.Windows.Automation.AutomationProperties.GetAutomationId(button)=="FloatingRestore");
+        Assert.True(expand.TransformToAncestor(window).TransformBounds(new Rect(expand.RenderSize)).Right<=tools.TranslatePoint(new Point(),window).X);
+        expand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);window.UpdateLayout();
+        Assert.Equal(2,Hit(window.Width/2,4));
+        foreach(var text in Descendants(window).OfType<TextBox>().Where(text=>text.IsVisible))
+        {var point=text.TranslatePoint(new Point(2,2),window);Assert.Equal(1,Hit(point.X,point.Y));}
+        window.IsEnabled=false;Assert.Equal(1,Hit(window.Width/2,4));window.IsEnabled=true;
+        await using var edit=(await settings.Api.BeginEditSessionAsync()).Value;
+        var before=repo.Records[reference];
+        Assert.True((await edit.PreviewAsync(new Dictionary<string,object?>{["floating.cardPadding"]=4,["floating.dragBandHeight"]=8,["floating.contentGap"]=0},1)).IsSuccess);
+        Assert.Equal(before,repo.Records[reference]);await edit.DiscardAsync();Assert.Equal(before,repo.Records[reference]);
+    });
+
+    [Fact]
+    public Task Long_floating_titles_grow_without_empty_feedback_or_notes_placeholders() => Sta.Run(async()=>
+    {
+        var api=new Api();var item=Item() with {Title=string.Concat(Enumerable.Repeat("较长标题 ",12)),Notes=""};api.Items[item.Id]=item;
+        await using var settings=new SettingsModule(new(new SettingsRepository()));await settings.ActivateAsync();
+        await using var tasks=new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));await tasks.ActivateAsync();
+        await using var module=new FloatingWindowsModule(new(new Repository(),tasks.FloatingFactory,tasks.DetachSource,settings.Api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Diagnostics(),()=>Task.CompletedTask));await module.ActivateAsync();await module.Api.OpenAsync(new("tasks-ui",item.Id.ToString("D")));
+        var window=Windows(module).Single();window.UpdateLayout();Assert.True(window.Height>76);
+        Assert.DoesNotContain(Descendants(window).OfType<TextBlock>(),text=>text.IsVisible && string.IsNullOrEmpty(text.Text));
+        var expand=Descendants(window).OfType<Button>().Single(button=>button.Content is StackPanel);expand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Assert.DoesNotContain(Descendants(window).OfType<TextBox>(),text=>text.Text=="暂无备注");
+    });
+
     [Fact]
     public Task Restore_disabled_retains_records_and_does_not_create_windows() => Sta.Run(async()=>
     {

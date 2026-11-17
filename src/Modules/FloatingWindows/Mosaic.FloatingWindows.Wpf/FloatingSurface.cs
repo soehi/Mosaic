@@ -38,6 +38,10 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         internal bool Destroying,Shown,Applying,Moving,Resized;
         internal double StartWidth,StartHeight;
         internal Button? Pin;
+        internal Border Frame=null!;
+        internal StackPanel Tools=null!;
+        internal FloatingWindowInput Input=null!;
+        internal StackPanel Footer=null!;
         internal Task Work=Task.CompletedTask;
         internal EventHandler? LayoutHandler,MissingHandler,ModeHandler;
     }
@@ -74,38 +78,39 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     private Entry Create(FloatingWindowRecord record)
     {
         var session=_content.Create(record.Reference);
-        var window=new Window {WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.CanResizeWithGrip,AllowsTransparency=true,
+        var window=new Window {WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.CanResize,AllowsTransparency=true,
             Background=System.Windows.Media.Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,UseLayoutRounding=true,Title="Mosaic",MinWidth=180,MinHeight=60};
         window.SetResourceReference(Control.ForegroundProperty,MosaicTheme.TextPrimaryBrushKey);
         System.Windows.Automation.AutomationProperties.SetAutomationId(window,"FloatingWindow");
-        var frame=new Border{CornerRadius=new CornerRadius(12),BorderThickness=new Thickness(1),Padding=new Thickness(12),Margin=new Thickness(4)};
+        var frame=new Border{CornerRadius=new CornerRadius(12),BorderThickness=new Thickness(1),Padding=new Thickness(Number("floating.cardPadding",8)),Margin=new Thickness(4)};
         frame.SetResourceReference(Border.BackgroundProperty,MosaicTheme.SurfaceBrushKey);frame.SetResourceReference(Border.BorderBrushProperty,MosaicTheme.BorderBrushKey);
-        var grid=new Grid();grid.RowDefinitions.Add(new(){Height=GridLength.Auto});grid.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});grid.RowDefinitions.Add(new(){Height=GridLength.Auto});
-        var bar=new DockPanel{LastChildFill=true,Margin=new Thickness(0,0,0,6)};
+        var grid=new Grid();grid.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});grid.RowDefinitions.Add(new(){Height=GridLength.Auto});
+        var bar=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Top};
         Button Button(string key,string text,string id)
         {
             var button=new Button {Content=text,Padding=new Thickness(4,0,4,0),MinWidth=28,MinHeight=28};button.SetResourceReference(FrameworkElement.StyleProperty,MosaicTheme.QuietButtonKey);
-            button.SetResourceReference(FrameworkElement.ToolTipProperty,key);button.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty,key);System.Windows.Automation.AutomationProperties.SetAutomationId(button,id);DockPanel.SetDock(button,Dock.Right);bar.Children.Add(button);return button;
+            button.SetResourceReference(FrameworkElement.ToolTipProperty,key);button.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty,key);System.Windows.Automation.AutomationProperties.SetAutomationId(button,id);bar.Children.Add(button);return button;
         }
-        var close=Button("Floating.Close","×","FloatingClose");
-        var pin=Button("Floating.Pin","◇","FloatingPin");
         var restore=Button("Floating.Restore","↗","FloatingRestore");
-        var drag=new TextBlock {Text="⠿",MinWidth=30,VerticalAlignment=VerticalAlignment.Center,Cursor=Cursors.SizeAll};drag.SetResourceReference(FrameworkElement.ToolTipProperty,"Floating.Move");bar.Children.Add(drag);
-        grid.Children.Add(bar);Grid.SetRow(session.View,1);grid.Children.Add(session.View);
-        var footer=new StackPanel();var error=new TextBlock{TextWrapping=TextWrapping.Wrap,FontSize=12};error.SetResourceReference(TextBlock.ForegroundProperty,MosaicTheme.TextSecondaryBrushKey);
-        var retry=new Button{Visibility=Visibility.Collapsed,HorizontalAlignment=HorizontalAlignment.Left};retry.SetResourceReference(ContentControl.ContentProperty,"Floating.Retry");footer.Children.Add(error);footer.Children.Add(retry);Grid.SetRow(footer,2);grid.Children.Add(footer);
+        var pin=Button("Floating.Pin","◇","FloatingPin");
+        var close=Button("Floating.Close","×","FloatingClose");
+        grid.Children.Add(session.View);grid.Children.Add(bar);
+        var footer=new StackPanel{Visibility=Visibility.Collapsed};var error=new TextBlock{TextWrapping=TextWrapping.Wrap,FontSize=12};error.SetResourceReference(TextBlock.ForegroundProperty,MosaicTheme.TextSecondaryBrushKey);
+        var retry=new Button{Visibility=Visibility.Collapsed,HorizontalAlignment=HorizontalAlignment.Left};retry.SetResourceReference(ContentControl.ContentProperty,"Floating.Retry");footer.Children.Add(error);footer.Children.Add(retry);Grid.SetRow(footer,1);grid.Children.Add(footer);
         frame.Child=grid;window.Content=frame;
-        var entry=new Entry(window,session,record,error,retry){Pin=pin};_windows.Add(record.Reference,entry);
+        var entry=new Entry(window,session,record,error,retry){Pin=pin,Frame=frame,Tools=bar,Footer=footer};
+        entry.Input=new FloatingWindowInput(window,frame,bar,session.Header,()=>Number("floating.dragBandHeight",12));
+        _windows.Add(record.Reference,entry);
         entry.Timer.Tick+=async(_,_)=>{entry.Timer.Stop();await SaveBoundsAsync(entry);};
         close.Click+=async(_,_)=>await CloseUserAsync(entry);
         pin.Click+=async(_,_)=>await ChangeAsync(entry,r=>r with {IsTopmost=!r.IsTopmost});
         restore.Click+=async(_,_)=>{try{await _restore();}catch(Exception ex){Report(ex);Feedback(entry,OperationResult.Failure(new(ErrorCodes.InternalError,ex.Message)));}};
-        drag.MouseLeftButtonDown+=(_,e)=> {if(e.LeftButton!=MouseButtonState.Pressed)return;try{window.DragMove();QueueBounds(entry);}catch(InvalidOperationException){}e.Handled=true;};
         retry.Click+=async(_,_)=>{if(entry.Pending is not null)await SaveBoundsAsync(entry);else await ChangeAsync(entry,r=>r);};
         window.Closing+=async(_,e)=>{if(entry.Destroying)return;e.Cancel=true;await CloseUserAsync(entry);};
         window.PreviewKeyDown+=async(_,e)=>{if(e.Key==Key.Escape && entry.Record.Mode==FloatingDisplayMode.Expanded){e.Handled=true;await ChangeAsync(entry,r=>r with {Mode=FloatingDisplayMode.Compact});}};
         window.SourceInitialized+=(_,_)=>HwndSource.FromHwnd(new WindowInteropHelper(window).Handle)?.AddHook((nint hwnd,int message,nint wp,nint lp,ref bool handled)=>{if(message==0x0231){entry.Moving=true;entry.Resized=false;entry.StartWidth=window.ActualWidth;entry.StartHeight=window.ActualHeight;}
             if(message==0x0214)entry.Resized=true;
+            if(message==0x001F || message==0x0215)entry.Moving=false;
             if(message==0x0232){entry.Moving=false;var widthChanged=entry.Resized&&Math.Abs(window.ActualWidth-entry.StartWidth)>0.5;var heightChanged=entry.Resized&&Math.Abs(window.ActualHeight-entry.StartHeight)>0.5;window.Dispatcher.BeginInvoke(new Action(()=>QueueBounds(entry,widthChanged,heightChanged)));}return 0;});
         window.DpiChanged+=(_,_)=>window.Dispatcher.BeginInvoke(new Action(()=>{if(!entry.Destroying&&!entry.Moving)Layout(entry);}));
         entry.LayoutHandler=(_,_)=> {if(entry.Destroying||entry.Applying)return;window.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,new Action(()=>{if(!entry.Destroying&&!entry.Moving)Layout(entry);}));};
@@ -122,6 +127,9 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         try
         {
             entry.Window.Topmost=entry.Record.IsTopmost;
+            entry.Frame.Padding=new Thickness(Number("floating.cardPadding",8));
+            entry.Tools.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
+            entry.Session.ConfigureLayout(new(Number("floating.contentGap",4),entry.Tools.DesiredSize.Width+Number("floating.contentGap",4)));
             if(entry.Pin is {} pin)pin.Content=entry.Record.IsTopmost?"◆":"◇";
             FloatingScreen.Resolve(entry.Record.MonitorId).Place(entry.Window,entry.Record,Number("floating.minWidth",220),Number("floating.minExpandedHeight",180));
         }
@@ -158,7 +166,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     }
     private static void Feedback(Entry entry,OperationResult result)
     {
-        if(entry.Destroying)return;entry.Error.Text=result.IsSuccess?"":FloatingLocalization.Text("Floating.SaveError","布局尚未保存，请重试")+" · "+result.Error!.Message;entry.Retry.Visibility=result.IsSuccess?Visibility.Collapsed:Visibility.Visible;
+        if(entry.Destroying)return;entry.Footer.Visibility=result.IsSuccess?Visibility.Collapsed:Visibility.Visible;entry.Error.Text=result.IsSuccess?"":FloatingLocalization.Text("Floating.SaveError","布局尚未保存，请重试")+" · "+result.Error!.Message;entry.Retry.Visibility=result.IsSuccess?Visibility.Collapsed:Visibility.Visible;
     }
     public void Apply(FloatingWindowRecord record)
     {
@@ -173,10 +181,10 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     public async Task DestroyAsync(FloatingContentReference reference)
     {
         if(!_windows.Remove(reference,out var entry))return;
-        await _dispatcher.InvokeAsync(()=>{entry.Destroying=true;entry.Timer.Stop();entry.Session.LayoutInvalidated-=entry.LayoutHandler;entry.Session.Missing-=entry.MissingHandler;entry.Session.ModeRequested-=entry.ModeHandler;entry.Window.Close();entry.Window.Content=null;});
+        await _dispatcher.InvokeAsync(()=>{entry.Destroying=true;entry.Input.Dispose();entry.Moving=false;entry.Timer.Stop();entry.Session.LayoutInvalidated-=entry.LayoutHandler;entry.Session.Missing-=entry.MissingHandler;entry.Session.ModeRequested-=entry.ModeHandler;entry.Window.Close();entry.Window.Content=null;});
         await entry.Session.DisposeAsync();
     }
-    internal void Freeze(){foreach(var entry in _windows.Values){entry.Window.IsEnabled=false;entry.Timer.Stop();}}
+    internal void Freeze(){foreach(var entry in _windows.Values){entry.Input.CancelHint();entry.Moving=false;entry.Window.IsEnabled=false;entry.Timer.Stop();}}
     internal async Task FlushAsync()
     {
         Freeze();

@@ -4,7 +4,7 @@ using System.Windows.Automation;
 
 namespace Mosaic.Desktop.SmokeTests;
 
-public sealed class DesktopTests
+public sealed partial class DesktopTests
 {
     private static string Root
     {

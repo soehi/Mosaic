@@ -1,6 +1,6 @@
 # Mosaic：细节实现计划（C# + WPF）
 
-0.8.0 实施更新（2026-11-17）：已接入独立悬浮窗口 Contracts/Core/Wpf/Persistence.Contracts/Sqlite、Tasks 提交变更通知、速览拖出与键盘菜单入口。每任务唯一窗口，紧凑/展开、完成切换、置顶、独立关闭、布局保存与下次启动恢复已实现。完整配置93项（14普通/79高级，6个分区）；新增悬浮窗9项。旧配置通过 floating-windows-v1 一次性生效层迁移，窗口表由独立迁移流持有。实际验证和环境边界见 implementation-status.md 最新记录；本文原验收矩阵继续有效，不能据此认为全部实机矩阵已完成。
+0.9.0 实施更新（2026-11-17）：悬浮窗移动、缩放和光标反馈统一使用原生命中规则；工具与任务内容共用首行，移除独立工具栏、固定空白高度和空反馈占位。新增顶部拖动带、卡片内边距和内容间距三项高级设置。完整配置96项（14普通/82高级，6个分区），无配置、数据库或窗口记录迁移。实际验证和环境边界见 implementation-status.md 最新记录。
 
 0.7.0 实施更新：速览任务块已改为可访问按钮，面板内展示最新只读详情，支持返回及请求取消/代次保护。Presence 通过通用 ICompanionNavigation 处理返回，无任务 DTO 依赖。无需配置或数据库迁移，设置维持84项；拖出和多置顶小窗仍未实施。实际验证范围见 implementation-status.md。
 
@@ -642,6 +642,22 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 
 模块、公开申请、存储字段、9 项拟新增设置、实现文件与完整验收见 [小窗实现计划](floating-task-windows-plan.md)。不得把 0.7.0 已完成的速览详情测试当作小窗测试；发布后的“更新简要”覆盖本次全部新增、改进和修复。
 
+### 阶段 14：悬浮任务窗拖动区域与紧凑布局优化
+
+状态：2026-11-17，0.9.0 已实施并完成本机自动化验证。
+
+原因位置：FloatingSurface.Create 仅在拖动标记上绑定 DragMove，顶部内边距未接入移动；独立工具栏、大边距及 FloatingScreen.NaturalHeight 固定高度叠加留白。用户要求一并收紧整张卡片：工具与内容共排，利用现有顶部留边拖动，排除按钮与正文；顶边/顶部两角移动，其余指定边缘缩放。拟新增 dragBandHeight/cardPadding/contentGap 三项高级参数，撤销加高 headerHeight 方案，复用坐标保存；无需数据库或模块装配迁移。
+
+详细布局、改动类型、边界判定与真实指针验收见 [优化计划](floating-drag-region-plan.md)。源码、设置、测试、发布清单、启动产物和更新简要同步交付。
+
+### 阶段 15：安装位置选择与同程序替换
+
+状态：2026-11-17，规划完成，尚未实施，源码与安装器基线为 0.8.0。
+
+交付：MSI 增加每用户自定义安装位置，默认仍为 `%LOCALAPPDATA%\Programs\Mosaic`；显示路径输入、浏览文件夹和恢复默认；检测到同一 Mosaic 安装时显示旧版本/位置并确认替换；目录冲突明确提示；卸载只删除当前登记的程序文件。任务数据、设置、日志和浮窗状态继续保留在 `%LOCALAPPDATA%\Mosaic`，不随安装位置迁移。
+
+安装器现状根因：`Package.wxs` 把 `INSTALLFOLDER` 固定在 `LocalAppDataFolder/Programs/Mosaic`，且没有位置页；`test-install.ps1` 断言写死默认路径。方案、替换状态、回滚规则、改动位置与验收矩阵见 [安装位置计划](installer-location-plan.md)。安装职责只属于安装器；应用模块不感知安装位置。实施时须同批交付 UI、路径校验、产品检测、测试矩阵、发布内容源、发布说明、README 和实施记录；未执行的 ICE 与真实安装验收不得写成已通过。
+
 阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
 
 每个阶段交付时遵循 [架构原则](architecture-principles.md) 第 13 节的同步交付规则：源码、测试、用户可见行为、发布说明和实施记录必须属于同一个变更单元；影响旧数据目录、配置或安装升级的改动必须同时交付迁移逻辑与迁移验收项。发布说明必须写清对已有安装的影响和用户需要执行的动作。诊断与修复还必须写明错误位置（具体文件、行、契约或调用链，说明根因）和改动位置（实际修改的文件、行、测试与文档），二者随同一交付单元记录。
@@ -694,3 +710,7 @@ dotnet publish src/Mosaic.Desktop -c Release -r win-x64 --self-contained true -o
 新增 `Modules/FloatingWindows/Mosaic.FloatingWindows.Contracts`、`Core`、`Persistence.Contracts`、`Sqlite`、`Wpf` 和 `tests/Mosaic.FloatingWindows.Tests`。Contracts只引用Mosaic.Contracts；Persistence.Contracts引用通用结果和窗口契约；Core引用两种窗口契约，禁止WPF/Tasks/Storage；Sqlite引用窗口契约和Storage.Contracts，独占floating_windows表；Wpf引用上述公开窗口入口、Presentation和Settings契约，禁止Tasks/Storage实现。Desktop只在装配根引用新入口和仓储契约。
 
 Presentation.Contracts增加通用内容工厂/分离来源/交互协议，并引用纯FloatingWindows.Contracts。Tasks.Wpf实现内容工厂与申请来源，只通过任务API读取/写入完成状态；Tasks.Core以tasks.changes@1报告成功提交事实。窗口模块依赖floating.task-content@1、floating.detach-source@1、floating.repository@1及settings.api@1；无反向requires。
+
+## 0.9.0 悬浮命中与密度补充
+
+新增内部 `FloatingWindowInput.cs`，只由 `Mosaic.FloatingWindows.Wpf` 使用，集中提供原生命中、真实控件命中与光标规则；不增加项目依赖。`Presentation.Contracts/FloatingPresentation.cs` 增加 `FloatingContentLayoutOptions` 和 `IFloatingContentSession.Header/ConfigureLayout`，通过通用布局格式连接窗口槽位与 Tasks UI 首行，不暴露任务字段或实现类型。`Mosaic.Tasks.Wpf/Internal/TaskFloatingContentFactory.cs` 与 `TaskPeekDetailsView.cs` 消费该公开选项，模块边界不变。`FloatingSettings` 和 `FloatingLocalization` 仍是新参数与文案的唯一所有者。

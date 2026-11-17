@@ -11,6 +11,14 @@ internal sealed class TaskPeekDetailsView : Grid
     internal Func<Task>? Retry { get; set; }
     internal Button BackButton { get; } = new() { HorizontalAlignment = HorizontalAlignment.Left };
     private readonly StackPanel _body = new();
+    private readonly ScrollViewer _scroll;
+    private double _gap=12;
+    private bool _compact;
+    internal void ConfigureDensity(double gap)
+    {
+        _compact=true;_gap=gap;_scroll.Margin=new Thickness(0,gap,0,0);
+        foreach(var child in _body.Children.OfType<FrameworkElement>())child.Margin=new Thickness(0,0,0,gap);
+    }
     internal TaskPeekDetailsView()
     {
         RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -18,14 +26,14 @@ internal sealed class TaskPeekDetailsView : Grid
         BackButton.SetResourceReference(StyleProperty, MosaicTheme.QuietButtonKey);
         BackButton.Click += (_, _) => Back?.Invoke();
         Children.Add(BackButton);
-        var scroll = new ScrollViewer { Content = _body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(0, 8, 0, 0) };
+        var scroll = _scroll = new ScrollViewer { Content = _body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(0, 8, 0, 0) };
         SetRow(scroll, 1); Children.Add(scroll);
         System.Windows.Automation.AutomationProperties.SetAutomationId(this, "TaskPeekDetails");
     }
     private static string Text(string key, string fallback) => TaskLocalization.Localize(key, fallback);
     private void AddText(string value, bool heading = false)
     {
-        var text = new TextBox { Text = value, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent, Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, 12), FontSize = heading ? 17 : 13, FontWeight = heading ? FontWeights.SemiBold : FontWeights.Normal };
+        var text = new TextBox { Text = value, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent, Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, _gap), FontSize = heading ? 17 : 13, FontWeight = heading ? FontWeights.SemiBold : FontWeights.Normal };
         text.SetResourceReference(Control.ForegroundProperty, MosaicTheme.TextPrimaryBrushKey);
         System.Windows.Automation.AutomationProperties.SetName(text, value);
         _body.Children.Add(text);
@@ -47,7 +55,7 @@ internal sealed class TaskPeekDetailsView : Grid
         AddText(task.Title, true);
         AddText((task.IsCompleted ? "✓ " : "○ ") + Text(task.IsCompleted ? "Tasks.Peek.Completed" : "Tasks.Peek.Open", task.IsCompleted ? "已完成" : "未完成"));
         }
-        AddText(string.IsNullOrEmpty(task.Notes) ? Text("Tasks.Peek.NoNotes", "暂无备注") : task.Notes);
+        if(!_compact || !string.IsNullOrEmpty(task.Notes)) AddText(string.IsNullOrEmpty(task.Notes) ? Text("Tasks.Peek.NoNotes", "暂无备注") : task.Notes);
         var culture = MosaicLocalizationManager.Current == MosaicLanguage.English ? CultureInfo.GetCultureInfo("en-US") : CultureInfo.GetCultureInfo("zh-CN");
         AddText(Text("Tasks.Peek.CreatedAt", "创建时间") + "：" + task.CreatedAtUtc.ToLocalTime().ToString("g", culture));
         AddText(Text("Tasks.Peek.UpdatedAt", "更新时间") + "：" + task.UpdatedAtUtc.ToLocalTime().ToString("g", culture));

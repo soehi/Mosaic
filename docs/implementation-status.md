@@ -1,5 +1,24 @@
 # Mosaic：实施与验证记录
 
+## 已确认规划：安装位置选择与同程序替换（2026-11-17）
+
+- 用户要求：MSI 可选择安装位置；目标位置存在同程序时替换。当前交互确认工具不可用，计划按保守默认定稿：保持每用户安装、使用位置输入框/浏览/恢复默认、检测旧安装后确认替换、目录冲突提示后覆盖 Mosaic 负载；后续用户选择改变时以同一交付单元修订。
+- 根因位置：`build/installer/Package.wxs:7` 固定 `INSTALLFOLDER=%LOCALAPPDATA%\Programs\Mosaic` 且无位置页；`Package.wxs:2–3` 依赖固定 `UpgradeCode` 的 `MajorUpgrade` 但不能可靠表达跨位置搬迁；`build/package.ps1:33–59` 未记录位置元数据；`build/test-install.ps1:28、38` 写死默认路径断言。
+- 计划改动位置：`Package.wxs` 增加标准 UI、位置页、路径校验、旧产品检测与确认文案；`package.ps1` 加入安装元数据并保持排除运行数据；新增安装器 UI/代理测试；`test-install.ps1` 从 MSI 登记读取实际位置并覆盖默认安装、自定义安装、同位置升级、跨位置替换、卸载数据保留矩阵；`release-content.json`/`release-manifest.json`/`published-release-index.json`、发布说明、README、总计划阶段 15 同批更新。详细状态机与验收矩阵见 [安装位置计划](installer-location-plan.md)。
+- 无业务模块、应用设置、数据库或用户配置迁移项；`%LOCALAPPDATA%\Mosaic` 不随安装位置变化。本轮仅修改规划文档，未改源码、未生成 MSI、未执行安装测试；ICE、真实安装、跨位置替换与卸载验收均待实施后执行。
+
+## 0.9.0：悬浮任务窗统一拖动命中与紧凑布局（2026-11-17）
+
+- 根因位置：`src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/FloatingSurface.cs:81` 的 12 DIP 内边距和 `Create` 中独立工具栏只把 `DragMove` 绑定到 `⠿` TextBlock，顶部空白和边线没有移动入口；`FloatingScreen.NaturalHeight` 又强制最少 88 DIP 并在测量后额外加高，`TaskFloatingContentSession` 的固定最大标题高度与空反馈占位进一步放大空白。
+- 改动位置：新增 `FloatingWindowInput.HitTest/Hook` 集中处理原生命中、圆角外轮廓、工具/控件祖先排除、顶部移动及下部缩放；`FloatingSurface.Create/Layout/QueueBounds/DestroyAsync` 改为工具覆盖内容首行、统一配置密度并沿用既有移动与保存管线；`FloatingScreen.NaturalHeight` 改为按实际内容测量，保留紧凑最小可操作高度。
+- Tasks 模块改动位置：`TaskFloatingContentSession.Header/ConfigureLayout/Render` 通过公开 `FloatingContentLayoutOptions` 为工具保留首行空间，改用最小高度与自然换行，并折叠空反馈；`TaskPeekDetailsView.ConfigureDensity/AddText` 收紧展开正文间距且仅在紧凑浮窗隐藏空备注占位。窗口模块不读取 Tasks DTO，标题和任务字段仍由 Tasks UI 渲染。
+- 设置改动位置：`FloatingSettings.Definitions`、`FloatingLocalization.Dictionary` 增加 `floating.dragBandHeight`、`floating.cardPadding`、`floating.contentGap` 三项高级 Immediate/Reversible 设置及中英文资源；设置总数由 93 增至 96（14 普通 / 82 高级）。
+- 构建/发布位置：`Directory.Build.props`、`build/package.ps1`、`build/installer/Mosaic.Installer.wixproj` 版本同步 0.9.0；`build/public-api.txt` 登记 `FloatingContentLayoutOptions`；`release-content.json`、`published-release-index.json`、`release-manifest.json` 与 `docs/releases/v0.9.0.md` 同源生成。完整逐文件定位见 [0.9.0 文件清单](releases/v0.9.0-files.md)。
+- 测试位置：`tests/Mosaic.Wpf.Tests/FloatingWindowsTests.cs` 覆盖 8/12/20 DIP 命中和 4/8/16 DIP 内边距、透明圆角外区域、按钮中心与边缘、禁用按钮、内容控件、顶部/侧边/底边、紧凑与展开、长标题自然增高、空反馈折叠、预览放弃不改持久化尺寸；`tests/Mosaic.Desktop.SmokeTests/FloatingDragTests.cs` 使用真实 `SendInput` 验证顶边及顶部圆角移动、侧边缩放、工具区排除和重启后位置恢复。
+- 迁移与旧安装影响：没有数据库结构、窗口记录或配置文件迁移；新增设置缺失时使用默认值，旧窗口记录和保存方式原样兼容。用户数据目录与旧安装位置不变，正常升级后回到已存在的悬浮窗即使用新命中与密度。
+- 本机验证：Release 构建 0 警告 / 0 错误；非桌面测试 166 项全部通过，其中 WPF 62 项；悬浮窗正常恢复、独立关闭和正常退出重启 Smoke 通过。真实指针测试在修正测试自身的前置窗口顺序后，产品路径已通过移动、缩放、按钮命中、重启恢复，最终“关闭按钮”失败已由既有独立 Smoke 单独覆盖。自动审批对再次发送系统鼠标输入的复核连续超时，自动化记录保留该限制；100–200% DPI、多屏、高对比度实机矩阵和干净 Windows 安装升级仍待独立环境验收。
+- 本机产物：唯一可运行目录 `artifacts/local-run/Mosaic.Desktop.exe`，FileVersion 0.9.0.0、ProductVersion 0.9.0；隔离数据目录启动 6 秒后仍是响应进程。MSI 为 `artifacts/installer/Mosaic-0.9.0-win-x64.msi`，51,949,676 字节，ProductVersion 0.9.0，SHA-256 `947410B72690EC8AB52878653BD2E5E6AB3DE65C2FCA213578D097AC9B395BCF`，校验文件 `artifacts/installer/SHA256SUMS-0.9.0.txt`。
+
 ## 0.8.0：独立悬浮任务窗口（2026-11-17）
 
 - 根因/能力缺口位置：TaskPeekView/TaskPeekViewModel 只有点击详情；ICompanionViewFactory 只有单一速览会话；PresenceSurface 只拥有驻留入口和速览窗口；TasksModule 没有专用公开提交变更源；原存储没有窗口身份与恢复状态。上述职责不能通过复制主任务页或读取任务内部对象实现。

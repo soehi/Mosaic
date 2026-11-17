@@ -42,6 +42,7 @@ Mosaic.Presentation.Contracts.ICompanionInteraction
 Mosaic.Presentation.Contracts.ICompanionNavigation
 Mosaic.Presentation.Contracts.ICompanionViewFactory
 Mosaic.Presentation.Contracts.ICompanionViewSession
+Mosaic.Presentation.Contracts.FloatingContentLayoutOptions
 Mosaic.Presentation.Contracts.IFloatingContentFactory
 Mosaic.Presentation.Contracts.IFloatingContentSession
 Mosaic.Presentation.Contracts.IFloatingDetachSource

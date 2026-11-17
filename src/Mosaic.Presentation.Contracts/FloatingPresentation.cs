@@ -10,9 +10,12 @@ public interface IFloatingDetachSource
     Task<OperationResult<FloatingOpenResult>> RequestDetachAsync(FloatingContentReference reference,FloatingPlacementHint? hint=null,CancellationToken cancellationToken=default);
 }
 public interface IFloatingContentFactory { IFloatingContentSession Create(FloatingContentReference reference); }
+public sealed record FloatingContentLayoutOptions(double ContentGap, double HeaderTrailingSpace);
 public interface IFloatingContentSession : IAsyncDisposable
 {
     FrameworkElement View {get;}
+    FrameworkElement? Header => null;
+    void ConfigureLayout(FloatingContentLayoutOptions options) { }
     event EventHandler? LayoutInvalidated;
     event EventHandler? Missing;
     event EventHandler? ModeRequested;

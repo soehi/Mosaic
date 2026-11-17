@@ -1,14 +1,14 @@
 # Mosaic
 
-0.8.0 实施更新（2026-11-17）：已接入独立悬浮窗口 Contracts/Core/Wpf/Persistence.Contracts/Sqlite、Tasks 提交变更通知、速览拖出与键盘菜单入口。每任务唯一窗口，紧凑/展开、完成切换、置顶、独立关闭、布局保存与下次启动恢复已实现。完整配置93项（14普通/79高级，6个分区）；新增悬浮窗9项。旧配置通过 floating-windows-v1 一次性生效层迁移，窗口表由独立迁移流持有。实际验证和环境边界见 implementation-status.md 最新记录；本文原验收矩阵继续有效，不能据此认为全部实机矩阵已完成。
+0.9.0 实施更新（2026-11-17）：悬浮任务窗的移动、缩放和光标反馈改为统一命中原生区域；工具与任务内容共用首行，移除独立工具栏、固定空白高度和空反馈占位。顶部可见边线与圆角用于移动，侧边下部和底边用于缩放，工具、完成、展开、正文与滚动区域保持原操作。新增顶部拖动带、卡片内边距和内容间距三项高级设置，可逆预览且不改写保存尺寸。完整配置96项（14普通/82高级，6个分区），无配置、数据库或窗口记录迁移；旧配置缺失值使用默认。实际验证和环境边界见 implementation-status.md 最新记录。
 
 面向 Windows、数据保存在本机的模块化任务记录软件。
 
 已确认技术方案：C# + WPF，采用 .NET 10、MVVM 和 SQLite。
 
-当前本地开发版本：0.8.0。已实现模块化 WPF、SQLite 任务与设置、跨分区设置持续预览、宿主与用户设置提交日志，以及关闭主窗口后驻留、边缘任务速览和恢复草稿。0.8.0 为旧配置加入一次性 Presence 迁移，避免用户禁用后每次启动被重新启用。实际验证范围见实施记录。
+当前本地开发版本：0.9.0。已实现模块化 WPF、SQLite 任务与设置、跨分区设置持续预览、宿主与用户设置提交日志，以及关闭主窗口后驻留、边缘任务速览、独立悬浮任务窗和恢复草稿。0.9.0 完成悬浮窗紧凑首行与统一命中规则。实际验证范围见实施记录。
 
-Windows 安装包：[下载 Mosaic 0.8.0](https://github.com/soehi/Mosaic/releases/download/v0.8.0/Mosaic-0.8.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.9.0](https://github.com/soehi/Mosaic/releases/download/v0.9.0/Mosaic-0.9.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 
@@ -35,11 +35,14 @@ pwsh -File build/package.ps1 -NoPublish
 
 本机仅使用一个完整发布目录 `artifacts/local-run`，安装包输出到 `artifacts/installer`；bin/obj 为开发构建缓存。
 
-安装到 `%LOCALAPPDATA%\Programs\Mosaic`，开始菜单提供 Mosaic 入口。数据、配置、日志分别位于 `%LOCALAPPDATA%\Mosaic\Data`、`Config`、`Logs`。首次复制默认配置，后续无效配置保留原文件并显示诊断；模块配置修改后重启生效。`modules: []` 不打开数据库。卸载保留用户数据。
+安装包当前默认安装到 `%LOCALAPPDATA%\Programs\Mosaic`；安装位置选择、旧安装替换提示与自定义位置卸载规则见 [安装位置计划](docs/installer-location-plan.md)，尚未实施。数据、配置、日志分别位于 `%LOCALAPPDATA%\Mosaic\Data`、`Config`、`Logs`。首次复制默认配置，后续无效配置保留原文件并显示诊断；模块配置修改后重启生效。`modules: []` 不打开数据库。卸载保留用户数据。
 
 可使用 `Mosaic.Desktop.exe --data-root D:\Some\Absolute\Folder` 运行独立工作空间；参数路径必须为绝对路径。数据库备份为同目录中的 `mosaic.sqlite.backup-*.sqlite`，升级前自动生成；恢复时先完全退出程序，再保留当前数据库副本并用所选备份替换。
 
 文档：
+
+- [悬浮任务窗拖动与紧凑布局优化](docs/floating-drag-region-plan.md)：0.9.0 已实施顶部可拖动、按钮排除、首行共排与减少卡片留白。
+- [安装位置选择与同程序替换](docs/installer-location-plan.md)：待实施的每用户自定义路径、旧安装检测、替换确认与数据保留规则。
 
 - [拖出任务与独立置顶小窗实现计划](docs/floating-task-windows-plan.md)：已确认待实施的拖出、多窗、完成状态操作与布局恢复。
 
@@ -53,8 +56,8 @@ pwsh -File build/package.ps1 -NoPublish
 - [任务速览 UI 与更新简要任务计划](docs/peek-and-update-summary-plan.md)：待实施的速览改版、每版本一次的更新任务与同步交付验收。
 - [Mosaic 0.1.0 发布说明](docs/releases/v0.1.0.md)：安装信息、校验值和验证结果。
 - [Mosaic 0.5.0 发布说明](docs/releases/v0.5.0.md)：架构收口、验证范围和安装包信息。
-- [Mosaic 0.8.0 发布说明](docs/releases/v0.8.0.md)：旧配置一次性迁移、迁移验收和安装包信息。
+- [Mosaic 0.9.0 发布说明](docs/releases/v0.9.0.md)：统一拖动命中、紧凑布局、设置和安装包信息。
 
 核心约束：每项职责只有一个归属模块；跨模块只允许通过公开协议提出调用申请，禁止访问内部实现和数据；缺少能力时先判断职责归属，再扩展公开接口或创建模块；宿主负责装配；导航和页面入口由已激活功能的贡献参数生成。
 
-后台驻留与模块边界见 [驻留规划](docs/desktop-presence-plan.md)。新工作空间默认关闭主窗口后进入驻留；通过边缘入口可恢复或退出。0.8.0 首次启动会把旧版已启用 `tasks-ui` 的配置升级为同时启用 Presence，并记录一次性迁移标记；之后用户主动关闭 Presence 不会被自动恢复。
+后台驻留与模块边界见 [驻留规划](docs/desktop-presence-plan.md)。新工作空间默认关闭主窗口后进入驻留；通过边缘入口可恢复或退出。0.9.0 不改变配置和窗口记录结构，已有安装直接沿用。

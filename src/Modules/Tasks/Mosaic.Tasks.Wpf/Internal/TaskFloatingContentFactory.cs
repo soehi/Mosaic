@@ -23,9 +23,11 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     private readonly TasksUiDependencies _dependencies;
     private readonly Guid _id;
     private readonly Grid _view=new();
+    private readonly Grid _heading=new();
+    private readonly StackPanel _feedbackPanel=new();
     private readonly ToggleButton _state=new(){MinWidth=42,MinHeight=36,Margin=new Thickness(0,0,8,0)};
     private readonly Button _expand=new(){HorizontalContentAlignment=HorizontalAlignment.Stretch,MinWidth=0,Padding=new Thickness(4)};
-    private readonly TextBlock _title=new(){TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis,FontWeight=FontWeights.SemiBold,FontSize=14,MaxHeight=42};
+    private readonly TextBlock _title=new(){TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis,FontWeight=FontWeights.SemiBold,FontSize=14,MinWidth=0};
     private readonly TextBlock _status=new(){FontSize=12};
     private readonly TextBlock _feedback=new(){TextWrapping=TextWrapping.Wrap,FontSize=12,Margin=new Thickness(0,4,0,0)};
     private readonly Button _retry=new(){HorizontalAlignment=HorizontalAlignment.Left};
@@ -43,11 +45,12 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
         _view.Resources.MergedDictionaries.Add(new ResourceDictionary {Source=new Uri("/Mosaic.Tasks.Wpf;component/Themes/Floating.xaml",UriKind.Relative)});
         _state.SetResourceReference(FrameworkElement.StyleProperty,"TaskFloatingStateStyle");
         _view.RowDefinitions.Add(new(){Height=GridLength.Auto});_view.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});_view.RowDefinitions.Add(new(){Height=GridLength.Auto});
-        var heading=new Grid();heading.ColumnDefinitions.Add(new(){Width=GridLength.Auto});heading.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        var heading=_heading;heading.ColumnDefinitions.Add(new(){Width=GridLength.Auto});heading.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         heading.Children.Add(_state);var label=new StackPanel();label.Children.Add(_title);label.Children.Add(_status);_expand.Content=label;Grid.SetColumn(_expand,1);heading.Children.Add(_expand);_view.Children.Add(heading);
         _details.BackButton.Visibility=Visibility.Collapsed;_details.Visibility=Visibility.Collapsed;Grid.SetRow(_details,1);_view.Children.Add(_details);
-        var feedback=new StackPanel();feedback.Children.Add(_feedback);feedback.Children.Add(_retry);Grid.SetRow(feedback,2);_view.Children.Add(feedback);
+        var feedback=_feedbackPanel;feedback.Children.Add(_feedback);feedback.Children.Add(_retry);Grid.SetRow(feedback,2);_view.Children.Add(feedback);
         _expand.SetResourceReference(FrameworkElement.StyleProperty,MosaicTheme.QuietButtonKey);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_expand,"FloatingTaskExpand");
         _expand.Click+=(_,_)=>ModeRequested?.Invoke(this,EventArgs.Empty);
         _state.Click+=(_,_)=>Track(ToggleAsync());
         _retry.Click+=(_,_)=>Track(ReloadAsync());
@@ -57,6 +60,15 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
         Render();
     }
     public FrameworkElement View=>_view;
+    public FrameworkElement Header=>_heading;
+    public void ConfigureLayout(FloatingContentLayoutOptions options)
+    {
+        _heading.Margin=new Thickness(0,0,options.HeaderTrailingSpace,0);
+        _state.Margin=new Thickness(0,0,options.ContentGap,0);
+        _status.Margin=new Thickness(0,options.ContentGap,0,0);
+        _feedbackPanel.Margin=new Thickness(0,options.ContentGap,0,0);
+        _details.ConfigureDensity(options.ContentGap);
+    }
     public event EventHandler? LayoutInvalidated;
     public event EventHandler? Missing;
     public event EventHandler? ModeRequested;
@@ -115,6 +127,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
         System.Windows.Automation.AutomationProperties.SetAutomationId(_state,"FloatingTaskState");
         System.Windows.Automation.AutomationProperties.SetName(_expand,_title.Text+" · "+TaskLocalization.Localize(_expanded?"Tasks.Floating.Collapse":"Tasks.Floating.Expand",_expanded?"收起":"展开"));
         _details.Render(_current,false,false,false,showHeading:false);
+        _feedbackPanel.Visibility=_error.Length>0?Visibility.Visible:Visibility.Collapsed;
         _feedback.Text=_error;_feedback.Visibility=_error.Length>0?Visibility.Visible:Visibility.Collapsed;
         _retry.Content=TaskLocalization.Localize("Tasks.Retry","重试");_retry.Visibility=_error.Length>0?Visibility.Visible:Visibility.Collapsed;
         LayoutInvalidated?.Invoke(this,EventArgs.Empty);
