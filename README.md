@@ -1,12 +1,14 @@
 # Mosaic
 
+0.8.0 实施更新（2026-11-17）：已接入独立悬浮窗口 Contracts/Core/Wpf/Persistence.Contracts/Sqlite、Tasks 提交变更通知、速览拖出与键盘菜单入口。每任务唯一窗口，紧凑/展开、完成切换、置顶、独立关闭、布局保存与下次启动恢复已实现。完整配置93项（14普通/79高级，6个分区）；新增悬浮窗9项。旧配置通过 floating-windows-v1 一次性生效层迁移，窗口表由独立迁移流持有。实际验证和环境边界见 implementation-status.md 最新记录；本文原验收矩阵继续有效，不能据此认为全部实机矩阵已完成。
+
 面向 Windows、数据保存在本机的模块化任务记录软件。
 
 已确认技术方案：C# + WPF，采用 .NET 10、MVVM 和 SQLite。
 
-当前本地开发版本：0.7.0。已实现模块化 WPF、SQLite 任务与设置、跨分区设置持续预览、宿主与用户设置提交日志，以及关闭主窗口后驻留、边缘任务速览和恢复草稿。0.7.0 为旧配置加入一次性 Presence 迁移，避免用户禁用后每次启动被重新启用。实际验证范围见实施记录。
+当前本地开发版本：0.8.0。已实现模块化 WPF、SQLite 任务与设置、跨分区设置持续预览、宿主与用户设置提交日志，以及关闭主窗口后驻留、边缘任务速览和恢复草稿。0.8.0 为旧配置加入一次性 Presence 迁移，避免用户禁用后每次启动被重新启用。实际验证范围见实施记录。
 
-Windows 安装包：[下载 Mosaic 0.7.0](https://github.com/soehi/Mosaic/releases/download/v0.7.0/Mosaic-0.7.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.8.0](https://github.com/soehi/Mosaic/releases/download/v0.8.0/Mosaic-0.8.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 
@@ -39,6 +41,8 @@ pwsh -File build/package.ps1 -NoPublish
 
 文档：
 
+- [拖出任务与独立置顶小窗实现计划](docs/floating-task-windows-plan.md)：已确认待实施的拖出、多窗、完成状态操作与布局恢复。
+
 - [速览任务按钮、详情与拖出悬浮准备](docs/peek-task-details-plan.md)：已确认待实施的面板内只读详情，以及后续多个独立置顶任务窗的扩展计划。
 
 - [整体架构思想](docs/architecture-principles.md)：独立保存长期适用的架构原则。
@@ -49,8 +53,8 @@ pwsh -File build/package.ps1 -NoPublish
 - [任务速览 UI 与更新简要任务计划](docs/peek-and-update-summary-plan.md)：待实施的速览改版、每版本一次的更新任务与同步交付验收。
 - [Mosaic 0.1.0 发布说明](docs/releases/v0.1.0.md)：安装信息、校验值和验证结果。
 - [Mosaic 0.5.0 发布说明](docs/releases/v0.5.0.md)：架构收口、验证范围和安装包信息。
-- [Mosaic 0.7.0 发布说明](docs/releases/v0.7.0.md)：旧配置一次性迁移、迁移验收和安装包信息。
+- [Mosaic 0.8.0 发布说明](docs/releases/v0.8.0.md)：旧配置一次性迁移、迁移验收和安装包信息。
 
 核心约束：每项职责只有一个归属模块；跨模块只允许通过公开协议提出调用申请，禁止访问内部实现和数据；缺少能力时先判断职责归属，再扩展公开接口或创建模块；宿主负责装配；导航和页面入口由已激活功能的贡献参数生成。
 
-后台驻留与模块边界见 [驻留规划](docs/desktop-presence-plan.md)。新工作空间默认关闭主窗口后进入驻留；通过边缘入口可恢复或退出。0.7.0 首次启动会把旧版已启用 `tasks-ui` 的配置升级为同时启用 Presence，并记录一次性迁移标记；之后用户主动关闭 Presence 不会被自动恢复。
+后台驻留与模块边界见 [驻留规划](docs/desktop-presence-plan.md)。新工作空间默认关闭主窗口后进入驻留；通过边缘入口可恢复或退出。0.8.0 首次启动会把旧版已启用 `tasks-ui` 的配置升级为同时启用 Presence，并记录一次性迁移标记；之后用户主动关闭 Presence 不会被自动恢复。

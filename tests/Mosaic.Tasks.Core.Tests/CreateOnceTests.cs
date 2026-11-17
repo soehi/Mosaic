@@ -43,6 +43,24 @@ public sealed class CreateOnceTests
     }
 
     [Fact]
+    public async Task Changes_only_follow_committed_writes_and_broken_observers_do_not_change_success()
+    {
+        var repo=new MemoryTaskRepository();await using var module=await Start(repo);
+        using var broken=module.Changes.Subscribe(_=>throw new InvalidOperationException("observer"));
+        var received=new System.Collections.Concurrent.ConcurrentQueue<TaskChange>();
+        using var observer=module.Changes.Subscribe(change=>received.Enqueue(change));
+        var created=await module.Api.CreateAsync(new("change test",""));Assert.True(created.IsSuccess);
+        var id=created.Value.Id;
+        await module.Api.SetCompletedAsync(new(id,true,created.Value.Revision));
+        await module.Api.DeleteAsync(new(id,created.Value.Revision+1));
+        Assert.False((await module.Api.CreateAsync(new("", ""))).IsSuccess);
+        var deadline=DateTime.UtcNow.AddSeconds(3);
+        while(received.Count<3 && DateTime.UtcNow<deadline)await Task.Delay(10);
+        Assert.Equal(3,received.Count);Assert.All(received,change=>Assert.Equal(id,change.TaskId));
+        Assert.Contains(received,change=>change.Kind==TaskChangeKind.Deleted);
+    }
+
+    [Fact]
     public async Task Explicit_initial_state_and_original_receipt_survive_limits_edits_and_deletion()
     {
         var repository = new MemoryTaskRepository();

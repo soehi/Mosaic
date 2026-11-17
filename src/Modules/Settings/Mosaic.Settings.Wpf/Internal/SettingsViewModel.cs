@@ -14,7 +14,8 @@ internal enum SettingsSection
     Appearance,
     Storage,
     Text,
-    DesktopPresence
+    DesktopPresence,
+    FloatingWindows
 }
 
 internal sealed class SettingRow : ObservableObject
@@ -567,6 +568,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         SettingsGroup.Appearance => SettingsSection.Appearance,
         SettingsGroup.Text => SettingsSection.Text,
         SettingsGroup.DesktopPresence => SettingsSection.DesktopPresence,
+        SettingsGroup.FloatingWindows => SettingsSection.FloatingWindows,
         _ => SettingsSection.Tasks
     };
     private void ApplySectionFilter()
@@ -673,6 +675,7 @@ internal sealed class SettingsSectionNameConverter : System.Windows.Data.IValueC
         SettingsSection.Storage => SettingsLocalization.Localize("Settings.Section.Storage", "存储与系统"),
         SettingsSection.Text => SettingsLocalization.Localize("Settings.Section.Text", "文案"),
         SettingsSection.DesktopPresence => SettingsLocalization.Localize("Settings.Section.DesktopPresence", "驻留与边缘"),
+        SettingsSection.FloatingWindows => SettingsLocalization.Localize("Settings.Section.FloatingWindows", "悬浮任务窗"),
         _ => string.Empty
     };
 

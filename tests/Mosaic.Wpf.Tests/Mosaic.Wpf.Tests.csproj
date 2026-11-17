@@ -16,4 +16,4 @@
 <PackageReference Include="Microsoft.NET.Test.Sdk" />
 <Using Include="Xunit" />
 </ItemGroup>
-</Project>
+<ItemGroup><ProjectReference Include="../../src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/Mosaic.FloatingWindows.Wpf.csproj" /></ItemGroup></Project>

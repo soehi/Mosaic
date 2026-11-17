@@ -1,5 +1,7 @@
 # Mosaic：细节实现计划（C# + WPF）
 
+0.8.0 实施更新（2026-11-17）：已接入独立悬浮窗口 Contracts/Core/Wpf/Persistence.Contracts/Sqlite、Tasks 提交变更通知、速览拖出与键盘菜单入口。每任务唯一窗口，紧凑/展开、完成切换、置顶、独立关闭、布局保存与下次启动恢复已实现。完整配置93项（14普通/79高级，6个分区）；新增悬浮窗9项。旧配置通过 floating-windows-v1 一次性生效层迁移，窗口表由独立迁移流持有。实际验证和环境边界见 implementation-status.md 最新记录；本文原验收矩阵继续有效，不能据此认为全部实机矩阵已完成。
+
 0.7.0 实施更新：速览任务块已改为可访问按钮，面板内展示最新只读详情，支持返回及请求取消/代次保护。Presence 通过通用 ICompanionNavigation 处理返回，无任务 DTO 依赖。无需配置或数据库迁移，设置维持84项；拖出和多置顶小窗仍未实施。实际验证范围见 implementation-status.md。
 
 实施更新（2026-11-16）：0.6.0 已实现紧凑速览、自然高度、9 项视觉预览参数、独立 release-summary、Tasks 原子创建回执、发布清单和一次性配置迁移。完整配置 84 项（12 普通/72 高级），Presence 26 项。构建及自动化已验证；完整视觉/DPI/交互与安装升级矩阵仍待验收。实际文件和验证见 implementation-status.md 最新记录；下文原规划条目保留为验收基准。
@@ -630,6 +632,16 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 
 职责、现有缺口、已确认交互、取消与返回、实施步骤及验收见 [专项计划](peek-task-details-plan.md)。不复用可编辑主任务页面，不让 Presence 解释任务数据；源码、契约、回归、发布清单和更新简要同批交付。
 
+### 阶段 13：拖出任务与独立置顶小窗
+
+状态：2026-11-17，预期效果已确认，规划完成，尚未实施，源码基线为 0.7.0。
+
+交付：从速览拖出或菜单打开任务小窗；多个任务各有独立置顶窗；默认紧凑标题/状态，点击展开只读备注/时间，可复制与调整大小，可切换完成状态；用户单独关闭与程序退出区分，重启恢复未关闭窗口的位置、大小和模式。同任务重复打开定位已有窗，隐藏主窗/关闭速览不销毁小窗。
+
+架构：独立 Floating Windows 模块及窗口状态 SQLite 适配器；Tasks UI 提供内容工厂与公开申请来源以避免循环依赖；Tasks Core 提供公开提交变更源，数据库连接仍归 Storage。新设置、默认/旧配置一次性升级、窗口表迁移、主列表与浮窗同步、退出排空和发布清单同批交付。
+
+模块、公开申请、存储字段、9 项拟新增设置、实现文件与完整验收见 [小窗实现计划](floating-task-windows-plan.md)。不得把 0.7.0 已完成的速览详情测试当作小窗测试；发布后的“更新简要”覆盖本次全部新增、改进和修复。
+
 阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
 
 每个阶段交付时遵循 [架构原则](architecture-principles.md) 第 13 节的同步交付规则：源码、测试、用户可见行为、发布说明和实施记录必须属于同一个变更单元；影响旧数据目录、配置或安装升级的改动必须同时交付迁移逻辑与迁移验收项。发布说明必须写清对已有安装的影响和用户需要执行的动作。诊断与修复还必须写明错误位置（具体文件、行、契约或调用链，说明根因）和改动位置（实际修改的文件、行、测试与文档），二者随同一交付单元记录。
@@ -676,3 +688,9 @@ dotnet publish src/Mosaic.Desktop -c Release -r win-x64 --self-contained true -o
 实施时补齐：应用标识和图标、是否采用默认字段限额、最低支持的 Windows 版本、目标处理器及安装范围。先验证 win-x64，ARM64 需要独立发布和原生依赖测试。正式签名证书和发布账号不阻塞本机开发。
 
 实施选择：应用 ID Mosaic，默认字段限额不变；目标 Windows 10 2004+ x64，每用户安装；图标为内置四格 Mosaic 标记。正式签名、干净系统验收及 ARM64 另行推进，不将未执行的检查视为通过。
+
+## 0.8.0 悬浮窗口项目与依赖补充
+
+新增 `Modules/FloatingWindows/Mosaic.FloatingWindows.Contracts`、`Core`、`Persistence.Contracts`、`Sqlite`、`Wpf` 和 `tests/Mosaic.FloatingWindows.Tests`。Contracts只引用Mosaic.Contracts；Persistence.Contracts引用通用结果和窗口契约；Core引用两种窗口契约，禁止WPF/Tasks/Storage；Sqlite引用窗口契约和Storage.Contracts，独占floating_windows表；Wpf引用上述公开窗口入口、Presentation和Settings契约，禁止Tasks/Storage实现。Desktop只在装配根引用新入口和仓储契约。
+
+Presentation.Contracts增加通用内容工厂/分离来源/交互协议，并引用纯FloatingWindows.Contracts。Tasks.Wpf实现内容工厂与申请来源，只通过任务API读取/写入完成状态；Tasks.Core以tasks.changes@1报告成功提交事实。窗口模块依赖floating.task-content@1、floating.detach-source@1、floating.repository@1及settings.api@1；无反向requires。

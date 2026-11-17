@@ -1,4 +1,5 @@
 using System.Windows;
+using Mosaic.FloatingWindows.Contracts;
 using System.Windows.Media;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
@@ -32,8 +33,25 @@ internal sealed record TaskPeekRow(Guid Id, string Title, string Status, bool Is
     public Visibility StatusVisibility => Options.ShowStatusText ? Visibility.Visible : Visibility.Collapsed;
 }
 
-internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavigation
+internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavigation, ICompanionInteraction
 {
+    public bool IsInteracting {get;private set;}
+    public event EventHandler? InteractionChanged;
+    public bool CancelInteraction()=>_view.CancelDrag();
+    private readonly IDisposable? _changes;
+    private async Task DetachAsync(TaskPeekRow row,FloatingPlacementHint? hint,CancellationToken cancellationToken)
+    {
+        if(_closed || _dependencies.Detach is not {} source)return;
+        using var linked=CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token,cancellationToken);
+        try
+        {
+            _view.DetachFeedback.Visibility=Visibility.Collapsed;
+            var result=await source.RequestDetachAsync(new("tasks-ui",row.Id.ToString("D")),hint,linked.Token);
+            if(!_closed && !linked.IsCancellationRequested && !result.IsSuccess){_view.DetachFeedback.Text=result.Error!.Message;_view.DetachFeedback.Visibility=Visibility.Visible;LayoutInvalidated?.Invoke(this,EventArgs.Empty);}
+        }
+        catch(OperationCanceledException) when(linked.IsCancellationRequested){}
+        catch(Exception ex){_dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"),ex);if(!_closed){_view.DetachFeedback.Text=TaskLocalization.Localize("Tasks.Floating.Error","无法打开小窗，请重试");_view.DetachFeedback.Visibility=Visibility.Visible;}}
+    }
     private readonly TasksUiDependencies _dependencies;
     private readonly CompanionViewOptions _options;
     private readonly CancellationTokenSource _lifetime = new();
@@ -138,6 +156,15 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         _dependencies = dependencies; _options = options;
         _view.Retry.Click += Retry;
         _view.OpenRequested += OpenDetails;
+        _view.CanDetach=()=>!_closed && dependencies.Detach?.IsAvailable==true;
+        _view.DetachRequested=DetachAsync;
+        _view.DragChanged+=active=>{IsInteracting=active;InteractionChanged?.Invoke(this,EventArgs.Empty);};
+        _changes=dependencies.Changes?.Subscribe(change=>_ = dependencies.Dispatcher.InvokeAsync(()=>
+        {
+            if(_closed)return;
+            _ = InitializeAsync();
+            if(_selectedId==change.TaskId)_=StartDetailQuery(change.TaskId);
+        }));
         MosaicLocalizationManager.LanguageChanged += LanguageChanged;
         MosaicThemeManager.ThemeChanged += LanguageChanged;
         UpdateView();
@@ -210,6 +237,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     public Task CloseAsync()
     {
         if (_closed) return Task.CompletedTask;
+        _view.CancelDrag(); _changes?.Dispose();
         _closed = true; ++_generation; ++_detailGeneration; _detailCancellation?.Cancel();
         _view.OpenRequested -= OpenDetails; _lifetime.Cancel();
         MosaicLocalizationManager.LanguageChanged -= LanguageChanged;

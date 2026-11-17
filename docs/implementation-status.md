@@ -1,5 +1,24 @@
 # Mosaic：实施与验证记录
 
+## 0.8.0：独立悬浮任务窗口（2026-11-17）
+
+- 根因/能力缺口位置：TaskPeekView/TaskPeekViewModel 只有点击详情；ICompanionViewFactory 只有单一速览会话；PresenceSurface 只拥有驻留入口和速览窗口；TasksModule 没有专用公开提交变更源；原存储没有窗口身份与恢复状态。上述职责不能通过复制主任务页或读取任务内部对象实现。
+- 全部逐文件定位见 [0.8.0文件清单](releases/v0.8.0-files.md)。
+- 新增文件/改动位置：Modules/FloatingWindows 下5个项目及各csproj。Contracts/FloatingContracts.cs 定义不透明引用、窗口记录与公开申请/Surface；Persistence.Contracts/IFloatingWindowRepository.cs 定义原子窗口记录；Core/FloatingWindowCoordinator.cs 串行处理开关去重、保存/失败、恢复和退出；Sqlite/FloatingWindowsSqliteModule.cs 独占窗口表、参数化SQL、乐观版本和独立V1迁移；Wpf/FloatingWindowsModule.cs/FloatingSurface.cs/FloatingScreen.cs/FloatingSettings.cs/FloatingLocalization.cs 负责注册、窗口与会话释放、移动缩放、工作区/DPI、预览与9项设置。
+- Tasks改动位置：新增 Contracts/TaskChanges.cs 和 Core/Internal/TaskChangeSource.cs；TaskService 在成功提交后发布事实，TasksModule 暴露 tasks.changes@1。Tasks.Wpf/TasksUiModule.cs、Internal/TaskDetachSource.cs、TaskFloatingContentFactory.cs 提供公开申请来源和独立任务内容会话；TaskPeekView.xaml/.cs、TaskPeekViewFactory.cs 处理系统阈值拖动/捕获/取消、菜单、反馈与交互租约；TaskPeekDetailsView.cs 复用只读正文，Themes/Floating.xaml 复用主题语义颜色渲染状态按钮。TaskViewFactory.cs/TasksViewModel.cs 订阅合并刷新且保留未保存编辑；Tasks.Wpf/Localization/en.xaml、zh.xaml 新增分离入口文字。
+- 通用/宿主改动位置：Presentation.Contracts/FloatingPresentation.cs 定义内容工厂、申请来源和辅助交互协议；PresenceSurface.cs 只消费通用保活/取消与菜单生命周期；Settings.Contracts/SettingsContracts.cs、Settings.Wpf/Internal/SettingsViewModel.cs 增加动态分组；Desktop/BuiltInModuleCatalog.cs、Bootstrapper.cs、ShutdownCoordinator.cs 完成公开装配、启动恢复与接受退出前排空（失败可重试/取消/明确不保存退出）；AppConfiguration.cs/appsettings.json 增加 floating-windows-v1 生效层迁移。
+- 构建/发布位置：Directory.Build.props、WiX、package.ps1、解决方案、各ProjectReference、project-boundaries.json/public-api.txt 与锁文件同步。release-content.json/published-release-index.json/release-manifest.json 和 v0.8.0 发布说明同源登记全部新增/改进/兼容项。当前26个生产程序集，12个测试项目；93项设置、14普通/79高级、6个分区。
+- 测试位置：新增 FloatingWindows.Tests/FloatingTests.cs（并发去重、失败重试、关闭/退出区别、恢复上限、缺失/暂时失败、模式尺寸隔离、SQLite往返/版本/损坏）；Wpf.Tests/FloatingWindowsTests.cs（独立窗去重、状态写入、模式/置顶、恢复、保存失败、预览及移动不覆盖偏好、关闭自动恢复）；Tasks.Core.Tests/CreateOnceTests.cs（成功提交事实及观察者隔离）；Architecture.Tests/BoundaryTests.cs 检查新增项目边界；Desktop.SmokeTests/DesktopTests.cs 增加新能力迁移覆盖组合与停用/空配置。
+- 旧安装影响：有任务UI/任务/设置/SQLite完整依赖时，旧配置一次性接入两个窗口模块与能力绑定，顶层或settings.host覆盖层同批写回并备份。已迁移后主动停用不会加回；空模块不启用数据库。独立 floating-windows-sqlite V1 迁移复用Storage事务与备份，保留任务表；同一数据目录的恢复记录不存任务标题/备注副本。
+- 当前验证：Release构建0警告/0错误；162项非桌面自动化通过（含WPF58项），14项配置迁移与1项真实进程恢复/退出/单独关闭往返通过；浅色/深色/高对比度预览已生成并检查；实机负坐标多屏、100/125/150/200%DPI与热插拔、系统会话、完整鼠标捕获矩阵、干净Windows安装升级/ICE仍待独立验收。下文历史0.7测试不作为小窗验收证据。
+
+
+## 已确认待实施：独立置顶任务小窗（2026-11-17）
+
+- 用户已确认紧凑标题/状态、点击展开备注/时间、可调整大小、可复制与切换完成状态，并在重启恢复未关闭小窗的位置/大小；见 [完整计划](floating-task-windows-plan.md)。当前源码仍为 0.7.0，小窗尚未实施。
+- 能力缺口位置：`TaskPeekView`/`TaskPeekViewModel` 只有点击详情；`ICompanionViewFactory` 只创建速览会话；`PresenceSurface` 只有边缘入口与单个速览弹窗生命周期；Tasks 无公开专用变更源，存储无独立窗口恢复记录。本期方案分别由公开拖出申请、独立内容工厂、窗口管理模块、Tasks 变更源与窗口存储适配器负责。
+- 文档改动位置：新增 `docs/floating-task-windows-plan.md`；同步 `docs/implementation-plan.md` 阶段 13、`docs/settings-plan.md` 第 15 节、`docs/peek-task-details-plan.md` 的后续规则、`docs/desktop-presence-plan.md` 的边界入口、README 与本记录。本轮未改程序、数据库或发布产物；新功能测试未执行。
+
 ## 0.7.0：速览任务按钮与只读详情（2026-11-16）
 
 - 根因位置：Tasks.Wpf/Internal/TaskPeekView.xaml 使用不可操作 Border；TaskPeekRow 不保留 TaskId；TaskPeekViewModel 只有列表状态；PresenceSurface.ShowPopupAsync 的 PreviewKeyDown 先行吞掉 Esc 与方向键，无法容纳内容内部返回与正文阅读。
@@ -324,3 +343,5 @@ pwsh -File build/test-install.ps1
 0.2.0 的交互式桌面 smoke（CRUD、空配置、坏 JSON）与安装/升级保留设置复验同样需要正常交互式 Windows 会话；受限会话中 `empty`/`backend`/`invalid` 的窗口发现与关闭超时属环境限制，非功能回归。
 
 0.7.0安装包：Mosaic-0.7.0-win-x64.msi，51913664字节，SHA-256 93ACA6B893412C0FA881158D939868019AFD1C3E875B11E8382A871161267A75。
+
+0.8.0产物：唯一完整程序 artifacts/local-run/Mosaic.Desktop.exe；MSI Mosaic-0.8.0-win-x64.msi，51941484字节，SHA-256 44CEF919674BFE86A3A1B8BB84140CD7AFC50785079C888C841005911191F7E8；数据库回读ProductVersion=0.8.0。MSI使用SkipValidation构建。

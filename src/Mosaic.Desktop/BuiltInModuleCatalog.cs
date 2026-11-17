@@ -1,4 +1,6 @@
 using Mosaic.Contracts;
+using Mosaic.FloatingWindows.Sqlite;
+using Mosaic.FloatingWindows.Wpf;
 using Mosaic.ReleaseSummary;
 using System.Reflection;
 using Mosaic.Presentation.Contracts;
@@ -42,6 +44,10 @@ internal sealed class ModuleRuntimeContext(
     internal ICompanionViewFactory? CompanionFactory { get; set; }
     internal IDesktopPresenceApi? Presence { get; set; }
     internal IReleaseSummaryApi? ReleaseSummary { get; set; }
+    internal FloatingWindowsSqliteModule? FloatingStorage {get;set;}
+    internal FloatingWindowsModule? Floating {get;set;}
+    internal IFloatingContentFactory? FloatingFactory {get;set;}
+    internal IFloatingDetachSource? DetachSource {get;set;}
 }
 
 internal static class BuiltInModuleCatalog
@@ -86,7 +92,9 @@ internal static class BuiltInModuleCatalog
                 context.Dispatcher,
                 context.Dialogs,
                 context.Diagnostics,
-                context.Settings?.Api));
+                context.Settings?.Api, context.Tasks?.Changes));
+            context.FloatingFactory=module.FloatingFactory;
+            context.DetachSource=module.DetachSource;
             context.CompanionFactory = module.CompanionFactory;
             return module;
         })
@@ -124,6 +132,18 @@ internal static class BuiltInModuleCatalog
             var module = new ReleaseSummaryModule(new(context.Tasks!.CreateOnceApi, context.Settings!.Api, context.Diagnostics, input));
             context.ReleaseSummary = module.Api;
             return module;
+        }),
+        [FloatingWindowsSqliteModule.Definition.Id]=new(FloatingWindowsSqliteModule.Definition,context=>
+        {
+            context.FloatingStorage=new(context.Storage!.Session);return context.FloatingStorage;
+        }),
+        [FloatingWindowsModule.Definition.Id]=new(FloatingWindowsModule.Definition,context=>
+        {
+            context.Floating=new(new(context.FloatingStorage!.Repository,context.FloatingFactory!,context.DetachSource!,context.Settings!.Api,context.Dispatcher,context.Diagnostics,async()=>
+            {
+                if(context.Presence is {} presence){var restored=await presence.RequestRestoreAsync();if(!restored.IsSuccess)throw new InvalidOperationException(restored.Error!.Message);}
+                else await context.WindowHost.RestoreMainWindowAsync();
+            }));return context.Floating;
         }),
         [SettingsUiModule.Definition.Id] = new(SettingsUiModule.Definition, context =>
         {

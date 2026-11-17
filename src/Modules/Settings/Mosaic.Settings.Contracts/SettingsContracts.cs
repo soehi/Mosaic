@@ -5,7 +5,7 @@ namespace Mosaic.Settings.Contracts;
 
 public enum SettingValueKind { Boolean, Integer, Double, Enum, String, ModuleList, ProviderMap }
 public enum SettingCategory { Normal, Advanced }
-public enum SettingsGroup { Tasks, Appearance, StorageSystem, Text, DesktopPresence }
+public enum SettingsGroup { Tasks, Appearance, StorageSystem, Text, DesktopPresence, FloatingWindows }
 public enum SettingApplyMode { Immediate, Restart }
 public enum SettingPersistence { UserSettings, HostConfig }
 public enum SettingPreviewMode { None, Reversible }

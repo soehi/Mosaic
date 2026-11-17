@@ -11,10 +11,17 @@
       "mosaic.contracts": {
         "type": "Project"
       },
+      "mosaic.floatingwindows.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "Mosaic.Contracts": "[0.8.0, )"
+        }
+      },
       "mosaic.presentation.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.7.0, )"
+          "Mosaic.Contracts": "[0.8.0, )",
+          "Mosaic.FloatingWindows.Contracts": "[0.8.0, )"
         }
       },
       "mosaic.presentation.wpf": {
@@ -23,13 +30,13 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.7.0, )"
+          "Mosaic.Contracts": "[0.8.0, )"
         }
       },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.7.0, )"
+          "Mosaic.Contracts": "[0.8.0, )"
         }
       }
     },

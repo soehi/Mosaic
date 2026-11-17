@@ -74,4 +74,9 @@
     <sys:String x:Key="Tasks.Peek.NoNotes">No notes</sys:String>
     <sys:String x:Key="Tasks.Peek.CreatedAt">Created</sys:String>
     <sys:String x:Key="Tasks.Peek.UpdatedAt">Updated</sys:String>
+    <sys:String x:Key="Tasks.Floating.Open">Open in floating window</sys:String>
+    <sys:String x:Key="Tasks.Floating.Drag">Release to detach · Esc to cancel</sys:String>
+    <sys:String x:Key="Tasks.Floating.Error">Unable to open window. Try again</sys:String>
+    <sys:String x:Key="Tasks.Floating.Expand">Expand</sys:String>
+    <sys:String x:Key="Tasks.Floating.Collapse">Collapse</sys:String>
 </ResourceDictionary>

@@ -261,6 +261,79 @@ public sealed class DesktopTests
     }
 
     [Theory]
+    [InlineData("top")]
+    [InlineData("both")]
+    [InlineData("modules")]
+    [InlineData("providers")]
+    [InlineData("disabled")]
+    [InlineData("empty")]
+    public async Task Floating_configuration_migration_updates_effective_layer_once(string scenario)
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        var modules=config["modules"].Deserialize<string[]>()!.Where(id=>id is not "floating-windows" and not "floating-windows-sqlite").ToArray();
+        var providers=config["providers"].Deserialize<Dictionary<string,string>>()!.Where(item=>!item.Key.StartsWith("floating.",StringComparison.Ordinal)&&item.Key!="tasks.changes@1").ToDictionary();
+        config["modules"]=JsonSerializer.SerializeToElement(scenario=="empty"?Array.Empty<string>():modules);
+        config["providers"]=JsonSerializer.SerializeToElement(scenario=="empty"?new Dictionary<string,string>():providers);
+        config["appliedMigrations"]=JsonSerializer.SerializeToElement(scenario=="disabled"?new[]{"desktop-presence-v1","release-summary-v1","floating-windows-v1"}:new[]{"desktop-presence-v1","release-summary-v1"});
+        if(scenario=="disabled") {providers["tasks.changes@1"]="tasks-core";providers["floating.task-content@1"]="tasks-ui";providers["floating.detach-source@1"]="tasks-ui";config["providers"]=JsonSerializer.SerializeToElement(providers);}
+        var settings=new Dictionary<string,object>();
+        if(scenario is "both" or "modules")settings["host.modules"]=modules;
+        if(scenario is "both" or "providers")settings["host.providers"]=providers;
+        config["settings"]=JsonSerializer.SerializeToElement(settings);
+        File.WriteAllText(path,JsonSerializer.Serialize(config));var before=File.ReadAllText(path);
+        using var process=StartExisting(root,hidden:true);
+        try
+        {
+            await UntilCondition(()=>File.ReadAllText(path).Contains("floating-windows-v1",StringComparison.Ordinal),"Floating migration not persisted");
+            if(scenario=="disabled"){await Task.Delay(500);Assert.Equal(before,File.ReadAllText(path));return;}
+            using var doc=JsonDocument.Parse(File.ReadAllText(path));var json=doc.RootElement;
+            var moduleScope=scenario is "both" or "modules"?json.GetProperty("settings"):json;
+            var providerScope=scenario is "both" or "modules" or "providers"?json.GetProperty("settings"):json;
+            var actual=moduleScope.GetProperty(scenario is "both" or "modules"?"host.modules":"modules").EnumerateArray().Select(item=>item.GetString()).ToArray();
+            if(scenario=="empty"){Assert.Empty(actual);Assert.False(File.Exists(Path.Combine(root,"Data/mosaic.sqlite")));return;}
+            Assert.Contains("floating-windows",actual);Assert.Contains("floating-windows-sqlite",actual);
+            Assert.Equal("tasks-core",providerScope.GetProperty(scenario is "both" or "modules" or "providers"?"host.providers":"providers").GetProperty("tasks.changes@1").GetString());
+            Assert.Equal(before,File.ReadAllText(path+".pre-migration"));
+        }
+        finally{Cleanup(process);}
+    }
+
+    private sealed class FloatingDiagnostics:Mosaic.Contracts.IDiagnosticSink{public void Report(string correlationId,Exception exception){}}
+    [Fact]
+    public async Task Floating_published_restore_normal_exit_and_user_close_round_trip()
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Data/mosaic.sqlite");var id=Guid.NewGuid();
+        var reference=new Mosaic.FloatingWindows.Contracts.FloatingContentReference("tasks-ui",id.ToString("D"));
+        await using(var storage=new Mosaic.Storage.Sqlite.SqliteModule(new(path),new FloatingDiagnostics()))
+        {
+            await storage.ActivateAsync();await using var tasks=new Mosaic.Tasks.Sqlite.TasksSqliteModule(storage.Session);await tasks.ActivateAsync();
+            var now=DateTimeOffset.UtcNow;Assert.True((await tasks.Repository.InsertAsync(new(id,"悬浮恢复烟雾任务","可复制备注",false,now,now,1))).IsSuccess);
+            await using var windows=new Mosaic.FloatingWindows.Sqlite.FloatingWindowsSqliteModule(storage.Session);await windows.ActivateAsync();
+            Assert.True((await windows.Repository.SaveAsync(new(reference,true,Mosaic.FloatingWindows.Contracts.FloatingDisplayMode.Compact,320,320,360,"unplugged monitor",24,24,true,1),0)).IsSuccess);
+        }
+        AutomationElement? Main(Process process)=>AutomationElement.RootElement.FindAll(TreeScope.Children,new PropertyCondition(AutomationElement.ProcessIdProperty,process.Id)).Cast<AutomationElement>().FirstOrDefault(window=>window.Current.Name.StartsWith("Mosaic v",StringComparison.Ordinal));
+        AutomationElement? Floating(Process process)=>AutomationElement.RootElement.FindFirst(TreeScope.Children,new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty,process.Id),new PropertyCondition(AutomationElement.AutomationIdProperty,"FloatingWindow")));
+        Process? process=null;
+        try
+        {
+            process=Start(root);var main=await Until(()=>Main(process),"Missing main window");await Until(()=>Floating(process),"Missing restored window");
+            ((WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern)).Close();await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));Assert.Equal(0,process.ExitCode);process.Dispose();
+            process=Start(root);main=await Until(()=>Main(process),"Missing second main");var floating=await Until(()=>Floating(process),"Normal exit lost restoration");
+            Click(Id(floating,"FloatingClose")!);await UntilCondition(()=>Floating(process) is null,"Floating close did not remove window");
+            ((WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern)).Close();await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));Assert.Equal(0,process.ExitCode);process.Dispose();
+            process=Start(root);main=await Until(()=>Main(process),"Missing third main");Assert.Null(Floating(process));
+            ((WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern)).Close();await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));Assert.Equal(0,process.ExitCode);
+        }
+        finally{Cleanup(process);}
+        await using(var storage=new Mosaic.Storage.Sqlite.SqliteModule(new(path),new FloatingDiagnostics()))
+        {
+            await storage.ActivateAsync();await using var tasks=new Mosaic.Tasks.Sqlite.TasksSqliteModule(storage.Session);await tasks.ActivateAsync();Assert.NotNull((await tasks.Repository.FindAsync(id)).Value);
+            await using var windows=new Mosaic.FloatingWindows.Sqlite.FloatingWindowsSqliteModule(storage.Session);await windows.ActivateAsync();Assert.False(Assert.Single((await windows.Repository.LoadAsync()).Value).IsOpen);
+        }
+    }
+
+    [Theory]
     [InlineData("empty")]
     [InlineData("backend")]
     [InlineData("missing")]

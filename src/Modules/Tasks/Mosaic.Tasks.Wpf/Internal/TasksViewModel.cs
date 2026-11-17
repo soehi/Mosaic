@@ -11,6 +11,8 @@ namespace Mosaic.Tasks.Wpf.Internal;
 internal sealed class TasksViewModel : ObservableObject, IPageController
 {
     private readonly ITasksApi _api;
+    private readonly IDisposable? _changeSubscription;
+    private bool _changeRefresh,_changePending;
     private readonly IUiDispatcher _dispatcher;
     private readonly IUserDialogService _dialogs;
     private readonly IDiagnosticSink _diagnostics;
@@ -55,9 +57,14 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IUserDialogService dialogs,
         IDiagnosticSink diagnostics,
         Mosaic.Settings.Contracts.ISettingsApi? settings = null,
-        TaskUiSettingsTarget? settingsTarget = null)
+        TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null)
     {
         _api = api;
+        _changeSubscription=changes?.Subscribe(change=>_ = dispatcher.InvokeAsync(()=>
+        {
+            if(_disposed)return;_changePending=true;if(_changeRefresh)return;
+            _changeRefresh=true; _=RefreshFromChangeAsync();
+        }));
         _dispatcher = dispatcher;
         _dialogs = dialogs;
         _diagnostics = diagnostics;
@@ -905,9 +912,35 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         internal static TasksLayoutSettings Defaults { get; } = new(920, 480, 680, 300, 128, 96, 40);
     }
 
+    private async Task RefreshFromChangeAsync()
+    {
+        try
+        {
+            while(_changePending && !_disposed)
+            {
+            _changePending=false;
+            await Task.Delay(60,_lifetime.Token);
+            if(IsBusy)await _idle.Task;
+            if(_disposed)return;
+            await LoadAsync();
+            if(Editor.Current is {} current && !Editor.IsDirty)
+            {
+                var result=await _api.GetAsync(current.Id,_lifetime.Token);
+                if(_disposed || Editor.IsDirty || Editor.Current?.Id!=current.Id)return;
+                if(result.IsSuccess && result.Value.Revision>=Editor.Current.Revision)Editor.Load(result.Value);
+                else if(result.Error?.Code==ErrorCodes.NotFound)Editor.Load(null);
+            }
+            }
+        }
+        catch(OperationCanceledException) when(_lifetime.IsCancellationRequested){}
+        catch(Exception ex){Report(ex);}
+        finally{_changeRefresh=false;}
+    }
+
     public ValueTask DisposeAsync()
     {
         _disposed = true;
+        _changeSubscription?.Dispose();
         MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
         _settingsTarget?.Detach();
         _lifetime.Cancel();

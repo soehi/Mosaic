@@ -30,7 +30,7 @@ internal sealed class TaskPeekDetailsView : Grid
         System.Windows.Automation.AutomationProperties.SetName(text, value);
         _body.Children.Add(text);
     }
-    internal void Render(TaskItemDto? task, bool loading, bool failed, bool missing)
+    internal void Render(TaskItemDto? task, bool loading, bool failed, bool missing, bool showHeading = true)
     {
         BackButton.Content = Text("Tasks.Peek.Back", "← 返回任务列表");
         _body.Children.Clear();
@@ -43,8 +43,10 @@ internal sealed class TaskPeekDetailsView : Grid
             _body.Children.Add(retry); return;
         }
         if (task is null) return;
+        if(showHeading) {
         AddText(task.Title, true);
         AddText((task.IsCompleted ? "✓ " : "○ ") + Text(task.IsCompleted ? "Tasks.Peek.Completed" : "Tasks.Peek.Open", task.IsCompleted ? "已完成" : "未完成"));
+        }
         AddText(string.IsNullOrEmpty(task.Notes) ? Text("Tasks.Peek.NoNotes", "暂无备注") : task.Notes);
         var culture = MosaicLocalizationManager.Current == MosaicLanguage.English ? CultureInfo.GetCultureInfo("en-US") : CultureInfo.GetCultureInfo("zh-CN");
         AddText(Text("Tasks.Peek.CreatedAt", "创建时间") + "：" + task.CreatedAtUtc.ToLocalTime().ToString("g", culture));

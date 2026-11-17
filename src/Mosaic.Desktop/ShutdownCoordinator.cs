@@ -44,6 +44,18 @@ internal sealed class ShutdownCoordinator(ShellWindow shell, Bootstrapper bootst
             cancellationToken.ThrowIfCancellationRequested();
             if (!await shell.CanCloseAsync()) return ExitRequestResult.Cancelled;
             cancellationToken.ThrowIfCancellationRequested();
+            if(bootstrapper.Floating is {} floating)
+            {
+                while(true)
+                {
+                    var prepared=await floating.PrepareExitAsync();
+                    if(prepared.IsSuccess)break;
+                    shell.Show();
+                    var choice=MessageBox.Show(shell,prepared.Error!.Message+"\n是：重试保存；否：不保存本次布局并退出；取消：返回应用。","Mosaic",MessageBoxButton.YesNoCancel,MessageBoxImage.Warning);
+                    if(choice==MessageBoxResult.Cancel){floating.Resume();return ExitRequestResult.Cancelled;}
+                    if(choice==MessageBoxResult.No){floating.AllowUnsavedExit();break;}
+                }
+            }
             _accepted = true;
             shell.IsEnabled = false;
             _ = shell.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => { _cleanup ??= FinishExitAsync(); }));

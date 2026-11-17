@@ -15,7 +15,8 @@ internal sealed record AppConfiguration(
 {
     private const string PresenceMigration = "desktop-presence-v1";
     private const string ReleaseSummaryMigration = "release-summary-v1";
-    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration];
+    private const string FloatingMigration="floating-windows-v1";
+    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration,FloatingMigration];
 
     internal static AppConfiguration Load(AppPaths paths)
     {
@@ -44,6 +45,9 @@ internal sealed record AppConfiguration(
             configuration = ApplyPresenceMigration(configuration);
         if (!appliedMigrations.Contains(ReleaseSummaryMigration, StringComparer.Ordinal))
             configuration = ApplyReleaseSummaryMigration(configuration);
+
+        if (!appliedMigrations.Contains(FloatingMigration,StringComparer.Ordinal))
+            configuration=ApplyFloatingMigration(configuration);
 
         if (configuration != original)
         {
@@ -171,6 +175,27 @@ internal sealed record AppConfiguration(
             Settings = settings,
             AppliedMigrations = MarkMigration(configuration, ReleaseSummaryMigration)
         };
+    }
+
+    private static AppConfiguration ApplyFloatingMigration(AppConfiguration configuration)
+    {
+        var settings=configuration.Settings is null?new Dictionary<string,JsonElement>(StringComparer.Ordinal):new Dictionary<string,JsonElement>(configuration.Settings,StringComparer.Ordinal);
+        var overrideModules=settings.ContainsKey("host.modules");var overrideProviders=settings.ContainsKey("host.providers");
+        var modules=(ReadModuleOverride(configuration)??configuration.Modules).ToList();
+        var providers=new Dictionary<string,string>(ReadProviderOverride(configuration)??configuration.Providers,StringComparer.Ordinal);
+        if(modules.Contains("tasks-core",StringComparer.Ordinal))providers.TryAdd("tasks.changes@1","tasks-core");
+        if(modules.Contains("tasks-ui",StringComparer.Ordinal))
+        {
+            providers.TryAdd("floating.task-content@1","tasks-ui");providers.TryAdd("floating.detach-source@1","tasks-ui");
+        }
+        if(new[]{"tasks-ui","tasks-core","tasks-sqlite","settings-core","settings-sqlite","storage-sqlite"}.All(modules.Contains))
+        {
+            foreach(var id in new[]{"floating-windows-sqlite","floating-windows"})if(!modules.Contains(id,StringComparer.Ordinal))modules.Add(id);
+            providers.TryAdd("floating.repository@1","floating-windows-sqlite");providers.TryAdd("floating.windows@1","floating-windows");
+        }
+        if(overrideModules)settings["host.modules"]=JsonSerializer.SerializeToElement(modules.ToArray());
+        if(overrideModules||overrideProviders)settings["host.providers"]=JsonSerializer.SerializeToElement(providers);
+        return configuration with {Modules=overrideModules?configuration.Modules:modules.ToArray(),Providers=overrideModules||overrideProviders?configuration.Providers:providers,Settings=settings,AppliedMigrations=MarkMigration(configuration,FloatingMigration)};
     }
 
     private static string[] MarkMigration(AppConfiguration configuration, string migration) =>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<ItemGroup>
+<ProjectReference Include="../Mosaic.FloatingWindows.Contracts/Mosaic.FloatingWindows.Contracts.csproj" />
+<ProjectReference Include="../Mosaic.FloatingWindows.Persistence.Contracts/Mosaic.FloatingWindows.Persistence.Contracts.csproj" />
+<ProjectReference Include="../../../Mosaic.Contracts/Mosaic.Contracts.csproj" />
+</ItemGroup></Project>

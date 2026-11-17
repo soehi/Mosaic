@@ -14,3 +14,4 @@ TestResults/
 !src/Modules/Settings/Mosaic.Settings.Sqlite/
 !tests/Mosaic.Storage.Sqlite.Tests/
 *.log
+!src/Modules/FloatingWindows/Mosaic.FloatingWindows.Sqlite/

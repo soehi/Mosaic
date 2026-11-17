@@ -29,7 +29,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
     private DispatcherOperation? _measureOperation;
     private ContextMenu? _edgeMenu;
     private EventHandler? _sessionLayoutHandler;
-    private bool _toolTipActive;
+    private bool _toolTipActive,_contentMenuActive;
     private IReadOnlyDictionary<string, object?> _values = new Dictionary<string, object?>();
     internal IDesktopPresenceApi? Api { get; set; }
     private string Text(string key) => MosaicLocalizationManager.TryFindResource(key) ?? key;
@@ -135,7 +135,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _dismiss.Stop();
         if (!Inside()) await DismissAsync();
     }
-    private bool Inside(bool includeFocus = true) => (includeFocus && _popup?.IsKeyboardFocusWithin == true) || _toolTipActive || _edgeMenu?.IsOpen == true ||
+    private bool Inside(bool includeFocus = true) => _contentMenuActive || (_session is ICompanionInteraction {IsInteracting:true}) || (includeFocus && _popup?.IsKeyboardFocusWithin == true) || _toolTipActive || _edgeMenu?.IsOpen == true ||
         (_popup?.Content is PresencePopupView view && view.IsFloatingInteractionActive) ||
         (_edge is not null && PresenceScreen.PointerInside(_edge)) || (_popup is not null && PresenceScreen.PointerInside(_popup));
     private void ScheduleDismiss()
@@ -175,6 +175,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _popup.Content = popupView;
         _popup.AddHandler(ToolTipService.ToolTipOpeningEvent, new ToolTipEventHandler((_, _) => { _toolTipActive = true; _dismiss.Stop(); }));
         _popup.AddHandler(ToolTipService.ToolTipClosingEvent, new ToolTipEventHandler((_, _) => { _toolTipActive = false; ScheduleDismiss(); }));
+        _popup.AddHandler(ContextMenuService.ContextMenuOpeningEvent,new ContextMenuEventHandler((_,_)=>{_contentMenuActive=true;_dismiss.Stop();}));
+        _popup.AddHandler(ContextMenuService.ContextMenuClosingEvent,new ContextMenuEventHandler((_,_)=>{_contentMenuActive=false;ScheduleDismiss();}));
         _popup.MouseEnter += (_, _) => _dismiss.Stop();
         _popup.MouseLeave += (_, _) => ScheduleDismiss();
         _popup.PreviewKeyDown += async (_, e) =>
@@ -182,7 +184,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             if (e.Key == Key.Escape)
             {
                 e.Handled = true;
-                if (!popupView.CloseMenuForEscape() && !(_session is ICompanionNavigation navigation && navigation.TryGoBack()))
+                if (!popupView.CloseMenuForEscape() && !(_session is ICompanionInteraction interaction && interaction.CancelInteraction()) && !(_session is ICompanionNavigation navigation && navigation.TryGoBack()))
                     await DismissAsync();
             }
         };
@@ -218,7 +220,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
     {
         _hover.Stop(); _dismiss.Stop(); _pointer.Stop();
         ++_sessionGeneration;
-        _toolTipActive = false;
+        _toolTipActive = false; _contentMenuActive=false;
         _measureOperation?.Abort(); _measureOperation = null;
         var popup = _popup; _popup = null;
         var session = _session; _session = null;

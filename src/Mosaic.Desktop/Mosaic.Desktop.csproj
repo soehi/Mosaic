@@ -25,4 +25,4 @@
 </ItemGroup>
 <PropertyGroup><MosaicPublishedBuild Condition="'$(MosaicPublishedBuild)' == ''">false</MosaicPublishedBuild></PropertyGroup>
 <ItemGroup><AssemblyMetadata Include="MosaicPublishedBuild" Value="$(MosaicPublishedBuild)" /><None Include="../../build/release-manifest.json" Link="release-manifest.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../build/release-manifest.json')" /></ItemGroup>
-</Project>
+<ItemGroup><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Sqlite/Mosaic.FloatingWindows.Sqlite.csproj" /><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/Mosaic.FloatingWindows.Wpf.csproj" /></ItemGroup><ItemGroup><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Persistence.Contracts/Mosaic.FloatingWindows.Persistence.Contracts.csproj" /></ItemGroup></Project>

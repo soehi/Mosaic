@@ -10,21 +10,25 @@ public sealed record TasksUiDependencies(
     IUiDispatcher Dispatcher,
     IUserDialogService Dialogs,
     IDiagnosticSink Diagnostics,
-    Mosaic.Settings.Contracts.ISettingsCore? Settings = null);
+    Mosaic.Settings.Contracts.ISettingsCore? Settings = null,
+    ITaskChangeSource? Changes = null, IFloatingDetachSource? Detach = null);
 
 public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleActivation, IUiModule
 {
     private bool _active;
+    private readonly TaskDetachSource _detach=new(dependencies.Dispatcher);
+    public IFloatingDetachSource DetachSource=>_detach;
+    public IFloatingContentFactory FloatingFactory=>new TaskFloatingContentFactory(dependencies,()=>_active);
     private IDisposable? _localizationRegistration;
     private IDisposable? _settingsRegistration;
     private readonly TaskUiSettingsTarget _settingsTarget = new();
     public static ModuleManifest Definition { get; } = new(
         "tasks-ui",
-        [new("presence.tasks-view", 1)],
-        [new("tasks.api", 1)],
+        [new("presence.tasks-view", 1),new("floating.task-content",1),new("floating.detach-source",1)],
+        [new("tasks.api", 1),new("tasks.changes",1)],
         "Owns task navigation, views and view models.");
     public ModuleManifest Manifest => Definition;
-    public ICompanionViewFactory CompanionFactory => new TaskPeekViewFactory(dependencies, () => _active);
+    public ICompanionViewFactory CompanionFactory => new TaskPeekViewFactory(dependencies with { Detach=_detach }, () => _active);
     public IReadOnlyList<NavigationItem> Navigation => _active
         ? [new("tasks.navigation", "任务", "check-square", "tasks.list", 100, "Tasks.Navigation")]
         : [];
@@ -48,6 +52,7 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
             if (!result.IsSuccess) throw new InvalidOperationException(result.Error!.Message);
         }
         _active = false;
+        _detach.Deactivate();
         _settingsRegistration?.Dispose();
         _settingsRegistration = null;
     }

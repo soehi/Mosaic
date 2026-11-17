@@ -8,5 +8,5 @@
 <ProjectReference Include="..\..\Settings\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
 <PackageReference Include="CommunityToolkit.Mvvm" />
 </ItemGroup>
-</Project>
+<ItemGroup><ProjectReference Include="../../FloatingWindows/Mosaic.FloatingWindows.Contracts/Mosaic.FloatingWindows.Contracts.csproj" /></ItemGroup></Project>
 

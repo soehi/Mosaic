@@ -16,6 +16,7 @@ public sealed record TasksDependencies(
 public sealed class TasksModule : IModuleActivation
 {
     private readonly IModuleExecutionGate _gate;
+    private readonly TaskChangeSource _changes;
     private readonly TaskRules _rules = new();
     private readonly Mosaic.Settings.Contracts.ISettingsCore? _settings;
     private IDisposable? _settingsRegistration;
@@ -23,17 +24,19 @@ public sealed class TasksModule : IModuleActivation
     {
         _gate = dependencies.Gate;
         _settings = dependencies.Settings;
-        var api = new GuardedTasksApi(new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules), _gate, dependencies.Diagnostics);
+        _changes=new(dependencies.Diagnostics);
+        var api = new GuardedTasksApi(new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish), _gate, dependencies.Diagnostics);
         Api = api;
         CreateOnceApi = api;
     }
     public static ModuleManifest Definition { get; } = new(
         "tasks-core",
-        [new("tasks.api", 1), new("tasks.create-once", 1)],
+        [new("tasks.api", 1), new("tasks.create-once", 1), new("tasks.changes",1)],
         [new("tasks.repository", 1), new("settings.api", 1)],
         "Owns task rules and the guarded public task API.");
     public ModuleManifest Manifest => Definition;
     public ITasksApi Api { get; }
+    public ITaskChangeSource Changes=>_changes;
     public ITaskCreateOnceApi CreateOnceApi { get; }
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
@@ -57,6 +60,7 @@ public sealed class TasksModule : IModuleActivation
         _settingsRegistration?.Dispose();
         _settingsRegistration = null;
         await _gate.StopAsync().ConfigureAwait(false);
+        _changes.Clear();
     }
     public async ValueTask DisposeAsync()
     {

@@ -19,6 +19,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
     private ISettingsCore? _settingsCore;
     private IHost? _host;
     private bool _disposed;
+    internal Mosaic.FloatingWindows.Wpf.FloatingWindowsModule? Floating {get;private set;}
     internal IDesktopPresenceApi? Presence { get; private set; }
     internal Bootstrapper()
     {
@@ -72,7 +73,9 @@ internal sealed class Bootstrapper : IAsyncDisposable
         {
             await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest));
             Presence = context.Presence;
+            Floating=context.Floating;
             if (context.ReleaseSummary is { } summary) await summary.RequestStartupReadyAsync();
+            if (Floating is {} floating) await floating.RestoreAsync();
             var settingsApi = context.Settings?.Api;
             _settingsCore = settingsApi;
             _shellSettingsRegistration = settingsApi?.Register(new ShellSettingSource());

@@ -7,7 +7,7 @@ using Mosaic.Tasks.Persistence.Contracts;
 
 namespace Mosaic.Tasks.Core.Internal;
 
-internal sealed class TaskService(ITaskRepository repository, TimeProvider clock, IIdGenerator ids, TaskRules rules)
+internal sealed class TaskService(ITaskRepository repository, TimeProvider clock, IIdGenerator ids, TaskRules rules, Action<TaskChange> changed)
 {
     private OperationError? Validate(string title, string notes)
     {
@@ -29,6 +29,7 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
         var constraints = rules.Current;
         var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted || constraints.DefaultCompleted, now, now, constraints.RevisionStart);
         var saved = await repository.InsertAsync(task, ct).ConfigureAwait(false);
+        if(saved.IsSuccess) changed(new(task.Id,task.Revision,TaskChangeKind.Created));
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(task) : OperationResult<TaskItemDto>.Failure(saved.Error!);
     }
     internal async Task<OperationResult<TaskCreateOnceResult>> CreateOnceAsync(CreateTaskOnceRequest request, CancellationToken ct)
@@ -49,7 +50,9 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
         if (Validate(request.Title, request.Notes) is { } error) return OperationResult<TaskCreateOnceResult>.Failure(error);
         var now = clock.GetUtcNow();
         var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted, now, now, rules.Current.RevisionStart);
-        return await repository.InsertOnceAsync(request.SourceId, request.RequestKey, fingerprint, task, ct).ConfigureAwait(false);
+        var once = await repository.InsertOnceAsync(request.SourceId, request.RequestKey, fingerprint, task, ct).ConfigureAwait(false);
+        if(once.IsSuccess && once.Value.Disposition==TaskCreateOnceDisposition.Created) changed(new(task.Id,task.Revision,TaskChangeKind.Created));
+        return once;
     }
     internal Task<OperationResult<IReadOnlyList<TaskCreationReceiptDto>>> ListReceiptsAsync(string sourceId, CancellationToken ct) =>
         repository.QueryCreationReceiptsAsync(sourceId, ct);
@@ -89,9 +92,15 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
         if (found.Value is not { } current || current.Revision != revision) return OperationResult<TaskItemDto>.Failure(Conflict());
         var updated = change(current) with { Revision = checked(current.Revision + 1), UpdatedAtUtc = clock.GetUtcNow() };
         var saved = await repository.ReplaceAsync(updated, revision, ct).ConfigureAwait(false);
+        if(saved.IsSuccess) changed(new(updated.Id,updated.Revision,TaskChangeKind.Updated));
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(updated) : OperationResult<TaskItemDto>.Failure(saved.Error!);
     }
-    internal Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken ct) => repository.DeleteAsync(request.Id, request.ExpectedRevision, ct);
+    internal async Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken ct)
+    {
+        var result=await repository.DeleteAsync(request.Id,request.ExpectedRevision,ct).ConfigureAwait(false);
+        if(result.IsSuccess) changed(new(request.Id,request.ExpectedRevision+1,TaskChangeKind.Deleted));
+        return result;
+    }
     private static OperationError Conflict() => new(
         ErrorCodes.Conflict, "任务已更改或删除。请重新加载后再保存。", MessageKey: "Tasks.Error.Conflict");
 }

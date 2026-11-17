@@ -4,7 +4,8 @@
     "Mosaic.Contracts"
   ],
   "Mosaic.Presentation.Contracts": [
-    "Mosaic.Contracts"
+    "Mosaic.Contracts",
+    "Mosaic.FloatingWindows.Contracts"
   ],
   "Mosaic.Presentation.Wpf": [],
   "Mosaic.Shell.Wpf": [
@@ -31,7 +32,8 @@
     "Mosaic.Tasks.Contracts",
     "Mosaic.Presentation.Contracts",
     "Mosaic.Presentation.Wpf",
-    "Mosaic.Settings.Contracts"
+    "Mosaic.Settings.Contracts",
+    "Mosaic.FloatingWindows.Contracts"
   ],
   "Mosaic.Storage.Contracts": [
     "Mosaic.Contracts"
@@ -84,7 +86,10 @@
     "Mosaic.Settings.Wpf",
     "Mosaic.DesktopPresence.Contracts",
     "Mosaic.DesktopPresence.Wpf",
-    "Mosaic.ReleaseSummary"
+    "Mosaic.ReleaseSummary",
+    "Mosaic.FloatingWindows.Sqlite",
+    "Mosaic.FloatingWindows.Wpf",
+    "Mosaic.FloatingWindows.Persistence.Contracts"
   ],
   "Mosaic.DesktopPresence.Contracts": [
     "Mosaic.Contracts"
@@ -104,6 +109,33 @@
   "Mosaic.ReleaseSummary": [
     "Mosaic.Contracts",
     "Mosaic.Tasks.Contracts",
+    "Mosaic.Settings.Contracts"
+  ],
+  "Mosaic.FloatingWindows.Contracts": [
+    "Mosaic.Contracts"
+  ],
+  "Mosaic.FloatingWindows.Core": [
+    "Mosaic.FloatingWindows.Contracts",
+    "Mosaic.FloatingWindows.Persistence.Contracts",
+    "Mosaic.Contracts"
+  ],
+  "Mosaic.FloatingWindows.Persistence.Contracts": [
+    "Mosaic.FloatingWindows.Contracts",
+    "Mosaic.Contracts"
+  ],
+  "Mosaic.FloatingWindows.Sqlite": [
+    "Mosaic.FloatingWindows.Contracts",
+    "Mosaic.FloatingWindows.Persistence.Contracts",
+    "Mosaic.Contracts",
+    "Mosaic.Storage.Contracts"
+  ],
+  "Mosaic.FloatingWindows.Wpf": [
+    "Mosaic.FloatingWindows.Contracts",
+    "Mosaic.FloatingWindows.Persistence.Contracts",
+    "Mosaic.FloatingWindows.Core",
+    "Mosaic.Contracts",
+    "Mosaic.Presentation.Contracts",
+    "Mosaic.Presentation.Wpf",
     "Mosaic.Settings.Contracts"
   ]
 }
