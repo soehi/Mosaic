@@ -1,6 +1,6 @@
 # Mosaic：细节实现计划（C# + WPF）
 
-0.9.0 实施更新（2026-11-17）：悬浮窗移动、缩放和光标反馈统一使用原生命中规则；工具与任务内容共用首行，移除独立工具栏、固定空白高度和空反馈占位。新增顶部拖动带、卡片内边距和内容间距三项高级设置。完整配置96项（14普通/82高级，6个分区），无配置、数据库或窗口记录迁移。实际验证和环境边界见 implementation-status.md 最新记录。
+0.9.1 实施更新（2026-11-17）：安装器新增当前用户桌面快捷方式；桌面与开始菜单入口同由 MSI 管理，升级和修复后指向最终安装目录，卸载一并移除。无需配置、数据库或用户数据迁移。0.9.0 的悬浮窗统一命中与紧凑布局继续保留。
 
 0.7.0 实施更新：速览任务块已改为可访问按钮，面板内展示最新只读详情，支持返回及请求取消/代次保护。Presence 通过通用 ICompanionNavigation 处理返回，无任务 DTO 依赖。无需配置或数据库迁移，设置维持84项；拖出和多置顶小窗仍未实施。实际验证范围见 implementation-status.md。
 
@@ -650,13 +650,13 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 
 详细布局、改动类型、边界判定与真实指针验收见 [优化计划](floating-drag-region-plan.md)。源码、设置、测试、发布清单、启动产物和更新简要同步交付。
 
-### 阶段 15：安装位置选择与同程序替换
+### 阶段 15：安装位置选择、同程序替换与桌面快捷方式
 
-状态：2026-11-17，规划完成，尚未实施，源码与安装器基线为 0.8.0。
+状态：2026-11-17，桌面快捷方式子项已在 0.9.1 实施；MSI 数据库检查、干净安装、快捷方式目标校验和卸载删除已通过。自定义安装位置、旧安装替换提示、目录选择界面和跨位置安装矩阵仍待实施。
 
-交付：MSI 增加每用户自定义安装位置，默认仍为 `%LOCALAPPDATA%\Programs\Mosaic`；显示路径输入、浏览文件夹和恢复默认；检测到同一 Mosaic 安装时显示旧版本/位置并确认替换；目录冲突明确提示；卸载只删除当前登记的程序文件。任务数据、设置、日志和浮窗状态继续保留在 `%LOCALAPPDATA%\Mosaic`，不随安装位置迁移。
+交付：MSI 增加每用户自定义安装位置，默认仍为 `%LOCALAPPDATA%\Programs\Mosaic`；显示路径输入、浏览文件夹和恢复默认；检测到同一 Mosaic 安装时显示旧版本/位置并确认替换；目录冲突明确提示；安装完成后自动在当前用户桌面和开始菜单创建 `Mosaic` 快捷方式，二者目标更新为最终安装位置；卸载删除本产品登记的程序文件与快捷方式。任务数据、设置、日志和浮窗状态继续保留在 `%LOCALAPPDATA%\Mosaic`，不随安装位置迁移。
 
-安装器现状根因：`Package.wxs` 把 `INSTALLFOLDER` 固定在 `LocalAppDataFolder/Programs/Mosaic`，且没有位置页；`test-install.ps1` 断言写死默认路径。方案、替换状态、回滚规则、改动位置与验收矩阵见 [安装位置计划](installer-location-plan.md)。安装职责只属于安装器；应用模块不感知安装位置。实施时须同批交付 UI、路径校验、产品检测、测试矩阵、发布内容源、发布说明、README 和实施记录；未执行的 ICE 与真实安装验收不得写成已通过。
+原有根因：`Package.wxs` 把 `INSTALLFOLDER` 固定在 `LocalAppDataFolder/Programs/Mosaic`，且没有位置页；0.9.1 前也没有 `DesktopFolder` 组件，因此只能创建开始菜单快捷方式；`test-install.ps1` 断言仍写死默认路径。0.9.1 已补充桌面快捷方式、MSI 数据库检查以及安装/升级/卸载快捷方式验收。剩余方案、替换状态、回滚规则、改动位置与验收矩阵见 [安装位置计划](installer-location-plan.md)。安装职责只属于安装器；应用模块不感知安装位置，也不自行创建快捷方式。
 
 阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
 
@@ -714,3 +714,7 @@ Presentation.Contracts增加通用内容工厂/分离来源/交互协议，并�
 ## 0.9.0 悬浮命中与密度补充
 
 新增内部 `FloatingWindowInput.cs`，只由 `Mosaic.FloatingWindows.Wpf` 使用，集中提供原生命中、真实控件命中与光标规则；不增加项目依赖。`Presentation.Contracts/FloatingPresentation.cs` 增加 `FloatingContentLayoutOptions` 和 `IFloatingContentSession.Header/ConfigureLayout`，通过通用布局格式连接窗口槽位与 Tasks UI 首行，不暴露任务字段或实现类型。`Mosaic.Tasks.Wpf/Internal/TaskFloatingContentFactory.cs` 与 `TaskPeekDetailsView.cs` 消费该公开选项，模块边界不变。`FloatingSettings` 和 `FloatingLocalization` 仍是新参数与文案的唯一所有者。
+
+## 0.9.1 安装器桌面快捷方式补充
+
+`build/installer/Package.wxs` 新增 `DesktopFolder` 独立 MSI 组件，快捷方式目标和工作目录均引用最终 `INSTALLFOLDER`，并由 `Application` Feature 拥有。`build/test-package-shortcuts.ps1` 在打包后回读 MSI `Shortcut` 与 `FeatureComponents` 表；`build/test-install.ps1` 在真实安装、升级后验证桌面快捷方式，在卸载后验证删除。应用模块与设置不新增依赖。完整 WPF 套件还定位到 `ShellSettingsApplier.ApplyAsync` 在应用级 Dispatcher 停止后仍向其投递设置预览的问题；现优先使用已附着的 `ShellWindow.Dispatcher`，避免窗口级调用跨线程等待。

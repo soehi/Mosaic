@@ -275,6 +275,11 @@ public sealed class PresenceTests
         await using var settings = new SettingsModule(new(new Repository()));
         await using var presence = new DesktopPresenceModule(new(new Host(), tasks.CompanionFactory, settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
         await presence.ActivateAsync();
+        var autoHideChange = await settings.Api.ProposeChangesAsync(new Dictionary<string, object?>
+        {
+            ["desktop.popup.autoHide"] = false
+        });
+        Assert.True(autoHideChange.IsSuccess);
         await presence.Api.RequestParkAsync(); await presence.Api.RequestPopupAsync();
         var surface = typeof(DesktopPresenceModule).GetField("_surface", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(presence)!;
         var popup = (Window)surface.GetType().GetField("_popup", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(surface)!;

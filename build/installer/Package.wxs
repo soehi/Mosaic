@@ -12,6 +12,12 @@
         <RegistryValue Root="HKCU" Key="Software\Mosaic\Installer" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </Directory></StandardDirectory>
-    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/></Feature>
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="{A6C6D7B3-F223-4B32-A6B1-86571AC73693}">
+        <Shortcut Id="DesktopMosaic" Name="Mosaic" Target="[INSTALLFOLDER]Mosaic.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\Mosaic\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/><ComponentRef Id="DesktopShortcut"/></Feature>
   </Package>
 </Wix>

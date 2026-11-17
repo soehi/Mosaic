@@ -1,5 +1,5 @@
 param(
-    [string]$ProductVersion = '0.9.0',
+    [string]$ProductVersion = '0.9.1',
     [switch]$NoPublish,
     [string]$PublishDirectory = 'artifacts/local-run',
     [switch]$SkipValidation)
@@ -70,5 +70,7 @@ try {
     dotnet @mosaicBuildArguments
     if ($LASTEXITCODE) { throw 'Installer build failed.' }
     # Preserve deliverables outside MSBuild's previous-output cleanup when testing upgrades.
-    Copy-Item -LiteralPath (Join-Path $mosaicBuildOutput "Mosaic-$ProductVersion-win-x64.msi") -Destination $mosaicPackageDir -Force
+    $mosaicPackage = Join-Path $mosaicPackageDir "Mosaic-$ProductVersion-win-x64.msi"
+    Copy-Item -LiteralPath (Join-Path $mosaicBuildOutput "Mosaic-$ProductVersion-win-x64.msi") -Destination $mosaicPackage -Force
+    & (Join-Path $PSScriptRoot 'test-package-shortcuts.ps1') -PackagePath $mosaicPackage
 } finally { Pop-Location }

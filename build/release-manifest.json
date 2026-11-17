@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.9.0",
+  "currentReleaseId": "mosaic-0.9.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -196,6 +196,21 @@
         "沿用既有布局保存和退出恢复管线，密度预览不改写窗口尺寸偏好；无需配置或数据库结构迁移，旧配置缺失项采用默认值。"
       ],
       "contentSha256": "5C8ADA21840A5E7EBBF13DBD5118D914EBB746FA8FB8CFA1A094279112636EA6"
+    },
+    {
+      "releaseId": "mosaic-0.9.1",
+      "version": "0.9.1",
+      "releasedOn": "2026-11-17",
+      "previousReleaseId": "mosaic-0.9.0",
+      "added": [
+        "Windows 安装完成后自动在当前用户桌面创建 Mosaic 快捷方式；同位置升级和修复后目标指向最终安装目录。"
+      ],
+      "improved": [],
+      "fixed": [
+        "桌面和开始菜单快捷方式由 MSI 同一组件生命周期管理；卸载移除本产品创建的入口，任务数据和设置保持不变。",
+        "修复应用级 Dispatcher 与 Shell 窗口不在同一线程时，设置预览可能等待已停止 Dispatcher 而超时的问题；设置页优先使用当前窗口的 Dispatcher。"
+      ],
+      "contentSha256": "5C7E03A10665FA285DA1B773ECDA5CC7C6621CAA600A5607472F74FEAEF7D6CD"
     }
   ]
 }

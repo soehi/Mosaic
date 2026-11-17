@@ -114,7 +114,7 @@ internal static class ShellSettingsApplier
 
     public static Task ApplyAsync(IReadOnlyDictionary<string, object?> values)
     {
-        var dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        var dispatcher = _current?.Dispatcher ?? Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         if (!dispatcher.CheckAccess())
         {
             return dispatcher.InvokeAsync(() => ApplyCore(values)).Task;

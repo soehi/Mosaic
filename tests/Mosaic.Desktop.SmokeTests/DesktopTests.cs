@@ -121,12 +121,12 @@ public sealed partial class DesktopTests
             var edge = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "PresenceEdge"))), "Missing edge entry");
-            Click(Id(edge, "PresenceTrigger")!);
+            Click(await Until(() => Id(edge, "PresenceTrigger"), "Missing overview trigger"));
             var popup = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "PresencePopup"))), "Missing task overview");
             Assert.Null(Id(popup, "TaskTitle"));
-            Click(Id(popup, "PresenceRestore")!);
+            Click(await Until(() => Id(popup, "PresenceRestore"), "Missing restore control"));
             Assert.Equal("未保存的驻留草稿", ((ValuePattern)(await Control(process, "TaskTitle")).GetCurrentPattern(ValuePattern.Pattern)).Current.Value);
             using (var secondary = Start(root, presence: true)) await secondary.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             // Clear only the unsaved test input so explicit exit can proceed without a prompt.
@@ -135,11 +135,11 @@ public sealed partial class DesktopTests
             edge = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "PresenceEdge"))), "Missing second edge entry");
-            Click(Id(edge, "PresenceTrigger")!);
+            Click(await Until(() => Id(edge, "PresenceTrigger"), "Missing second overview trigger"));
             popup = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id),
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "PresencePopup"))), "Missing second overview");
-            Click(Id(popup, "PresenceMore")!);
+            Click(await Until(() => Id(popup, "PresenceMore"), "Missing overview more control"));
             var exit = await Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, "PresenceExit")), "Missing exit menu");
             Click(exit);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));

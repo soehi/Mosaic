@@ -1,11 +1,18 @@
 # Mosaic：实施与验证记录
 
-## 已确认规划：安装位置选择与同程序替换（2026-11-17）
+## 0.9.1：安装器自动创建桌面快捷方式（2026-11-17）
 
-- 用户要求：MSI 可选择安装位置；目标位置存在同程序时替换。当前交互确认工具不可用，计划按保守默认定稿：保持每用户安装、使用位置输入框/浏览/恢复默认、检测旧安装后确认替换、目录冲突提示后覆盖 Mosaic 负载；后续用户选择改变时以同一交付单元修订。
-- 根因位置：`build/installer/Package.wxs:7` 固定 `INSTALLFOLDER=%LOCALAPPDATA%\Programs\Mosaic` 且无位置页；`Package.wxs:2–3` 依赖固定 `UpgradeCode` 的 `MajorUpgrade` 但不能可靠表达跨位置搬迁；`build/package.ps1:33–59` 未记录位置元数据；`build/test-install.ps1:28、38` 写死默认路径断言。
-- 计划改动位置：`Package.wxs` 增加标准 UI、位置页、路径校验、旧产品检测与确认文案；`package.ps1` 加入安装元数据并保持排除运行数据；新增安装器 UI/代理测试；`test-install.ps1` 从 MSI 登记读取实际位置并覆盖默认安装、自定义安装、同位置升级、跨位置替换、卸载数据保留矩阵；`release-content.json`/`release-manifest.json`/`published-release-index.json`、发布说明、README、总计划阶段 15 同批更新。详细状态机与验收矩阵见 [安装位置计划](installer-location-plan.md)。
-- 无业务模块、应用设置、数据库或用户配置迁移项；`%LOCALAPPDATA%\Mosaic` 不随安装位置变化。本轮仅修改规划文档，未改源码、未生成 MSI、未执行安装测试；ICE、真实安装、跨位置替换与卸载验收均待实施后执行。
+- 根因位置：`build/installer/Package.wxs:10-14` 只声明了 `ProgramMenuFolder` 下的开始菜单快捷方式，没有受 MSI 组件管理的 `DesktopFolder` 入口，因此安装成功后不会自动创建用户桌面快捷方式；`build/test-install.ps1` 也只验证安装、升级和卸载，没有验证桌面入口及其目标。应用运行时创建快捷方式会重复安装器职责，所以修复留在安装器边界内。
+- 安装器改动位置：`build/installer/Package.wxs` 新增 `DesktopFolder/DesktopShortcut` 组件、`DesktopMosaic` 快捷方式和稳定组件 GUID，并把 `DesktopShortcut` 加入 `Application` Feature；目标为 `[INSTALLFOLDER]Mosaic.Desktop.exe`，工作目录为 `INSTALLFOLDER`。升级、修复和卸载由 Windows Installer 组件生命周期处理。
+- 验证工具改动位置：新增 `build/test-package-shortcuts.ps1`，通过 Windows Installer 数据库回读 `Shortcut` 与 `FeatureComponents`，断言唯一桌面快捷方式、目标、工作目录和 `Application` Feature 归属；`build/package.ps1` 在复制最终 MSI 后调用该检查；`build/test-install.ps1` 的 `Assert-MosaicDesktopShortcut` 验证真实安装和升级，并在卸载后断言快捷方式删除。升级矩阵首次运行又暴露出旧版基础包没有桌面入口时被错误断言的问题；新增 `Test-MosaicPackageDesktopShortcut` 先回读基础包是否声明该入口，仅对具备功能的基线检查安装结果，升级到 0.9.1 后仍无条件验证入口存在。
+- 套件稳定性根因与改动位置：`tests/Mosaic.Wpf.Tests/PreviewCaptureTests.cs:28` 在独立 STA 测试线程创建应用级 `Application`，线程结束后 `Application.Current.Dispatcher` 仍指向已停止的 Dispatcher；`src/Mosaic.Shell.Wpf/ShellSettingSource.cs:115-116` 的 `ShellSettingsApplier.ApplyAsync` 又优先向该 Dispatcher 投递设置预览，后续 `ResponsiveLayoutTests.Shell_consumes_window_and_layout_settings_from_the_settings_api` 会跨线程等待至取消。现改为优先使用已附着的 `ShellWindow.Dispatcher`，只在没有窗口时回退到应用级或当前 Dispatcher；产品调用链和设置语义不变，完整 WPF 套件复跑通过。
+- 桌面 Smoke 稳定性根因与改动位置：`tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs:124、129、142` 在驻留速览顶层窗口出现后立即用 `Id(...)!` 点击触发、恢复或更多按钮，但 WPF Automation 树中子控件晚于顶层窗口生成，升级后第二次运行会得到空引用。现通过既有 `Until` 等待每个具体控件进入自动化树后再点击；重跑升级前后桌面 Smoke 各 24/24 通过。
+- 版本与发布位置：`Directory.Build.props`、`build/installer/Mosaic.Installer.wixproj`、`build/package.ps1` 更新为 `0.9.1`；全部项目锁文件同步项目依赖版本；`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`、`README.md`、`docs/implementation-plan.md`、`docs/installer-location-plan.md`、`docs/releases/v0.9.1.md` 和 `docs/releases/v0.9.1-files.md` 同批交付。逐文件定位见 [0.9.1 文件清单](releases/v0.9.1-files.md)。
+- 自动化验证：Release 构建 0 警告、0 错误；非桌面测试 166/166 通过，其中 WPF 62/62；完整打包流程通过，WiX 0 警告、0 错误，打包后 MSI 数据库检查通过。完整测试首次运行暴露出 `PresenceTests.Popup_chrome_renders_in_both_themes_and_compacts_at_small_heights` 的时序竞态：测试未关闭产品默认的 250 ms 自动收起，负载较高时弹窗在截图前关闭；测试现通过公开 `ISettingsApi.ProposeChangesAsync` 将 `desktop.popup.autoHide` 设为 `false`。远端基线克隆复跑又暴露出上述跨 Dispatcher 等待；修复后 WPF 62/62 和全量 166/166 通过。自包含程序 `artifacts/local-run/Mosaic.Desktop.exe` 的 FileVersion 为 `0.9.1.0`、ProductVersion 为 `0.9.1+552fba51718f71fd083cff1c535ec099a07b956e`。
+- 真实安装链验证：当前 `Mosaic-0.9.1-win-x64.msi` 的全新安装返回 0，桌面 `Mosaic.lnk` 和开始菜单入口均存在，桌面目标精确为 `%LOCALAPPDATA%\Programs\Mosaic\Mosaic.Desktop.exe`，工作目录为对应安装目录；卸载返回 0，桌面与开始菜单快捷方式、安装二进制均删除，`%LOCALAPPDATA%\Mosaic` 用户数据仍存在。随后完成 0.9.0→0.9.1 实机升级：升级前后桌面 Smoke 各 24/24 通过，升级后快捷方式目标正确，升级不改变用户数据哨兵，卸载清理入口和程序文件。测试中唯一不含的是依赖桌面前台焦点和物理指针时序的 `Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds`，它仍归入独立交互式桌面验收。验证安装已卸载，当前没有 Mosaic 进程或安装残留，本地只保留 `artifacts/local-run` 一个完整程序目录。
+- 安装产物：`artifacts/installer/Mosaic-0.9.1-win-x64.msi`，51,953,796 字节，ProductVersion `0.9.1`，SHA-256 `620F7FDF5245B84DE35ED776B495742029C15F4280BFAB5C6A7BFE78CFD4A4D7`；校验文件为 `artifacts/installer/SHA256SUMS-0.9.1.txt`。
+- 迁移与旧安装影响：没有配置、数据库、窗口记录或用户数据迁移。已有安装可直接升级，桌面和开始菜单入口指向安装后的最终目录；卸载只删除 MSI 登记的快捷方式、程序文件和空目录，保留 `%LOCALAPPDATA%\Mosaic`。
+- 未完成验收：MSI 以 `-SkipValidation` 生成，ICE01–ICE105 尚未执行；自定义安装位置、跨位置替换、取消/回滚、负载外文件保留、干净 Windows 虚拟机和包含真实鼠标拖拽焦点的完整交互式桌面 Smoke 仍待独立环境验收。这些边界不阻塞当前默认位置功能的自动化、全新安装和 0.9.0→0.9.1 实机升级验证。
 
 ## 0.9.0：悬浮任务窗统一拖动命中与紧凑布局（2026-11-17）
 

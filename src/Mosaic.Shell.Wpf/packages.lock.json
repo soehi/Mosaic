@@ -14,14 +14,14 @@
       "mosaic.floatingwindows.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.0, )"
+          "Mosaic.Contracts": "[0.9.1, )"
         }
       },
       "mosaic.presentation.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.0, )",
-          "Mosaic.FloatingWindows.Contracts": "[0.9.0, )"
+          "Mosaic.Contracts": "[0.9.1, )",
+          "Mosaic.FloatingWindows.Contracts": "[0.9.1, )"
         }
       },
       "mosaic.presentation.wpf": {
@@ -30,7 +30,7 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.0, )"
+          "Mosaic.Contracts": "[0.9.1, )"
         }
       }
     },
