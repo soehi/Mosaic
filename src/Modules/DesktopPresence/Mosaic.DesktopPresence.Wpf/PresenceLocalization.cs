@@ -49,6 +49,8 @@ internal static class PresenceLocalization
         }
         foreach (var (key, zh, english, description, enDescription) in new[]
         {
+            ("PopupCompletionToggle", "显示完成按钮", "Show completion button", "在速览中标记完成或恢复未完成", "Complete or reopen tasks in the overview"),
+            ("PopupFilterSwitch", "显示筛选切换", "Show filter switch", "筛选仅影响当前速览，不更改默认值", "Filter this overview without changing the default"),
             ("FitContent", "按内容收缩", "Fit popup to content", "少量任务使用自然高度，仍受最大高度限制", "Use natural height for short lists, within the maximum height"),
             ("PopupPadding", "面板内边距", "Popup padding", "外框统一内边距（DIP）", "Single outer content padding in DIP"),
             ("PopupCornerRadius", "面板圆角", "Popup corner radius", "任务速览外框圆角（DIP）", "Overview frame corner radius in DIP"),

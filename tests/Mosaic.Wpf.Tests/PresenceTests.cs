@@ -81,10 +81,116 @@ public sealed class PresenceTests
         internal Func<Guid, CancellationToken, Task<OperationResult<TaskItemDto>>> Get = (_, _) => throw new NotSupportedException();
         public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default) => Get(id, cancellationToken);
         public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal Func<SetTaskCompletedRequest, CancellationToken, Task<OperationResult<TaskItemDto>>> Complete = (_, _) => throw new NotSupportedException();
+        public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => Complete(request, cancellationToken);
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
+    [Fact]
+    public Task Peek_whole_card_routes_title_status_padding_gestures_but_completion_and_filter_do_not() => Sta.Run(async () =>
+    {
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("整卡标题")])) };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme")); await session.InitializeAsync(); Texts(session.View);
+        var view = session.View; var type = view.GetType();
+        type.GetField("CanDetach", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<bool>)(() => true));
+        var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
+        var title = Descendants(card).OfType<TextBlock>().Single(text => text.Text == "整卡标题");
+        var status = Descendants(card).OfType<TextBlock>().Single(text => text.Text == "未完成");
+        var cancel = type.GetMethod("CancelDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var candidate = type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        foreach (var origin in new UIElement[] { title, status, card })
+        {
+            origin.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseDownEvent });
+            Assert.Same(card, candidate.GetValue(view)); cancel.Invoke(view, null);
+        }
+        foreach (var origin in new UIElement[] { Completion(view), Filter(view, "All") })
+        {
+            origin.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseDownEvent });
+            Assert.Null(candidate.GetValue(view));
+        }
+    });
+
+    private static Button Completion(FrameworkElement view) => Descendants(view).OfType<Button>().Single(button => button.Name == "CompleteButton");
+    private static RadioButton Filter(FrameworkElement view, string name) => Descendants(view).OfType<RadioButton>().Single(button => button.Tag as string == name);
+    private static async Task Drain() { for (var i = 0; i < 5; i++) await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
+
+    [Fact]
+    public Task Peek_completion_uses_revision_prevents_duplicates_and_requeries_current_filter() => Sta.Run(async () =>
+    {
+        var item = Item("可完成任务") with { Revision = 7 };
+        var queries = new List<TaskFilter>(); var writes = 0;
+        var pending = new TaskCompletionSource<OperationResult<TaskItemDto>>();
+        var api = new Api {
+            Query = (q, _) => { queries.Add(q.Filter); return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(q.Filter == TaskFilter.Open && item.IsCompleted ? [] : [item])); },
+            Complete = (request, _) => { writes++; Assert.Equal(item.Id, request.Id); Assert.Equal(7, request.ExpectedRevision); Assert.True(request.IsCompleted); return pending.Task; }
+        };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync(); await using var session = module.CompanionFactory.Create(new("Open", 12, "Theme", "Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        var button = Completion(session.View);
+        Assert.Contains("标记完成", System.Windows.Automation.AutomationProperties.GetName(button));
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(button.IsEnabled); Assert.True(((ICompanionInteraction)session).IsInteracting);
+        Assert.Contains("处理中", System.Windows.Automation.AutomationProperties.GetName(button));
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Assert.Equal(1, writes);
+        item = item with { IsCompleted = true, Revision = 8 }; pending.SetResult(OperationResult<TaskItemDto>.Success(item)); await Drain();
+        Assert.False(((ICompanionInteraction)session).IsInteracting); Assert.All(queries, filter => Assert.Equal(TaskFilter.Open, filter));
+        Assert.Contains("没有符合筛选的任务", Texts(session.View));
+        Filter(session.View, "Completed").RaiseEvent(new RoutedEventArgs(RadioButton.CheckedEvent)); await Drain();
+        Assert.Equal(TaskFilter.Completed, queries.Last()); Assert.Contains("恢复未完成", System.Windows.Automation.AutomationProperties.GetName(Completion(session.View)));
+        Assert.False(((ICompanionNavigation)session).TryGoBack());
+    });
+
+    [Fact]
+    public Task Peek_conflict_refreshes_revision_failure_does_not_flip_and_message_can_dismiss() => Sta.Run(async () =>
+    {
+        var item = Item("冲突任务"); var writes = 0;
+        var api = new Api {
+            Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item])),
+            Complete = (r, _) => { writes++; if (writes == 1) { item = item with { Revision = 9 }; return Task.FromResult(OperationResult<TaskItemDto>.Failure(new(ErrorCodes.Conflict, "Conflict", MessageKey: "Tasks.Error.Conflict"))); } Assert.Equal(9, r.ExpectedRevision); return Task.FromResult(OperationResult<TaskItemDto>.Failure(new(ErrorCodes.StorageUnavailable, "Storage unavailable"))); }
+        };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync(); await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        Completion(session.View).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Drain();
+        Assert.Contains(Texts(session.View), text => text.Contains("重新加载")); Assert.False(item.IsCompleted);
+        Completion(session.View).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Drain(); Assert.Equal(2, writes);
+        var dismiss = Descendants(session.View).OfType<Button>().Single(button => button.Name == "DismissFeedback");
+        dismiss.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(Visibility.Collapsed, ((FrameworkElement)session.View.FindName("OperationFeedback")).Visibility);
+    });
+
+    [Fact]
+    public Task Peek_filter_cancels_old_query_ignores_late_results_and_new_session_uses_default() => Sta.Run(async () =>
+    {
+        var late = new TaskCompletionSource<OperationResult<IReadOnlyList<TaskItemDto>>>(); CancellationToken token = default;
+        var queries = new List<TaskFilter>();
+        var api = new Api { Query = (q, ct) => { queries.Add(q.Filter); if (queries.Count == 1) { token = ct; return late.Task; } return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("最新列表")])); } };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        var initial = session.InitializeAsync(); Texts(session.View);
+        Filter(session.View, "Completed").RaiseEvent(new RoutedEventArgs(RadioButton.CheckedEvent)); await Drain(); Assert.True(token.IsCancellationRequested);
+        late.SetResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("旧列表")])); await initial;
+        Assert.Contains("最新列表", Texts(session.View)); Assert.DoesNotContain("旧列表", Texts(session.View));
+        await using var next = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme", ShowCompletionToggle: false, ShowFilterSwitch: false));
+        await next.InitializeAsync(); Texts(next.View); Assert.Equal(TaskFilter.All, queries.Last());
+        Assert.Equal(Visibility.Collapsed, Completion(next.View).Visibility);
+        Assert.Equal(Visibility.Collapsed, ((FrameworkElement)next.View.FindName("Filters")).Visibility);
+    });
+
+    [Fact]
+    public Task Peek_close_cancels_pending_write_and_discards_late_result() => Sta.Run(async () =>
+    {
+        var pending = new TaskCompletionSource<OperationResult<TaskItemDto>>(); CancellationToken token = default;
+        var item = Item("关闭测试"); var queries = 0;
+        var api = new Api { Query = (_, _) => { queries++; return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item])); }, Complete = (_, ct) => { token = ct; return pending.Task; } };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme")); await session.InitializeAsync(); Texts(session.View);
+        Completion(session.View).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await session.CloseAsync(); Assert.True(token.IsCancellationRequested);
+        pending.SetResult(OperationResult<TaskItemDto>.Success(item with { IsCompleted = true })); await Drain(); Assert.Equal(1, queries);
+    });
+
     private static TaskItemDto Item(string title, bool completed = false) => new(Guid.NewGuid(), title, "", completed, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
     private static string[] Texts(FrameworkElement view)
     {
@@ -107,7 +213,7 @@ public sealed class PresenceTests
         await module.ActivateAsync();
         await using var session = module.CompanionFactory.Create(new("All",12,"Theme","Theme"));
         await session.InitializeAsync(); Texts(session.View);
-        var rows = Descendants(session.View).OfType<Button>().Where(button => button.DataContext?.GetType().Name == "TaskPeekRow").ToArray();
+        var rows = Descendants(session.View).OfType<Button>().Where(button => button.DataContext?.GetType().Name == "TaskPeekRow" && button.Name == "TaskCard").ToArray();
         Assert.Equal(2, rows.Length);
         rows[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         rows[1].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -133,7 +239,7 @@ public sealed class PresenceTests
         await using var module = new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));
         await module.ActivateAsync(); await using var session = module.CompanionFactory.Create(new("All",12,"Theme","Theme"));
         await session.InitializeAsync(); Texts(session.View);
-        Descendants(session.View).OfType<Button>().Single(button => button.DataContext?.GetType().Name == "TaskPeekRow").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Descendants(session.View).OfType<Button>().Single(button => button.DataContext?.GetType().Name == "TaskPeekRow" && button.Name == "TaskCard").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Texts(session.View);
         Assert.Contains(Descendants(session.View).OfType<TextBox>(), field => field.Text.Contains("删除"));
         var retry = Descendants(session.View).OfType<Button>().Last(button => button.Content as string == "重试");
@@ -145,14 +251,14 @@ public sealed class PresenceTests
     });
 
     [Fact]
-    public Task Settings_register_26_rows_project_3_normal_validate_save_and_revoke() => Sta.Run(async () =>
+    public Task Settings_register_28_rows_project_5_normal_validate_save_and_revoke() => Sta.Run(async () =>
     {
         await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
         await using var module = new DesktopPresenceModule(new(new Host(), new EmptyFactory(), settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
         await module.ActivateAsync();
         var definitions = (await settings.Api.ListDefinitionsAsync()).Value;
-        Assert.Equal(26, definitions.Count);
-        Assert.Equal(3, definitions.Count(item => item.Category == SettingCategory.Normal));
+        Assert.Equal(28, definitions.Count);
+        Assert.Equal(5, definitions.Count(item => item.Category == SettingCategory.Normal));
         Assert.All(definitions, item => Assert.Equal(SettingsGroup.DesktopPresence, item.Group));
         Assert.All(definitions.Where(item => item.Id is "desktop.popup.fitContent" or "desktop.popup.padding" or
             "desktop.popup.cornerRadius" or "desktop.popup.rowGap" or "desktop.popup.rowPaddingY" or
@@ -169,14 +275,14 @@ public sealed class PresenceTests
         await ui.ActivateAsync(); var page = Assert.Single(ui.Views).Factory.Create();
         await page.Controller.InitializeAsync();
         var model = page.View.DataContext;
-        Assert.Equal(3, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(5, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         page.View.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative) });
         page.View.Measure(new Size(1200, 800)); page.View.Arrange(new Rect(0, 0, 1200, 800)); page.View.UpdateLayout();
         var activation = Descendants(page.View).OfType<ComboBox>().Single(combo =>
             combo.DataContext.GetType().GetProperty("Id")!.GetValue(combo.DataContext) as string == "desktop.edge.activation");
         Assert.Equal("SingleClick", activation.SelectedValue);
         model.GetType().GetProperty("ShowAdvanced")!.SetValue(model, true);
-        Assert.Equal(26, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(28, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         await page.Controller.DisposeAsync(); await ui.DisposeAsync();
         await module.StopAsync();
         Assert.Empty((await settings.Api.ListDefinitionsAsync()).Value);
@@ -208,9 +314,16 @@ public sealed class PresenceTests
         Assert.True(popup.IsVisible); Assert.False(popup.ShowInTaskbar);
         Assert.Equal(380, popup.Width); Assert.InRange(popup.Height, 1, 560);
         Assert.Single(factory.Sessions);
+        Assert.True(factory.Sessions[0].Options.ShowCompletionToggle); Assert.True(factory.Sessions[0].Options.ShowFilterSwitch);
+        var preview = await settings.Api.BeginEditSessionAsync();
+        await preview.Value.PreviewAsync(new Dictionary<string, object?> { ["desktop.popup.completionToggle"] = false, ["desktop.popup.filterSwitch"] = false }, 1);
+        Assert.False(factory.Sessions.Last().Options.ShowCompletionToggle); Assert.False(factory.Sessions.Last().Options.ShowFilterSwitch);
+        await preview.Value.DiscardAsync();
+        Assert.True(factory.Sessions.Last().Options.ShowCompletionToggle); Assert.True(factory.Sessions.Last().Options.ShowFilterSwitch);
+        var beforeRefresh = factory.Sessions.Count;
         Assert.True((await module.Api.RequestRefreshAsync()).IsSuccess);
         Assert.True(factory.Sessions[0].Closed); Assert.True(factory.Sessions[0].Disposed);
-        Assert.Equal(2, factory.Sessions.Count);
+        Assert.Equal(beforeRefresh + 1, factory.Sessions.Count);
         Assert.False(popup.IsVisible);
         await module.Api.RequestRestoreAsync();
         Assert.False(edge.IsVisible); Assert.Null(WindowField("_popup"));
@@ -350,7 +463,7 @@ public sealed class PresenceTests
         {
             await session.InitializeAsync(); var texts = Texts(session.View);
             Assert.Contains("Open title", texts); Assert.Contains("Done title", texts); Assert.DoesNotContain("More", texts);
-            Assert.Equal(2, Descendants(session.View).OfType<System.Windows.Shapes.Path>().Count());
+            Assert.Equal(2, Descendants(session.View).OfType<System.Windows.Shapes.Path>().Count(path => path.Visibility == Visibility.Visible));
             Assert.Contains("未完成", texts); Assert.Contains("已完成", texts);
             Assert.DoesNotContain(Descendants(session.View), element => element is CheckBox or TextBox);
             Assert.Contains(texts, text => text.Contains('3'));
@@ -392,7 +505,7 @@ public sealed class PresenceTests
         Assert.Equal(20, titleText.FontSize); Assert.Equal(28, titleText.MaxHeight);
         Assert.Contains("已完成", System.Windows.Automation.AutomationProperties.GetName(titleText));
         Assert.Contains(title, System.Windows.Automation.AutomationProperties.GetName(titleText));
-        Assert.Equal(Visibility.Collapsed, Descendants(session.View).OfType<TextBlock>().Single(text => text.Text == "已完成").Visibility);
+        Assert.Equal(Visibility.Collapsed, Descendants(session.View).OfType<TextBlock>().Single(text => text.Text == "已完成" && text.Parent is Grid).Visibility);
         Assert.True(layoutChanges > 0);
         Assert.Single(Descendants(session.View).OfType<ScrollViewer>());
         Assert.DoesNotContain(Descendants(session.View), element => element is CheckBox or TextBox);

@@ -79,4 +79,12 @@
     <sys:String x:Key="Tasks.Floating.Error">Unable to open window. Try again</sys:String>
     <sys:String x:Key="Tasks.Floating.Expand">Expand</sys:String>
     <sys:String x:Key="Tasks.Floating.Collapse">Collapse</sys:String>
+    <sys:String x:Key="Tasks.Peek.Filter.All">All</sys:String>
+    <sys:String x:Key="Tasks.Peek.Filter.Open">Open</sys:String>
+    <sys:String x:Key="Tasks.Peek.Filter.Completed">Completed</sys:String>
+    <sys:String x:Key="Tasks.Peek.Complete">Mark complete</sys:String>
+    <sys:String x:Key="Tasks.Peek.Reopen">Reopen task</sys:String>
+    <sys:String x:Key="Tasks.Peek.Processing">Processing…</sys:String>
+    <sys:String x:Key="Tasks.Peek.CompletionFailed">Could not change task status. Try again.</sys:String>
+    <sys:String x:Key="Tasks.Peek.DismissFeedback">Dismiss message</sys:String>
 </ResourceDictionary>

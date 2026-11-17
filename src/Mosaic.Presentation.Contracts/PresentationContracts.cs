@@ -13,7 +13,7 @@ public sealed record ViewContribution(string Id, IViewFactory Factory);
 public sealed record ViewPage(FrameworkElement View, IPageController Controller);
 public interface IViewFactory { ViewPage Create(); }
 public sealed record CompanionViewOptions(string Filter, int MaxItems, string OpenColor, string CompletedColor,
-    int RowGap = 0, int RowPaddingY = 12, int TitleFontSize = 14, int TitleMaxLines = 2, bool ShowStatusText = true);
+    int RowGap = 0, int RowPaddingY = 12, int TitleFontSize = 14, int TitleMaxLines = 2, bool ShowStatusText = true, bool ShowCompletionToggle = true, bool ShowFilterSwitch = true);
 public interface ICompanionViewFactory
 {
     ICompanionViewSession Create(CompanionViewOptions options);

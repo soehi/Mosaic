@@ -1,5 +1,24 @@
 # Mosaic：实施与验证记录
 
+## 0.10.0：速览完成切换、筛选与整卡拖动起点（2026-11-17）
+
+- 用户要求：任务速览左侧圆圈可标记完成；面板支持全部/未完成/已完成筛选且默认全部；任务拖拽框覆盖整个任务标签，起点在任务按钮内也可拖出，点击标签详情功能不变。
+- 根因/能力缺口位置：`TaskPeekView.xaml:31–48` 左侧 `Path` 只是状态图形且嵌在整行详情 Button 内；`TaskPeekRow` 不保存 `Revision`，`TaskPeekViewModel` 未接线 `ITasksApi.SetCompletedAsync`；列表固定使用 `CompanionViewOptions.Filter`，无会话内筛选；`TaskPeekView.xaml.cs:20–37` 手势绑定整行 Button，当前理论上已覆盖标题起点，但加入完成按钮/筛选后需统一排除并建立回归。
+- 改动位置：`PresentationContracts.cs` 扩展 `CompanionViewOptions`；`PresenceSettings.cs`/`PresenceLocalization.cs`/`PresenceSurface.cs` 新增并传递 2 个普通展示开关；`TaskPeekView.xaml/.cs` 拆分完成按钮、筛选分段控件并保持整标签拖动手势；`TaskPeekViewFactory.cs` 增加 Revision、完成操作、筛选状态与公开 API 申请；Tasks 中英文资源补充文案。详见 [速览完成切换与筛选计划](peek-completion-filter-plan.md)。
+- 职责边界：Tasks Core 拥有完成语义；Tasks UI 只通过公开 API 写入；Presence 只读设置并通过通用选项传参；Floating Windows、Storage 与主任务页不改。无数据库、模块装配或配置迁移。
+- 本轮仅修改规划文档，未改源码、设置计数、测试或发布产物；真实指针、读屏、DPI 与桌面 Smoke 均待实施后执行。
+
+- 实现：`TaskPeekViewModel.CompleteAsync/SubmitCompletionAsync` 按任务 ID 防重，携带行 Revision 提交公开 `SetCompletedAsync`，等待真实结果后重查；冲突重查后使用新版本，错误可关闭并在六秒后收起。`SelectFilterAsync/InitializeAsync/LoadAsync` 保存会话筛选、取消旧请求并用代次隔离迟到结果。`CloseAsync` 取消会话请求，交互状态在提交期间保持面板。
+- 界面位置：`TaskPeekView.xaml/.cs` 的 `CompleteTask/FilterClicked` 与卡片 `StartGesture/MoveGesture/EndGesture` 使用独立同级控件，标题、状态和卡片留白仍路由到详情卡片；完成区和筛选不会进入拖出手势。行忙碌显示省略符、禁用并更新无障碍名称；列表刷新恢复同任务操作焦点或筛选入口。Tasks `Localization/zh.xaml/en.xaml` 增加两种语言的操作和筛选资源。
+- 配置位置：`PresentationContracts.cs.CompanionViewOptions` 增加两个默认 true 的可选字段；`PresenceSettings.Definitions/DisplayNames`、`PresenceLocalization.Dictionary` 和 `PresenceSurface.ShowPopupAsync` 定义、翻译并传入选项。完整配置 98 项（16 普通/82 高级）；Presence 停用后定义撤销。`build/public-api.txt` 按导出类型登记，本轮无新增导出类型，原 `CompanionViewOptions` 条目继续有效。
+- 测试位置：`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 新增真实公开 API 替身的完成/冲突/失败/取消/快速筛选用例、整卡路由与控件排除回归，并验证两个设置预览与放弃的选项往返；新增 `tests/Mosaic.Desktop.SmokeTests/PeekCompletionTests.cs` 验证实际发布进程完成、恢复、筛选和数据库 Revision 递增。路由自动化不能代替物理指针拖出验收。
+- 发布与文档位置：`Directory.Build.props`、`build/package.ps1`、`build/installer/Mosaic.Installer.wixproj`、生产项目 `packages.lock.json` 同步 0.10.0；`build/release-content.json`、`published-release-index.json`、`release-manifest.json` 同源生成更新简要和 `docs/releases/v0.10.0.md`；README、总计划阶段 16、设置计划第 17 节及专项计划同步。逐文件清单见 `docs/releases/v0.10.0-files.md`。
+- 迁移与旧安装影响：无数据库结构、配置结构或模块装配变化，无需迁移；旧设置未存两个开关时由模块默认 true 补足。既有用户自选初始筛选不变；会话筛选不会写入设置、任务数据库或主页面筛选，浮窗布局记录保留。预览放弃恢复已保存值，禁用模块不删除历史值。
+- 待独立验收：物理指针从标题/状态/内边距拖出及控件排除、真实键盘焦点/读屏、100–200% DPI、多屏与系统高对比度矩阵、干净 Windows 升级安装和 MSI ICE；这些不以自动化路由测试代替。
+
+- 最终验证（2026-11-17）：Release 构建 0 警告/0 错误；非桌面测试 171/171（WPF 67/67）通过；最终自包含 EXE 的速览桌面 Smoke 1/1 通过，完成/恢复后按筛选移除，重开数据库确认原任务 Revision 1→3、最终未完成。MSI 打包与桌面快捷方式数据库检查通过。安装包 51,974,276 字节，SHA-256 `466689E2640F916D3AB7A725D81C4482EB0A4601DA76184160F1322C4A787963`，版本 0.10.0；EXE FileVersion 0.10.0.0。MSI 使用 `-SkipValidation`，本轮没有执行真实安装升级或完整桌面矩阵。
+- 桌面验证补充：`TaskPeekView.xaml` 筛选改用 Checked 事件，保证 UIA SelectionItem、键盘与鼠标选择一致；测试夹具通过公开设置仓储关闭更新简要任务和自动收起，避免误选另一任务及面板自动消失。测试不改变真实工作空间。
+
 ## 0.9.1：安装器自动创建桌面快捷方式（2026-11-17）
 
 - 根因位置：`build/installer/Package.wxs:10-14` 只声明了 `ProgramMenuFolder` 下的开始菜单快捷方式，没有受 MSI 组件管理的 `DesktopFolder` 入口，因此安装成功后不会自动创建用户桌面快捷方式；`build/test-install.ps1` 也只验证安装、升级和卸载，没有验证桌面入口及其目标。应用运行时创建快捷方式会重复安装器职责，所以修复留在安装器边界内。

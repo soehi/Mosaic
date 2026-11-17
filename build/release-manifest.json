@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.9.1",
+  "currentReleaseId": "mosaic-0.10.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -211,6 +211,25 @@
         "修复应用级 Dispatcher 与 Shell 窗口不在同一线程时，设置预览可能等待已停止 Dispatcher 而超时的问题；设置页优先使用当前窗口的 Dispatcher。"
       ],
       "contentSha256": "5C7E03A10665FA285DA1B773ECDA5CC7C6621CAA600A5607472F74FEAEF7D6CD"
+    },
+    {
+      "releaseId": "mosaic-0.10.0",
+      "version": "0.10.0",
+      "releasedOn": "2026-11-17",
+      "previousReleaseId": "mosaic-0.9.1",
+      "added": [
+        "任务速览圆圈可标记完成或恢复未完成，使用真实提交回执并刷新筛选结果。",
+        "速览增加全部、未完成、已完成三段会话筛选；新增两个可预览的普通展示开关。"
+      ],
+      "improved": [
+        "任务标签的标题、状态文字和内边距保留拖出入口，完成按钮和筛选控件独立交互。",
+        "完成操作提供忙碌、重复点击保护、冲突刷新、可关闭错误提示与中英文无障碍名称。"
+      ],
+      "fixed": [
+        "快速切换筛选取消旧查询并忽略迟到结果；关闭速览取消在途操作。",
+        "旧设置缺少新增开关时默认开启；无需迁移数据库、配置或浮窗记录。"
+      ],
+      "contentSha256": "410AC76AAB019F3F5883378F04D041ECBE2A445A23CEBC038F4C944EC256F177"
     }
   ]
 }

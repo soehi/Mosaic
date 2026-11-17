@@ -163,7 +163,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _session = factory.Create(new(Read("desktop.popup.filter", "All"), Read("desktop.popup.maxItems", 12),
             Read("desktop.popup.openColor", "Theme"), Read("desktop.popup.completedColor", "Theme"),
             Read("desktop.popup.rowGap", 0), Read("desktop.popup.rowPaddingY", 12),
-            Read("desktop.popup.titleFontSize", 14), Read("desktop.popup.titleMaxLines", 2), Read("desktop.popup.showStatusText", true)));
+            Read("desktop.popup.titleFontSize", 14), Read("desktop.popup.titleMaxLines", 2), Read("desktop.popup.showStatusText", true),
+            Read("desktop.popup.completionToggle", true), Read("desktop.popup.filterSwitch", true)));
         var generation = ++_sessionGeneration;
         _sessionLayoutHandler = (_, _) => QueueMeasure(generation);
         _session.LayoutInvalidated += _sessionLayoutHandler;

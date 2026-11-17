@@ -8,29 +8,29 @@
       "mosaic.floatingwindows.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.1, )"
+          "Mosaic.Contracts": "[0.10.0, )"
         }
       },
       "mosaic.floatingwindows.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.1, )",
-          "Mosaic.FloatingWindows.Contracts": "[0.9.1, )",
-          "Mosaic.FloatingWindows.Persistence.Contracts": "[0.9.1, )"
+          "Mosaic.Contracts": "[0.10.0, )",
+          "Mosaic.FloatingWindows.Contracts": "[0.10.0, )",
+          "Mosaic.FloatingWindows.Persistence.Contracts": "[0.10.0, )"
         }
       },
       "mosaic.floatingwindows.persistence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.1, )",
-          "Mosaic.FloatingWindows.Contracts": "[0.9.1, )"
+          "Mosaic.Contracts": "[0.10.0, )",
+          "Mosaic.FloatingWindows.Contracts": "[0.10.0, )"
         }
       },
       "mosaic.presentation.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.1, )",
-          "Mosaic.FloatingWindows.Contracts": "[0.9.1, )"
+          "Mosaic.Contracts": "[0.10.0, )",
+          "Mosaic.FloatingWindows.Contracts": "[0.10.0, )"
         }
       },
       "mosaic.presentation.wpf": {
@@ -39,7 +39,7 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.9.1, )"
+          "Mosaic.Contracts": "[0.10.0, )"
         }
       }
     },

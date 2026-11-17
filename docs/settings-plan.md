@@ -734,3 +734,11 @@ settings-core 继续负责按 `ModuleId` 路由；settings-ui 不接触来源实
 状态：0.9.0 已实施；当前共 96 项设置。`floating.dragBandHeight`（12，8–20 DIP）、`floating.cardPadding`（8，4–16 DIP）、`floating.contentGap`（4，0–12 DIP）由 FloatingSettings 唯一注册，支持可逆即时预览。
 
 命中带复用已有顶部空间，不新增等高空白行；工具与任务内容共排。预览改变不覆盖用户窗口尺寸，放弃还原；旧用户缺少值时采用默认，无窗口表迁移。命中规则、布局、验证与位置见 [拖动及密度优化](floating-drag-region-plan.md)。
+
+## 17. 后续规划：速览完成切换与筛选
+
+状态：2026-11-17，0.10.0 已实施。当前完整配置 98 项（16 普通/82 高级），新增两项属于 Presence。
+
+已新增 Presence 普通定义 `desktop.popup.completionToggle`（true）和 `desktop.popup.filterSwitch`（true），归“驻留与边缘”，均为 Immediate + Reversible 展示开关；总数增至 98 项（16 普通/82 高级）。`desktop.popup.filter` 保持为弹窗初始筛选，不是面板内临时筛选。
+
+完成切换只通过 Tasks 公开 API 提交；筛选是速览会话内状态。选项通过扩展 `CompanionViewOptions` 传给 Tasks UI，禁用 Presence 后开关定义消失。行为、拖动覆盖、无障碍与验收见 [速览完成切换与筛选计划](peek-completion-filter-plan.md)。
