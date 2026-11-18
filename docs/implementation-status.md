@@ -7,6 +7,7 @@
 - 兼容与迁移：旧工作空间缺少 `tasks.floating.allowNotesEditing` 时由 Settings 合并默认值 `false`。保存开关后使用原用户设置存储，沿用已有任务和浮窗记录。普通设置增至 17 项，高级设置 82 项，共 99 项。WPF 回归覆盖缺键、预览放弃、持久化重启、草稿冲突与关闭失败。发布版 Smoke 使用旧设置缺键的 SQLite 工作空间验证只读、原窗口恢复和启用后更新备注。
 - 验证：锁定还原和 Release 构建通过，0 警告、0 错误。非桌面测试 180 项通过，发布版桌面 Smoke 3 项通过，覆盖旧工作空间恢复、备注保存、标题栏按钮短按与真实指针拖动。干净环境 MSI 安装与升级、不同 DPI、多屏、高对比度和输入法矩阵待验收。
 - 产物：`artifacts/local-run/Mosaic.Desktop.exe` 与 `artifacts/installer/Mosaic-0.12.0-win-x64.msi`。安装包 51,966,084 字节，`ProductVersion=0.12.0`，沿用原 `UpgradeCode`，WiX 构建和快捷方式检查通过。因本机使用 PowerShell 5.1，以等效路径和哈希 API 执行打包。发布清单和历史版本指纹校验通过，MSI 的 SHA-256 为 `FD544B599AABFFE165B12AB2CCD08905D7F4BD7FFEDF61FCFDB800F034C8233A`，校验文件为 `artifacts/installer/SHA256SUMS-0.12.0.txt`。
+- 已核对 GitHub 上 MSI 和校验文件的字节数与 SHA-256。发布时 README 第 13 行仍指向上一版 MSI，已改为 v0.12.0 安装包直链。[GitHub Release v0.12.0](https://github.com/soehi/Mosaic/releases/tag/v0.12.0) · [README.md](../README.md)
 
 ## 0.11.0：小窗落点预览与标题栏按钮拖动（2026-11-18）
 

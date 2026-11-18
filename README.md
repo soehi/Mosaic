@@ -10,7 +10,7 @@
 
 当前本地开发版本为 0.12.0。浮窗正文与操作按钮采用无描边样式。开启“允许编辑浮窗详细内容”后，可在浮窗编辑和保存任务备注。浮窗关闭及应用退出时会确认未保存的草稿。实际验证范围见[实施记录](docs/implementation-status.md)。
 
-Windows 安装包：[下载 Mosaic 0.11.0](https://github.com/soehi/Mosaic/releases/download/v0.11.0/Mosaic-0.11.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.12.0](https://github.com/soehi/Mosaic/releases/download/v0.12.0/Mosaic-0.12.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 
