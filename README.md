@@ -10,7 +10,7 @@
 
 当前本地开发版本：0.11.0。已实现模块化 WPF、SQLite 任务与设置、跨分区设置持续预览、宿主与用户设置提交日志，以及关闭主窗口后驻留、边缘任务速览、独立悬浮任务窗和恢复草稿。0.9.1 完成安装器桌面快捷方式。实际验证范围见实施记录。
 
-Windows 安装包：[下载 Mosaic 0.9.1](https://github.com/soehi/Mosaic/releases/download/v0.9.1/Mosaic-0.9.1-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.11.0](https://github.com/soehi/Mosaic/releases/download/v0.11.0/Mosaic-0.11.0-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 
