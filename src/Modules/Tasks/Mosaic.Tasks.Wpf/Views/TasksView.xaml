@@ -96,6 +96,7 @@
                         <ComboBoxItem Content="{DynamicResource Tasks.FilterAll}"/>
                         <ComboBoxItem Content="{DynamicResource Tasks.FilterOpen}"/>
                         <ComboBoxItem Content="{DynamicResource Tasks.FilterCompleted}"/>
+                        <ComboBoxItem Content="{DynamicResource Tasks.Archived}"/>
                     </ComboBox>
                     <Button Grid.Column="2"
                             Content="{DynamicResource Tasks.Refresh}"

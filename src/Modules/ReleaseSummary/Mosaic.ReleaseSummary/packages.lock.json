@@ -8,15 +8,16 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.2, )"
+          "Mosaic.Contracts": "[0.13.0, )"
         }
       },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.2, )"
+          "Mosaic.Contracts": "[0.13.0, )"
         }
       }
-    }
+    },
+    "net10.0/win-x64": {}
   }
 }

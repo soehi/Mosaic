@@ -27,7 +27,9 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
         if (Validate(request.Title, request.Notes) is { } error) return OperationResult<TaskItemDto>.Failure(error);
         var now = clock.GetUtcNow();
         var constraints = rules.Current;
-        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted || constraints.DefaultCompleted, now, now, constraints.RevisionStart);
+        var complete = request.IsCompleted || constraints.DefaultCompleted;
+        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, complete, now, now, constraints.RevisionStart)
+        { CompletedAtUtc = complete ? now : null };
         var saved = await repository.InsertAsync(task, ct).ConfigureAwait(false);
         if(saved.IsSuccess) changed(new(task.Id,task.Revision,TaskChangeKind.Created));
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(task) : OperationResult<TaskItemDto>.Failure(saved.Error!);
@@ -49,7 +51,8 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
                 : OperationResult<TaskCreateOnceResult>.Failure(CreateOnceConflict());
         if (Validate(request.Title, request.Notes) is { } error) return OperationResult<TaskCreateOnceResult>.Failure(error);
         var now = clock.GetUtcNow();
-        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted, now, now, rules.Current.RevisionStart);
+        var task = new TaskItemDto(ids.NewId(), request.Title.Trim(), request.Notes, request.IsCompleted, now, now, rules.Current.RevisionStart)
+        { CompletedAtUtc = request.IsCompleted ? now : null };
         var once = await repository.InsertOnceAsync(request.SourceId, request.RequestKey, fingerprint, task, ct).ConfigureAwait(false);
         if(once.IsSuccess && once.Value.Disposition==TaskCreateOnceDisposition.Created) changed(new(task.Id,task.Revision,TaskChangeKind.Created));
         return once;
@@ -80,17 +83,35 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
     internal async Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken ct)
     {
         if (Validate(request.Title, request.Notes) is { } error) return OperationResult<TaskItemDto>.Failure(error);
-        return await ChangeAsync(request.Id, request.ExpectedRevision, t => t with { Title = request.Title.Trim(), Notes = request.Notes }, ct).ConfigureAwait(false);
+        return await ChangeAsync(request.Id, request.ExpectedRevision, (task, _) => task with { Title = request.Title.Trim(), Notes = request.Notes }, ct).ConfigureAwait(false);
     }
     internal Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken ct) =>
-        ChangeAsync(request.Id, request.ExpectedRevision, t => t with { IsCompleted = request.IsCompleted }, ct);
+        ChangeAsync(request.Id, request.ExpectedRevision, (task, now) => task.IsCompleted == request.IsCompleted ? task : task with
+        {
+            IsCompleted = request.IsCompleted,
+            CompletedAtUtc = request.IsCompleted ? now : null,
+            RestoredAtUtc = null
+        }, ct);
 
-    private async Task<OperationResult<TaskItemDto>> ChangeAsync(Guid id, long revision, Func<TaskItemDto, TaskItemDto> change, CancellationToken ct)
+    internal Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken ct) =>
+        ChangeAsync(request.Id, request.ExpectedRevision, (task, now) => task.IsArchived == request.IsArchived ? task : task with
+        {
+            ArchivedAtUtc = request.IsArchived ? now : null,
+            RestoredAtUtc = request.IsArchived ? task.RestoredAtUtc : now
+        }, ct, allowArchived: true, skipUnchanged: true);
+
+    private async Task<OperationResult<TaskItemDto>> ChangeAsync(Guid id, long revision,
+        Func<TaskItemDto, DateTimeOffset, TaskItemDto> change, CancellationToken ct, bool allowArchived = false, bool skipUnchanged = false)
     {
         var found = await repository.FindAsync(id, ct).ConfigureAwait(false);
         if (!found.IsSuccess) return OperationResult<TaskItemDto>.Failure(found.Error!);
         if (found.Value is not { } current || current.Revision != revision) return OperationResult<TaskItemDto>.Failure(Conflict());
-        var updated = change(current) with { Revision = checked(current.Revision + 1), UpdatedAtUtc = clock.GetUtcNow() };
+        if (current.IsArchived && !allowArchived)
+            return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.Conflict, "请先恢复已归档的任务。", MessageKey: "Tasks.Error.Archived"));
+        var now = clock.GetUtcNow();
+        var next = change(current, now);
+        if (skipUnchanged && next == current) return OperationResult<TaskItemDto>.Success(current);
+        var updated = next with { Revision = checked(current.Revision + 1), UpdatedAtUtc = now };
         var saved = await repository.ReplaceAsync(updated, revision, ct).ConfigureAwait(false);
         if(saved.IsSuccess) changed(new(updated.Id,updated.Revision,TaskChangeKind.Updated));
         return saved.IsSuccess ? OperationResult<TaskItemDto>.Success(updated) : OperationResult<TaskItemDto>.Failure(saved.Error!);

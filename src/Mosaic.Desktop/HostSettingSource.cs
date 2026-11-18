@@ -22,9 +22,15 @@ internal sealed class HostSettingSource : IHostSettingSource
     private string BackupPath => _paths.ConfigPath + ".bak";
     private static readonly IReadOnlyList<SettingDefinition> HostDefinitions = HostSettingsCatalog.Create();
 
+    private readonly IWindowsStartupRegistration _startup;
+
     internal HostSettingSource(AppPaths paths, AppConfiguration configuration)
+        : this(paths, configuration, new WindowsStartupRegistration()) { }
+
+    internal HostSettingSource(AppPaths paths, AppConfiguration configuration, IWindowsStartupRegistration startup)
     {
         _paths = paths;
+        _startup = startup;
         _commitJournal = new FileSettingsCommitJournal(paths);
         _runtimeOverrides = BuildEffectiveValues(configuration);
     }
@@ -63,6 +69,8 @@ internal sealed class HostSettingSource : IHostSettingSource
                 && Convert.ToDouble(size) < Convert.ToDouble(minimum))
                 return Task.FromResult(OperationResult.Failure(new(ErrorCodes.ValidationFailed, "启动尺寸不得小于窗口最小尺寸。", sizeId)));
         }
+        var startup = ValidateStartup(effectiveValues);
+        if (!startup.IsSuccess) return Task.FromResult(startup);
         return Task.FromResult(HostConfigurationValidator.Validate(modules, providers));
     }
 
@@ -107,6 +115,19 @@ internal sealed class HostSettingSource : IHostSettingSource
                 TryDeleteTemporary(temporaryPath);
                 return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "宿主配置保存失败：" + exception.Message));
             }
+            OperationResult startupResult = OperationResult.Success();
+            if (values.ContainsKey("startup.runAtLogon"))
+            {
+                try { _startup.SetEnabled(_paths, _runtimeOverrides.TryGetValue("startup.runAtLogon", out var run) && run.ValueKind == JsonValueKind.True); }
+                catch (Exception exception)
+                {
+                    try { File.Replace(BackupPath, _paths.ConfigPath, null); } catch { }
+                    _runtimeOverrides.Clear();
+                    foreach (var (id, value) in previousOverrides) _runtimeOverrides[id] = value;
+                    _rollbackOverrides = null;
+                    return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "启动项注册失败：" + exception.Message, "startup.runAtLogon"));
+                }
+            }
             return OperationResult.Success();
         }
         finally
@@ -115,6 +136,13 @@ internal sealed class HostSettingSource : IHostSettingSource
         }
     }
 
+    private OperationResult ValidateStartup(IReadOnlyDictionary<string, object?> effectiveValues) =>
+        effectiveValues.TryGetValue("startup.runAtLogon", out var value) && value is bool
+            ? OperationResult.Success()
+            : effectiveValues.ContainsKey("startup.runAtLogon")
+                ? OperationResult.Failure(new(ErrorCodes.ValidationFailed, "开机自启必须是开关值。", "startup.runAtLogon"))
+                : OperationResult.Success();
+
     public async Task<OperationResult> RollbackAsync(CancellationToken cancellationToken = default)
     {
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -122,11 +150,19 @@ internal sealed class HostSettingSource : IHostSettingSource
         {
             if (!File.Exists(BackupPath)) return OperationResult.Success();
             File.Replace(BackupPath, _paths.ConfigPath, null);
-            if (_rollbackOverrides is not null)
+            if (_rollbackOverrides is { } rollback)
             {
                 _runtimeOverrides.Clear();
-                foreach (var (id, value) in _rollbackOverrides) _runtimeOverrides[id] = value;
+                foreach (var (id, value) in rollback) _runtimeOverrides[id] = value;
                 _rollbackOverrides = null;
+                if (rollback.ContainsKey("startup.runAtLogon"))
+                {
+                    try { _startup.SetEnabled(_paths, _runtimeOverrides.TryGetValue("startup.runAtLogon", out var run) && run.ValueKind == JsonValueKind.True); }
+                    catch (Exception exception)
+                    {
+                        return OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "启动项回滚失败：" + exception.Message));
+                    }
+                }
             }
             return OperationResult.Success();
         }
@@ -146,8 +182,18 @@ internal sealed class HostSettingSource : IHostSettingSource
         catch { /* A leftover temporary file must not mask the original failure. */ }
     }
 
-    public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
+    public async Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
+    {
+        if (values.TryGetValue("startup.runAtLogon", out var value) && value is bool enabled)
+        {
+            try { _startup.SetEnabled(_paths, enabled); }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("启动项注册失败：" + exception.Message, exception);
+            }
+        }
+        await Task.CompletedTask.ConfigureAwait(false);
+    }
 
     private JsonObject ReadJson()
     {

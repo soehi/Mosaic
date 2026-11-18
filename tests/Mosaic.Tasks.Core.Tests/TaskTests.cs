@@ -69,6 +69,43 @@ public sealed class TaskTests
         Assert.Equal("第一项", created.Title);
     }
     [Fact]
+    public async Task Archived_tasks_keep_their_data_and_receipts_but_leave_active_queries()
+    {
+        await using var module = await Start(new());
+        var request = new CreateTaskOnceRequest("test", "archive", "task", "notes", true);
+        var receipt = (await module.CreateOnceApi.CreateOnceAsync(request)).Value;
+        var original = (await module.Api.GetAsync(receipt.TaskId)).Value;
+        var archived = (await module.Api.SetArchivedAsync(new(original.Id, true, original.Revision))).Value;
+        Assert.True(archived.IsArchived);
+        Assert.NotNull(archived.CompletedAtUtc);
+        Assert.Empty((await module.Api.ListAsync(new(TaskFilter.Completed))).Value);
+        Assert.Equal(archived, Assert.Single((await module.Api.ListAsync(new(TaskFilter.Completed) { ArchiveScope = TaskArchiveScope.Archived })).Value));
+        Assert.True((await module.CreateOnceApi.CreateOnceAsync(request)).Value.TaskExists);
+        Assert.False((await module.Api.UpdateAsync(new(archived.Id, "changed", "", archived.Revision))).IsSuccess);
+        Assert.Equal(ErrorCodes.Conflict, (await module.Api.SetArchivedAsync(new(archived.Id, false, original.Revision))).Error?.Code);
+        var restored = (await module.Api.SetArchivedAsync(new(archived.Id, false, archived.Revision))).Value;
+        Assert.False(restored.IsArchived);
+        Assert.NotNull(restored.RestoredAtUtc);
+        Assert.Equal(original.Notes, restored.Notes);
+        Assert.Equal(restored, Assert.Single((await module.Api.ListAsync(new())).Value));
+    }
+    [Fact]
+    public async Task Completing_records_time_and_reopening_clears_it()
+    {
+        await using var module = await Start(new());
+        var created = (await module.Api.CreateAsync(new("计时", ""))).Value;
+        Assert.Null(created.CompletedAtUtc);
+        var done = (await module.Api.SetCompletedAsync(new(created.Id, true, created.Revision))).Value;
+        Assert.NotNull(done.CompletedAtUtc);
+        var updated = (await module.Api.UpdateAsync(new(done.Id, "计时", "仅编辑", done.Revision))).Value;
+        Assert.Equal(done.CompletedAtUtc, updated.CompletedAtUtc);
+        var reopened = (await module.Api.SetCompletedAsync(new(updated.Id, false, updated.Revision))).Value;
+        Assert.Null(reopened.CompletedAtUtc);
+        var redone = (await module.Api.SetCompletedAsync(new(reopened.Id, true, reopened.Revision))).Value;
+        Assert.True(redone.CompletedAtUtc >= done.CompletedAtUtc);
+    }
+
+    [Fact]
     public async Task Unicode_limits_count_code_points()
     {
         await using var module = await Start(new());

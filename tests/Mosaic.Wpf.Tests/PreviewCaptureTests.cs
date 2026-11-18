@@ -268,6 +268,7 @@ public sealed class PreviewCaptureTests
             Task.FromResult(OperationResult<TaskItemDto>.Success(First with { Title = request.Title, Notes = request.Notes }));
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<TaskItemDto>.Success((request.Id == First.Id ? First : Second) with { IsCompleted = request.IsCompleted }));
+        public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult.Success());
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>

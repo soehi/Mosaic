@@ -123,8 +123,10 @@ Mosaic.Tasks.Contracts.DeleteTaskRequest
 Mosaic.Tasks.Contracts.ITaskChangeSource
 Mosaic.Tasks.Contracts.ITaskCreateOnceApi
 Mosaic.Tasks.Contracts.ITasksApi
+Mosaic.Tasks.Contracts.SetTaskArchivedRequest
 Mosaic.Tasks.Contracts.SetTaskCompletedRequest
 Mosaic.Tasks.Contracts.TaskChange
+Mosaic.Tasks.Contracts.TaskArchiveScope
 Mosaic.Tasks.Contracts.TaskChangeKind
 Mosaic.Tasks.Contracts.TaskConstraints
 Mosaic.Tasks.Contracts.TaskConstraintsDto

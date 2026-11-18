@@ -8,16 +8,17 @@
       "mosaic.floatingwindows.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.2, )"
+          "Mosaic.Contracts": "[0.13.0, )"
         }
       },
       "mosaic.floatingwindows.persistence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.2, )",
-          "Mosaic.FloatingWindows.Contracts": "[0.12.2, )"
+          "Mosaic.Contracts": "[0.13.0, )",
+          "Mosaic.FloatingWindows.Contracts": "[0.13.0, )"
         }
       }
-    }
+    },
+    "net10.0/win-x64": {}
   }
 }

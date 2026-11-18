@@ -33,6 +33,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private string _message = "";
     private string _error = "";
     private bool _conflict;
+    private TaskItemDto? _archivedVersion;
     private bool _showCharacterCount = true;
     private bool _confirmDelete = true;
     private bool _confirmUnsaved = true;
@@ -74,8 +75,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
         BackToListCommand = new AsyncRelayCommand(BackToListAsync, () => !IsBusy && IsEditorOpen);
-        SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty);
-        ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => !IsBusy && Editor.HasTask);
+        SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty && !IsArchived);
+        ToggleCommand = new AsyncRelayCommand(ToggleAsync, () => !IsBusy && Editor.HasTask && !IsArchived);
+        ArchiveCommand = new AsyncRelayCommand(ArchiveAsync, () => !IsBusy && Editor.HasTask);
         DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => !IsBusy && Editor.HasTask);
         ReloadCommand = new AsyncRelayCommand(ReloadAsync, () => !IsBusy && Editor.HasTask);
         Editor.PropertyChanged += OnEditorPropertyChanged;
@@ -92,6 +94,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand BackToListCommand { get; }
     public IAsyncRelayCommand SaveCommand { get; }
     public IAsyncRelayCommand ToggleCommand { get; }
+    public IAsyncRelayCommand ArchiveCommand { get; }
+    public bool IsArchived => Editor.Current?.IsArchived == true || (_archivedVersion is { } archived && archived.Id == Editor.Current?.Id);
+    public string ArchiveLabel => IsArchived ? TaskLocalization.Localize("Tasks.Unarchive", "恢复任务") : TaskLocalization.Localize("Tasks.Archive", "归档");
     public IAsyncRelayCommand DeleteCommand { get; }
     public IAsyncRelayCommand ReloadCommand { get; }
 
@@ -178,12 +183,13 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         1 => TaskLocalization.Format("Tasks.Count.Open", "{0} 项未完成", Items.Count),
         2 => TaskLocalization.Format("Tasks.Count.Completed", "{0} 项已完成", Items.Count),
+        3 => TaskLocalization.Format("Tasks.Count.Archived", "{0} 项已归档", Items.Count),
         _ => Items.Count == 1
             ? TaskLocalization.Localize("Tasks.Count.All.One", "1 项任务")
             : TaskLocalization.Format("Tasks.Count.All", "{0} 项任务", Items.Count)
     };
-    public string EmptyTitle => FilterIndex switch { 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
-    public string EmptyDescription => FilterIndex switch { 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
+    public string EmptyTitle => FilterIndex switch { 3 => TaskLocalization.Localize("Tasks.Empty.Archived", "没有归档任务"), 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
+    public string EmptyDescription => FilterIndex switch { 3 => TaskLocalization.Localize("Tasks.Empty.Archived.Description", "归档的任务会显示在这里。"), 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
     public string ListError
     {
         get => _listError;
@@ -244,7 +250,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IsLoading = true;
         try
         {
-            var result = await _api.ListAsync(new((TaskFilter)FilterIndex, _sortOrder), query.Token);
+            var archived = FilterIndex == 3;
+            var result = await _api.ListAsync(new(archived ? TaskFilter.All : (TaskFilter)FilterIndex, _sortOrder)
+            { ArchiveScope = archived ? TaskArchiveScope.Archived : TaskArchiveScope.Active }, query.Token);
             await _dispatcher.InvokeAsync(() =>
             {
                 if (_disposed || version != _queryVersion) return;
@@ -352,7 +360,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private async Task<bool> SaveAsync()
     {
-        if (IsBusy || _disposed) return false;
+        if (IsBusy || _disposed || IsArchived) return false;
         if (!Editor.IsDirty) return true;
         ClearFeedback();
         if (!Editor.Validate()) return false;
@@ -421,9 +429,61 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         }
     }
 
+    private TaskItemDto? CurrentArchiveVersion => _archivedVersion is { } archived && archived.Id == Editor.Current?.Id
+        ? archived : Editor.Current;
+
+    private async Task ArchiveAsync()
+    {
+        if (CurrentArchiveVersion is not { } current) return;
+        if (!current.IsArchived && Editor.IsDirty)
+        {
+            var choice = await _dialogs.AskUnsavedChangesAsync();
+            if (choice == UnsavedChoice.Cancel || (choice == UnsavedChoice.Save && !await SaveAsync())) return;
+            current = CurrentArchiveVersion ?? current;
+            if (current.IsArchived) return;
+        }
+        EnterBusy(TasksFeedbackKind.Updating);
+        ClearFeedback();
+        try
+        {
+            var result = await _api.SetArchivedAsync(new(current.Id, !current.IsArchived, current.Revision), _lifetime.Token);
+            if (!result.IsSuccess) { ShowError(result.Error!); return; }
+            _archivedVersion = null;
+            if (current.IsArchived && Editor.IsDirty && Editor.Current is { } baseline)
+            {
+                var title = Editor.Title;
+                var notes = Editor.Notes;
+                SetFilter(0, load: false);
+                if (baseline.Title == result.Value.Title && baseline.Notes == result.Value.Notes)
+                {
+                    Editor.Load(result.Value);
+                    Editor.Title = title;
+                    Editor.Notes = notes;
+                }
+                else
+                {
+                    ShowError(new(ErrorCodes.Conflict, "任务内容已更改。请先复制草稿，再重新加载。", MessageKey: "Tasks.Error.Conflict"));
+                }
+            }
+            else
+            {
+                Editor.Load(null);
+                SetSelectedItem(null);
+                IsEditorOpen = false;
+            }
+            ShowMessage(result.Value.IsArchived
+                ? TaskLocalization.Localize("Tasks.Archive.Success", "任务已归档。")
+                : TaskLocalization.Localize("Tasks.Unarchive.Success", "任务已恢复到活跃列表。"));
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { SetError(TasksFeedbackKind.ToggleFailed, null, Report(ex)); }
+        finally { ExitBusy(); }
+    }
+
     private async Task DeleteAsync()
     {
-        if (Editor.Current is not { } current || (_confirmDelete && !await _dialogs.ConfirmDeleteAsync(current.Title))) return;
+        if (CurrentArchiveVersion is not { } current || ((_confirmDelete || current.IsArchived) && !await _dialogs.ConfirmDeleteAsync(current.Title))) return;
         EnterBusy(TasksFeedbackKind.Deleting);
         ClearFeedback();
         try
@@ -553,7 +613,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private void SetFilter(int value, bool load)
     {
-        if (value is not (>= 0 and <= 2) || !SetProperty(ref _filter, value, nameof(FilterIndex))) return;
+        if (value is not (>= 0 and <= 3) || !SetProperty(ref _filter, value, nameof(FilterIndex))) return;
         if (!Editor.IsDirty)
         {
             Editor.Load(null);
@@ -680,6 +740,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         BackToListCommand.NotifyCanExecuteChanged();
         SaveCommand.NotifyCanExecuteChanged();
         ToggleCommand.NotifyCanExecuteChanged();
+        ArchiveCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(IsArchived));
+        OnPropertyChanged(nameof(ArchiveLabel));
         DeleteCommand.NotifyCanExecuteChanged();
         ReloadCommand.NotifyCanExecuteChanged();
     }
@@ -923,12 +986,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             if(IsBusy)await _idle.Task;
             if(_disposed)return;
             await LoadAsync();
-            if(Editor.Current is {} current && !Editor.IsDirty)
+            if (Editor.Current is { } current)
             {
                 var result=await _api.GetAsync(current.Id,_lifetime.Token);
-                if(_disposed || Editor.IsDirty || Editor.Current?.Id!=current.Id)return;
-                if(result.IsSuccess && result.Value.Revision>=Editor.Current.Revision)Editor.Load(result.Value);
-                else if(result.Error?.Code==ErrorCodes.NotFound)Editor.Load(null);
+                if (_disposed || Editor.Current?.Id != current.Id) continue;
+                if (result.IsSuccess && result.Value.Revision >= Math.Max(Editor.Current.Revision, _archivedVersion?.Id == current.Id ? _archivedVersion.Revision : 0))
+                {
+                    _archivedVersion = result.Value.IsArchived && Editor.IsDirty ? result.Value : null;
+                    if (!Editor.IsDirty) Editor.Load(result.Value);
+                    NotifyCommands();
+                }
+                else if (result.Error?.Code == ErrorCodes.NotFound && !Editor.IsDirty) Editor.Load(null);
             }
             }
         }

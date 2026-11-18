@@ -218,7 +218,9 @@ internal sealed partial class SettingsService(ISettingRepository repository, IHo
         var warnings = new Dictionary<string, OperationError>(StringComparer.Ordinal);
         foreach (var moduleId in moduleIds)
         {
-            var source = Sources.FirstOrDefault(item => item.ModuleId == moduleId);
+            var source = moduleId == hostSource?.ModuleId
+                ? hostSource
+                : Sources.FirstOrDefault(item => item.ModuleId == moduleId);
             if (source is null) continue;
             try
             {

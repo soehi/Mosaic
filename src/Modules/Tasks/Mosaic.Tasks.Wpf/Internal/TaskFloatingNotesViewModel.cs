@@ -16,7 +16,8 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
     internal bool IsDirty => _baseline is not null && Draft != _baseline.Notes;
     internal bool IsMissing { get; private set; }
     internal bool HasConflict { get; private set; }
-    internal bool CanEdit => IsEditing && Allowed && !IsMissing && !Reserved && !IsSaving;
+    internal bool IsArchived => Current?.IsArchived == true;
+    internal bool CanEdit => !IsArchived && IsEditing && Allowed && !IsMissing && !Reserved && !IsSaving;
     internal string? Error { get; private set; }
     internal event Action? Changed;
 
@@ -43,7 +44,7 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
 
     internal void Begin()
     {
-        if (!Allowed || Reserved || IsEditing || Current is not { } current) return;
+        if (!Allowed || IsArchived || Reserved || IsEditing || Current is not { } current) return;
         _baseline = current;
         Draft = current.Notes;
         Changed?.Invoke();
@@ -68,7 +69,7 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
 
     internal async Task<OperationResult> SaveAsync(bool closing = false)
     {
-        if (_baseline is not { } baseline || !Allowed || IsMissing || IsSaving || (Reserved && !closing))
+        if (_baseline is not { } baseline || !Allowed || IsArchived || IsMissing || IsSaving || (Reserved && !closing))
             return Canceled();
         if (!IsDirty) { Discard(); return OperationResult.Success(); }
         if (HasConflict) return Failed(new(ErrorCodes.Conflict, Text("Conflict", "任务已在其他位置更改。可复制草稿，或重新读取已保存内容。")));
@@ -104,10 +105,11 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
     {
         ct.ThrowIfCancellationRequested();
         if (!IsDirty) return OperationResult.Success();
-        if (!Allowed || IsMissing)
+        if (!Allowed || IsMissing || IsArchived)
         {
             var discard = await dependencies.Dialogs.ConfirmAsync(Text("DiscardTitle", "放弃未保存的备注？"),
                 IsMissing ? Text("DiscardMissing", "原任务已删除。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。")
+                    : IsArchived ? TaskLocalization.Localize("Tasks.Archived.DiscardDraft", "任务已归档。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。")
                     : Text("DiscardDisabled", "浮窗编辑已关闭。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。"));
             ct.ThrowIfCancellationRequested();
             return discard ? OperationResult.Success() : Canceled();

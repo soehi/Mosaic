@@ -1,3 +1,4 @@
+using System.Globalization;
 using Mosaic.Contracts;
 using Mosaic.Storage.Sqlite;
 using Mosaic.Tasks.Contracts;
@@ -134,6 +135,50 @@ public sealed class CreateOnceRepositoryTests
             Assert.Equal("existing", Assert.Single((await adapter.Repository.QueryAsync(new())).Value).Title);
             Assert.Empty((await adapter.Repository.QueryCreationReceiptsAsync("source")).Value);
             Assert.NotEmpty(Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".backup-*"));
+        }
+        File.Delete(path);
+        foreach (var backup in Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".backup-*"))
+            File.Delete(backup);
+    }
+
+    [Fact]
+    public async Task Old_database_backfills_completed_time_and_stays_unarchived()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "Mosaic-tests", Guid.NewGuid() + ".sqlite");
+        var assembly = typeof(TasksSqliteModule).Assembly;
+        var migrations = await Task.WhenAll(new[] { "001_CreateTasks", "002_CreateTaskReceipts", "003_TaskArchiving" }
+            .Select(async name =>
+            {
+                using var stream = assembly.GetManifestResourceStream("Mosaic.Tasks.Sqlite.Migrations." + name + ".sql")!;
+                using var reader = new StreamReader(stream);
+                return await reader.ReadToEndAsync();
+            }));
+        await using (var storage = new SqliteModule(new(path), new Diagnostics()))
+        {
+            await storage.ActivateAsync();
+            Assert.True((await storage.Session.MigrateAsync("tasks-sqlite", [new(1, migrations[0])])).IsSuccess);
+            await storage.Session.ExecuteAsync(new(
+                """
+                INSERT INTO tasks(id,title,notes,completed,created_at,updated_at,revision) VALUES
+                ('00000000-0000-0000-0000-000000000001','done','',1,'2026-11-01T00:00:00.0000000+00:00','2026-11-08T12:00:00.0000000+00:00',3),
+                ('00000000-0000-0000-0000-000000000002','open','',0,'2026-11-01T00:00:00.0000000+00:00','2026-11-09T12:00:00.0000000+00:00',1)
+                """));
+            Assert.True((await storage.Session.MigrateAsync("tasks-sqlite",
+                [new(1, migrations[0]), new(2, migrations[1]), new(3, migrations[2])])).IsSuccess);
+            await using var adapter = new TasksSqliteModule(storage.Session);
+            await adapter.ActivateAsync();
+            var active = await adapter.Repository.QueryAsync(new());
+            Assert.Equal(2, active.Value.Count);
+            Assert.DoesNotContain(active.Value, task => task.IsArchived);
+            var archived = await adapter.Repository.QueryAsync(new() { ArchiveScope = Mosaic.Tasks.Contracts.TaskArchiveScope.Archived });
+            Assert.Empty(archived.Value);
+            var all = (await adapter.Repository.QueryAsync(new(Mosaic.Tasks.Contracts.TaskFilter.All) { ArchiveScope = Mosaic.Tasks.Contracts.TaskArchiveScope.All })).Value;
+            var done = Assert.Single(all, task => task.Title == "done");
+            Assert.False(done.IsArchived);
+            Assert.Equal(DateTimeOffset.ParseExact("2026-11-08T12:00:00.0000000+00:00", "O", CultureInfo.InvariantCulture), done.CompletedAtUtc);
+            Assert.Null(Assert.Single(all, task => task.Title == "open").CompletedAtUtc);
+            var candidates = await adapter.Repository.QueryArchiveCandidatesAsync(new DateTimeOffset(2026, 11, 9, 0, 0, 0, TimeSpan.Zero), 10);
+            Assert.Equal(done.Id, Assert.Single(candidates.Value).Id);
         }
         File.Delete(path);
         foreach (var backup in Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".backup-*"))

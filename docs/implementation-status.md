@@ -1,5 +1,12 @@
 # Mosaic：实施与验证记录
 
+## 0.13.0：任务归档、自动归档与登录自启（2026-11-18）
+
+- 根因位置：`TaskService.SetCompletedAsync` 只保存布尔完成状态，自动归档缺少完成时间基线；`SqliteTaskRepository` 没有归档时间、恢复时间和到期候选查询；`HostSettingSource.ApplyAsync` 为空操作，宿主设置保存后不会同步系统启动项。
+- 改动位置：`TaskItemDto` 增加 `CompletedAtUtc`、`ArchivedAtUtc`、`RestoredAtUtc`；`TaskQuery` 增加 `ArchiveScope`；`ITasksApi` 增加 `SetArchivedAsync`；`TaskService` 的完成切换记录完成时间，归档/恢复写入对应时间并拒绝归档后的普通编辑；`SqliteTaskRepository` 增加归档范围查询与到期候选查询，`TasksSqliteModule` 注册 `003_TaskArchiving`；`TasksModule` 接入 `TaskAutoArchive` 策略，`TaskSettingsSource` 增加自动归档开关与等待天数；`TasksViewModel` 增加归档筛选、归档/恢复命令和外部归档保护，`TaskEditorView` 对归档任务只读；`TaskFloatingNotesViewModel` 阻止归档任务进入编辑并保护草稿；`HostSettingsCatalog` 增加 `startup.runAtLogon`，`HostSettingSource` 在持久化、回滚和即时应用时同步 `WindowsStartupRegistration`；`SettingsService` 将宿主源纳入即时应用；`Package.wxs` 新增 `StartupCleanup` 组件在卸载时移除本工作区的登录启动项。逐文件清单见[改动清单](releases/v0.13.0-files.md)。
+- 迁移与兼容：`003_TaskArchiving.sql` 为旧 `tasks` 表补充三列，旧已完成任务以 `updated_at` 回填 `completed_at`，旧未完成时间为空，全部任务初始未归档；创建凭据与 Revision 语义不变。自动归档默认关闭、默认等待 7 天；开机自启默认关闭，启用后绑定当前工作区路径，不修改 Windows 任务管理器的系统级禁用状态。
+- 验证：核心与契约测试覆盖归档往返、草稿保护、旧库回填和默认未归档；`MemoryTaskRepository` 与 SQLite 查询行为一致；宿主设置测试覆盖启用、回滚和工作区绑定。Release 构建 0 警告、0 错误，非桌面回归 169/170 通过（1 项为发布清单未同步导致的失败，已修复并重跑通过）。桌面 Smoke 与真实 Windows 登录矩阵待验收。
+
 ## 0.12.2 应用内按钮反馈（2026-11-18）
 
 - 0.12.1 的 `Theme.xaml:64` 在鼠标点击留下键盘焦点时持续显示描边。`FloatingWindows.Wpf/Themes/Floating.xaml:36` 给已置顶的图钉持续填色，第 44 行又给获得焦点的按钮填色。`Tasks.Wpf/Themes/Floating.xaml:10` 的焦点与按压共用底色。速览 `TaskPeekView.xaml:45` 和设置 `SettingsView.xaml:44` 也以输入焦点直接绘制边框。旧版回归复现了 `IsPressed` 和 `IsMouseOver` 均为 `false` 时置顶按钮仍有底色。

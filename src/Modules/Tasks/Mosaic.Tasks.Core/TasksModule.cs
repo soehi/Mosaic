@@ -17,6 +17,7 @@ public sealed class TasksModule : IModuleActivation
 {
     private readonly IModuleExecutionGate _gate;
     private readonly TaskChangeSource _changes;
+    private readonly TaskAutoArchive _archive;
     private readonly TaskRules _rules = new();
     private readonly Mosaic.Settings.Contracts.ISettingsCore? _settings;
     private IDisposable? _settingsRegistration;
@@ -26,6 +27,7 @@ public sealed class TasksModule : IModuleActivation
         _settings = dependencies.Settings;
         _changes=new(dependencies.Diagnostics);
         var api = new GuardedTasksApi(new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish), _gate, dependencies.Diagnostics);
+        _archive = new(dependencies.Repository, api, dependencies.Clock, dependencies.Diagnostics);
         Api = api;
         CreateOnceApi = api;
     }
@@ -41,14 +43,17 @@ public sealed class TasksModule : IModuleActivation
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyDictionary<string, object?>? initial = null;
         if (_settings is not null)
         {
-            _settingsRegistration ??= _settings.Register(new TaskSettingsSource(_rules));
+            _settingsRegistration ??= _settings.Register(new TaskSettingsSource(_rules, _archive));
             var values = await _settings.GetValuesAsync(cancellationToken).ConfigureAwait(false);
             if (!values.IsSuccess) throw new InvalidOperationException("Task settings could not be loaded.", new Exception(values.Error?.Message));
             _rules.Apply(values.Value);
+            initial = values.Value;
         }
         _gate.Activate();
+        if (initial is not null) await _archive.ApplyAsync(initial).ConfigureAwait(false);
     }
     public async Task StopAsync()
     {
@@ -59,6 +64,7 @@ public sealed class TasksModule : IModuleActivation
         }
         _settingsRegistration?.Dispose();
         _settingsRegistration = null;
+        await _archive.SetDelayAsync(0).ConfigureAwait(false);
         await _gate.StopAsync().ConfigureAwait(false);
         _changes.Clear();
     }

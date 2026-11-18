@@ -89,13 +89,13 @@ internal sealed class TaskFloatingDetailsView : Grid
         _save.Content = Text("Save", "保存");
         _cancel.Content = model.HasConflict && !model.IsMissing ? Text("Reload", "重新读取") : Text("Cancel", "取消");
         _copy.Content = Text("Copy", "复制草稿");
-        _edit.Visibility = Visible(model.Allowed && !model.IsEditing && model.Current is not null);
+        _edit.Visibility = Visible(model.Allowed && !model.IsArchived && !model.IsEditing && model.Current is not null);
         _edit.IsEnabled = !model.Reserved && !completing;
         _save.Visibility = Visible(model.IsEditing && model.Allowed && !model.IsMissing);
         _save.IsEnabled = model.CanEdit && !completing && !model.HasConflict;
         _cancel.Visibility = Visible(model.IsEditing);
         _cancel.IsEnabled = !model.Reserved && !model.IsSaving && !completing;
-        _copy.Visibility = Visible(model.IsDirty && (model.HasConflict || model.IsMissing || !model.Allowed));
+        _copy.Visibility = Visible(model.IsDirty && (model.HasConflict || model.IsMissing || model.IsArchived || !model.Allowed));
     }
 
     private static Visibility Visible(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;

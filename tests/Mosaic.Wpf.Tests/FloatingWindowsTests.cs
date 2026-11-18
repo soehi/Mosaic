@@ -61,6 +61,7 @@ public sealed class FloatingWindowsTests
             Items[request.Id] = updated;
             return Task.FromResult(OperationResult<TaskItemDto>.Success(updated));
         }
+        public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request,CancellationToken cancellationToken=default)=>throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken=default)=>
             Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20000, true, false, 1)));

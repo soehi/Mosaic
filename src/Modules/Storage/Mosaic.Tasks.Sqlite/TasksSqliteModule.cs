@@ -19,7 +19,7 @@ public sealed class TasksSqliteModule(IDatabaseSession database) : IModuleActiva
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         var migrations = new List<MigrationDefinition>();
-        foreach (var (version, name) in new[] { (1, "001_CreateTasks"), (2, "002_CreateTaskReceipts") })
+        foreach (var (version, name) in new[] { (1, "001_CreateTasks"), (2, "002_CreateTaskReceipts"), (3, "003_TaskArchiving") })
         {
             using var stream = typeof(TasksSqliteModule).Assembly.GetManifestResourceStream($"Mosaic.Tasks.Sqlite.Migrations.{name}.sql")
                 ?? throw new InvalidOperationException("Missing embedded migration.");

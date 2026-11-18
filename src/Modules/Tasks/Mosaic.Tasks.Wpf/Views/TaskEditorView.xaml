@@ -115,7 +115,7 @@
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                     </Grid>
                     <TextBox Text="{Binding Editor.Title, UpdateSourceTrigger=PropertyChanged}"
-                             IsEnabled="{Binding CanEdit}"
+                             IsReadOnly="{Binding IsArchived}" IsEnabled="{Binding CanEdit}"
                              TextWrapping="Wrap"
                              AutomationProperties.AutomationId="TaskTitle"/>
                     <Grid Margin="0,5,0,0">
@@ -157,7 +157,7 @@
                     </Grid>
                     <TextBox x:Name="NotesTextBox"
                              Text="{Binding Editor.Notes, UpdateSourceTrigger=PropertyChanged}"
-                             IsEnabled="{Binding CanEdit}"
+                             IsReadOnly="{Binding IsArchived}" IsEnabled="{Binding CanEdit}"
                              MinHeight="{Binding NotesMinHeight}"
                              TextWrapping="Wrap"
                              AcceptsReturn="True"
@@ -240,6 +240,8 @@
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                     </Border>
 
+                    <TextBlock Text="{DynamicResource Tasks.Archived.ReadOnly}" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Visibility="{Binding IsArchived, Converter={StaticResource BoolVisibility}}"/>
                     <Button Content="{DynamicResource Tasks.Save}"
                             Command="{Binding SaveCommand}"
                             MinWidth="{Binding TaskButtonMinWidth}"
@@ -263,6 +265,11 @@
                         </TextBlock.Style>
                     </TextBlock>
 
+                    <Button Content="{Binding ArchiveLabel}" Command="{Binding ArchiveCommand}"
+                            Margin="0,9,0,0" MinHeight="{Binding TaskButtonMinHeight}"
+                            Visibility="{Binding Editor.HasTask, Converter={StaticResource BoolVisibility}}"
+                            Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                            AutomationProperties.AutomationId="ArchiveTask"/>
                     <Grid x:Name="EditorActionGrid"
                           Margin="0,9,0,0"
                           Visibility="{Binding Editor.HasTask, Converter={StaticResource BoolVisibility}}">

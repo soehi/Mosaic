@@ -84,15 +84,17 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     public event EventHandler? ModeRequested;
     public Task<OperationResult> InitializeAsync(CancellationToken cancellationToken=default)
     {
-        var query=LoadAsync(cancellationToken);Track(query);return query;
+        var query=LoadAsync(cancellationToken, opening: true);Track(query);return query;
     }
     private void Track(Task task)=>_pending=Task.WhenAll(_pending,task);
     private async Task ReloadAsync()=>await LoadAsync(_lifetime.Token);
-    private async Task<OperationResult> LoadAsync(CancellationToken ct)
+    private async Task<OperationResult> LoadAsync(CancellationToken ct, bool opening = false)
     {
         var generation=++_generation;
         using var linked=CancellationTokenSource.CreateLinkedTokenSource(ct,_lifetime.Token);
         var result=await _dependencies.Api.GetAsync(_id,linked.Token);
+        if (opening && result.IsSuccess && result.Value.IsArchived)
+            return OperationResult.Failure(new(ErrorCodes.NotFound, "任务已归档。", MessageKey: "Tasks.Error.Archived"));
         await _dependencies.Dispatcher.InvokeAsync(()=>
         {
             if(_closed || linked.IsCancellationRequested || generation!=_generation)return;
@@ -105,7 +107,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     }
     private async Task ToggleAsync()
     {
-        if(_closed || _busy || _notes.IsSaving || _notes.Reserved || Current is not {} current){Render();return;}
+        if(_closed || _busy || _notes.IsSaving || _notes.Reserved || Current is not { IsArchived: false } current){Render();return;}
         _busy=true;Render();
         try
         {
@@ -160,7 +162,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     private void RenderNotes()
     {
         _details.Render(_notes, _busy);
-        _state.IsEnabled = !_busy && !_notes.IsSaving && !_notes.Reserved && Current is not null;
+        _state.IsEnabled = !_busy && !_notes.IsSaving && !_notes.Reserved && Current is { IsArchived: false };
     }
 
     public bool HandleEscape()
@@ -191,7 +193,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     {
         _title.Text=Current?.Title??TaskLocalization.Localize("Tasks.Peek.Snapshot","任务内容");
         _title.ToolTip=_title.Text;
-        var status=TaskLocalization.Localize(Current?.IsCompleted==true?"Tasks.Peek.Completed":"Tasks.Peek.Open",Current?.IsCompleted==true?"已完成":"未完成");
+        var status = Current?.IsArchived == true ? TaskLocalization.Localize("Tasks.Archived", "已归档") : TaskLocalization.Localize(Current?.IsCompleted==true?"Tasks.Peek.Completed":"Tasks.Peek.Open",Current?.IsCompleted==true?"已完成":"未完成");
         var mark=new System.Windows.Shapes.Path {Data=Geometry.Parse(Current?.IsCompleted==true?"M 2,9 L 7,14 L 17,3":"M 18,9 A 8,8 0 1 1 2,9 A 8,8 0 1 1 18,9"),Width=18,Height=18,Stretch=Stretch.Uniform,StrokeThickness=1.7};
         mark.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty,MosaicTheme.AccentTextBrushKey);
         _status.Text=status+(_expanded?"  ▴":"  ▾");

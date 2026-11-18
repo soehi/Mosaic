@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><OutputType>WinExe</OutputType><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets/Mosaic.ico</ApplicationIcon><RuntimeIdentifiers>win-x64</RuntimeIdentifiers><PublishTrimmed>false</PublishTrimmed><RuntimeFrameworkVersion Condition="'$(SelfContained)' == 'true'">10.0.15</RuntimeFrameworkVersion></PropertyGroup>
+<ItemGroup><InternalsVisibleTo Include="Mosaic.Desktop.SmokeTests" /></ItemGroup>
 <ItemGroup>
 <ProjectReference Include="..\Mosaic.Contracts\Mosaic.Contracts.csproj" />
 <ProjectReference Include="..\Mosaic.Kernel\Mosaic.Kernel.csproj" />

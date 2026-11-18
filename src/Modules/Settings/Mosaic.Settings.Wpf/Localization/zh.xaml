@@ -260,4 +260,10 @@
     <sys:String x:Key="Setting.Value.Theme">跟随主题</sys:String>
     <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled">自动生成更新简要</sys:String>
     <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled.Description">下次启动为新发布版本生成一条更新简要任务</sys:String>
+    <sys:String x:Key="Settings.Setting.AutoArchive">自动归档</sys:String>
+    <sys:String x:Key="Settings.Setting.AutoArchive.Description">自动归档到期后仍未恢复的已完成任务</sys:String>
+    <sys:String x:Key="Settings.Setting.ArchiveDelay">自动归档等待天数</sys:String>
+    <sys:String x:Key="Settings.Setting.ArchiveDelay.Description">任务完成或恢复后等待多少天自动归档</sys:String>
+    <sys:String x:Key="Settings.Setting.RunAtLogon">登录后启动 Mosaic</sys:String>
+    <sys:String x:Key="Settings.Setting.RunAtLogon.Description">Windows 登录时使用当前工作区自动启动 Mosaic</sys:String>
 </ResourceDictionary>

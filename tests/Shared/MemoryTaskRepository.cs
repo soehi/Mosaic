@@ -25,6 +25,7 @@ internal sealed class MemoryTaskRepository : ITaskRepository
         {
             if (Failure is not null) return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Failure(Failure));
             var matches = _items.Values.Where(t => query.Filter == TaskFilter.All || t.IsCompleted == (query.Filter == TaskFilter.Completed));
+            matches = matches.Where(t => query.ArchiveScope == TaskArchiveScope.All || t.IsArchived == (query.ArchiveScope == TaskArchiveScope.Archived));
             var ordered = Ordering is not null
                 ? Ordering(matches)
                 : query.SortOrder switch
@@ -35,6 +36,18 @@ internal sealed class MemoryTaskRepository : ITaskRepository
                     _ => matches.OrderByDescending(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal)
                 };
             return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(Array.AsReadOnly(ordered.ToArray())));
+        }
+    }
+    public Task<OperationResult<IReadOnlyList<TaskItemDto>>> QueryArchiveCandidatesAsync(DateTimeOffset cutoffUtc, int limit, CancellationToken cancellationToken = default)
+    {
+        lock (_sync)
+        {
+            if (Failure is not null) return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Failure(Failure));
+            var items = _items.Values.Where(task => !task.IsArchived && task.IsCompleted && task.CompletedAtUtc <= cutoffUtc &&
+                (task.RestoredAtUtc is null || task.RestoredAtUtc <= cutoffUtc))
+                .OrderBy(task => task.RestoredAtUtc > task.CompletedAtUtc ? task.RestoredAtUtc : task.CompletedAtUtc)
+                .ThenBy(task => task.Id.ToString("D"), StringComparer.Ordinal).Take(limit).ToArray();
+            return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(items));
         }
     }
     public Task<OperationResult> ReplaceAsync(TaskItemDto task, long expectedRevision, CancellationToken cancellationToken = default)

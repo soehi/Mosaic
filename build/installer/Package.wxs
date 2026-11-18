@@ -18,6 +18,12 @@
         <RegistryValue Root="HKCU" Key="Software\Mosaic\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
-    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/><ComponentRef Id="DesktopShortcut"/></Feature>
+    <!-- 仅在完整卸载时清理本工作区写入的登录启动项；升级走 MajorUpgrade，安装中检测到旧版本时跳过清理。 -->
+    <Component Id="StartupCleanup" Guid="{7F1A2B93-3A11-4E6C-9A2B-2D1F0C7A6E55}" Directory="INSTALLFOLDER" Condition="NOT WIX_UPGRADE_DETECTED">
+      <RegistryValue Root="HKCU" Key="Software\Mosaic\Startup" Name="DataRoot" Type="string" Value="" KeyPath="yes" />
+      <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Mosaic" Id="RemoveStartupRun" />
+      <RemoveRegistryValue Root="HKCU" Key="Software\Mosaic\Startup" Name="DataRoot" Id="RemoveStartupOwnership" />
+    </Component>
+    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/><ComponentRef Id="DesktopShortcut"/><ComponentRef Id="StartupCleanup"/></Feature>
   </Package>
 </Wix>

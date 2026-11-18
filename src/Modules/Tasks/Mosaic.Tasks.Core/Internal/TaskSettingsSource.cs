@@ -2,12 +2,14 @@ using Mosaic.Settings.Contracts;
 
 namespace Mosaic.Tasks.Core.Internal;
 
-internal sealed class TaskSettingsSource(TaskRules rules) : ISettingSource
+internal sealed class TaskSettingsSource(TaskRules rules, TaskAutoArchive archive) : ISettingSource
 {
     public string ModuleId => "tasks-core";
 
     public IReadOnlyList<SettingDefinition> Definitions { get; } = Localize(
     [
+        new("tasks.archive.autoEnabled", "tasks-core", "自动归档", "自动归档到期的已完成任务", SettingValueKind.Boolean, false, null, null, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.None),
+        new("tasks.archive.delayDays", "tasks-core", "归档等待天数", "从完成或恢复到自动归档的天数", SettingValueKind.Integer, 7, 1, 365, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.None),
         new("tasks.sortOrder", "tasks-core", "任务排序", "任务列表默认排序方式", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "CreatedAsc", "TitleAsc", "TitleDesc"], SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.Reversible),
         new("tasks.title.maxCharacters", "tasks-core", "标题上限", "任务标题允许的最大字符数", SettingValueKind.Integer, 200, 1, 1000, null, SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings, "收紧后旧任务仍可读，编辑超限需截断"),
         new("tasks.notes.maxCharacters", "tasks-core", "备注上限", "任务备注允许的最大字符数", SettingValueKind.Integer, 20000, 1000, 200000, null, SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings, "过大会增加编辑与保存负担"),
@@ -28,6 +30,8 @@ internal sealed class TaskSettingsSource(TaskRules rules) : ISettingSource
 
     private static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
     {
+        ["tasks.archive.autoEnabled"] = "Settings.Setting.AutoArchive",
+        ["tasks.archive.delayDays"] = "Settings.Setting.ArchiveDelay",
         ["tasks.sortOrder"] = "Settings.Setting.SortOrder",
         ["tasks.title.maxCharacters"] = "Settings.Setting.TitleMax",
         ["tasks.notes.maxCharacters"] = "Settings.Setting.NotesMax",
@@ -42,6 +46,6 @@ internal sealed class TaskSettingsSource(TaskRules rules) : ISettingSource
     public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
         rules.Apply(values);
-        return Task.CompletedTask;
+        return archive.ApplyAsync(values);
     }
 }

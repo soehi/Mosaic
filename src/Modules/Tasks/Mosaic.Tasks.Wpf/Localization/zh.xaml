@@ -106,4 +106,15 @@
     <sys:String x:Key="Tasks.Floating.Notes.DiscardDisabled">浮窗编辑已关闭。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。</sys:String>
     <sys:String x:Key="Tasks.Floating.Notes.Canceled">已取消关闭或保存浮窗备注。</sys:String>
     <sys:String x:Key="Tasks.Floating.Notes.SaveFailed">无法保存备注，请重试。</sys:String>
+    <sys:String x:Key="Tasks.Archive">归档</sys:String>
+    <sys:String x:Key="Tasks.Unarchive">恢复任务</sys:String>
+    <sys:String x:Key="Tasks.Archived">已归档</sys:String>
+    <sys:String x:Key="Tasks.Archived.ReadOnly">任务已归档。恢复任务后可编辑或保存草稿。</sys:String>
+    <sys:String x:Key="Tasks.Archived.DiscardDraft">任务已归档。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。</sys:String>
+    <sys:String x:Key="Tasks.Archive.Success">任务已归档。</sys:String>
+    <sys:String x:Key="Tasks.Unarchive.Success">任务已恢复到活跃列表。</sys:String>
+    <sys:String x:Key="Tasks.Empty.Archived">没有归档任务</sys:String>
+    <sys:String x:Key="Tasks.Empty.Archived.Description">归档的任务会显示在这里。</sys:String>
+    <sys:String x:Key="Tasks.Count.Archived">{0} 项已归档</sys:String>
+    <sys:String x:Key="Tasks.Error.Archived">请先恢复已归档的任务。</sys:String>
 </ResourceDictionary>
