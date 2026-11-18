@@ -1,5 +1,13 @@
 # Mosaic：实施与验证记录
 
+## 0.11.0：小窗落点预览与标题栏按钮拖动（2026-11-18）
+
+- 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs`（0.10.2 基线 `FinishDrag`）只在松手后提交 `FloatingPlacementHint`，拖动过程中没有目标位置计算或预览输出；`FloatingSurface` 没有独立于窗口的放置预览；`FloatingWindowCoordinator.OpenCoreAsync` 存在历史记录时整条复用旧记录，落点被忽略；`FloatingWindowInput.HitTest` 对按钮返回 `HTCLIENT` 以保留点击，但没有 WPF 阈值拖动兜底，按住标题栏按钮拖动无效。真实指针复核还发现：`FloatingWindowInput.OnMouseMove` 首版用 `Window.DragMove()` 启动移动，而它发出的 `WM_SYSCOMMAND`/`SC_MOVE` 在按压起点为已捕获鼠标的子按钮时会被系统移动循环立即结束并回送 `WM_LBUTTONUP`，窗口不移动（跟踪记录：`WM_SYSCOMMAND 0x0112` 后 1 ms 内收到 `WM_LBUTTONUP 0x0202`）。
+- 改动位置：`FloatingContracts.cs`（`IFloatingWindowApi`/`IFloatingWindowSurface` 预览成员）、`FloatingPresentation.cs`（`IFloatingDetachSource` 预览申请）、`TaskDetachSource.cs`（转发）、`FloatingWindowCoordinator.cs`（预览转发；`OpenCoreAsync` 用落点覆盖旧 `MonitorId/X/Y`）、`FloatingSurface.cs`（幽灵窗、主题描边、点击穿透、`Freeze/Dispose` 清理）、`FloatingScreen.cs`（`Placement` 共享夹取）、`TaskPeekView.xaml.cs`（`PreviewRequested/PreviewMoved/PreviewEnded` 与 `PointToScreen` hint）、`TaskPeekViewFactory.cs`（接线与清理）、`FloatingWindowInput.cs`（`CanStartHeaderDrag`、阈值后 `ReleaseCapture` + `WM_NCLBUTTONDOWN`/`HTCAPTION` 复用系统标题栏移动循环、点击抑制）。测试：`FloatingTests.cs`、`FloatingWindowsTests.cs`、`PresenceTests.cs`、`FloatingDragTests.cs`（新增 `Floating_header_buttons_move_on_drag_and_still_click_on_short_press`）。
+- 模块边界：Tasks UI 只通过公开 `IFloatingDetachSource` 提交预览；Floating Windows 不取得任务 DTO；预览不写存储。无公开类型新增，`build/public-api.txt` 不变；无设置、数据库、配置或模块装配迁移，设置维持 98 项（16 普通/82 高级）。
+- 验证：Release 构建 0 警告/0 错误；非桌面自动化 177/177 通过（WPF 72/72）。新增 `artifacts/ui-preview/floating-placement-preview.png` 显示幽灵窗样式；真实指针 Smoke 通过：`Floating_header_buttons_move_on_drag_and_still_click_on_short_press`（从 `FloatingTaskState`/`FloatingTaskExpand` 拖动移动窗口、完成状态与紧凑高度不变、阈值内短按仍展开），`Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds` 连续 2 次通过（移动、缩放、按钮短按、重启恢复与关闭）。真实指针拖出速览、100–200% DPI、多屏与高对比度仍待独立桌面验收。
+- 兼容：窗口记录结构不变，旧记录按原字段读取；关闭后再拖出会使用新落点，尺寸/模式/置顶沿用旧记录。
+
 ## 0.10.2：速览整行拖出与筛选视觉（2026-11-18）
 
 - 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml:87`（0.10.1 基线）四个鼠标处理器只绑在详情 Button 上，完成按钮和两列间约 4 DIP 留白不属于可拖出元素；`TaskPeekView.xaml.cs:42–47`（`StartGesture`）只接受 `Button` 起点。`DragHintAdorner` 只显示跟随指针的文字，拖动时任务标签本身没有标记。筛选视觉位于 `TaskPeekView.xaml:51–58` 与 `:14–43`：摘要与筛选放在 `WrapPanel`，单选按钮使用透明底与临时边框，选中态和间距不统一。

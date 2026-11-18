@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.10.2",
+  "currentReleaseId": "mosaic-0.11.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -261,6 +261,21 @@
         "点击任务标签仍打开详情、点击完成按钮仍切换状态；拖出仍只通过公开分离来源申请，模块边界与设置不变。"
       ],
       "contentSha256": "0351151B10E7DC792B39DA5102BD556AF8C407CBE61495D0F433BB3AE676A69C"
+    },
+    {
+      "releaseId": "mosaic-0.11.0",
+      "version": "0.11.0",
+      "releasedOn": "2026-11-18",
+      "previousReleaseId": "mosaic-0.10.2",
+      "added": [
+        "拖出任务时显示小窗放置预览，虚线幽灵窗与最终创建位置共用坐标与夹取规则。",
+        "小窗标题栏的状态、展开与工具按钮支持按住拖动窗口；阈值内短按仍执行原操作。"
+      ],
+      "improved": [
+        "关闭后再拖出已打开过的任务时按本次落点放置，不再回到上次位置；尺寸、模式与置顶设置保留。"
+      ],
+      "fixed": [],
+      "contentSha256": "E8B0316636D3447B61D2E12C963A22CD7F838A63FAA37536B93AF92A9B914848"
     }
   ]
 }

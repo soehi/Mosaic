@@ -24,12 +24,15 @@ internal partial class TaskPeekView : UserControl
         if (sender is RadioButton { Tag: string tag } && FilterRequested is { } filter) await filter(Enum.Parse<Mosaic.Tasks.Contracts.TaskFilter>(tag));
     }
     internal Func<TaskPeekRow, FloatingPlacementHint?, CancellationToken, Task>? DetachRequested;
+    internal Action<TaskPeekRow, FloatingPlacementHint>? PreviewRequested;
+    internal Action<FloatingPlacementHint>? PreviewMoved;
+    internal Action? PreviewEnded;
     internal Func<bool>? CanDetach;
     internal event Action<bool>? DragChanged;
     private FrameworkElement? _candidate;
     private Point _start;
     private Point _grab;
-    private bool _dragging, _suppressClick;
+    private bool _dragging, _suppressClick, _previewing;
     private DragHintAdorner? _preview;
     private KeyEventHandler? _escapeHandler;
     private CancellationTokenSource? _opening;
@@ -53,7 +56,7 @@ internal partial class TaskPeekView : UserControl
         {
             ActivateDrag(point);
         }
-        if (_dragging) { e.Handled = true; _preview?.Update(point); AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange(); }
+        if (_dragging) { e.Handled = true; _preview?.Update(point); MovePreview(point); AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange(); }
     }
     internal void ActivateDrag(Point position)
     {
@@ -65,6 +68,29 @@ internal partial class TaskPeekView : UserControl
         Window.GetWindow(this)?.PreviewKeyDown += _escapeHandler;
         _preview.Update(position);
         AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange();
+        StartPreview(position);
+    }
+    private void StartPreview(Point position)
+    {
+        if (PreviewRequested is not { } preview || _candidate?.DataContext is not TaskPeekRow row || Hint(position) is not { } hint) return;
+        _previewing = true; preview(row, hint);
+    }
+    private void MovePreview(Point position)
+    {
+        if (!_previewing || PreviewMoved is not { } moved || Hint(position) is not { } hint) return;
+        moved(hint);
+    }
+    private void EndPreview()
+    {
+        if (!_previewing) return;
+        _previewing = false; PreviewEnded?.Invoke();
+    }
+    private FloatingPlacementHint? Hint(Point viewPoint)
+    {
+        var window = Window.GetWindow(this);
+        if (window is null) return null;
+        var screen = window.PointToScreen(viewPoint);
+        return new FloatingPlacementHint(screen.X, screen.Y, _grab.X, _grab.Y);
     }
     private async void EndGesture(object sender, MouseButtonEventArgs e)
     {
@@ -83,6 +109,7 @@ internal partial class TaskPeekView : UserControl
     }
     internal async Task FinishDrag(FrameworkElement surface, Point windowPosition, Point viewPosition)
     {
+        EndPreview();
         if (surface.DataContext is not TaskPeekRow row) { CancelDrag(); return; }
         var window = Window.GetWindow(this);
         var outside = window is not null && (windowPosition.X < 0 || windowPosition.Y < 0 || windowPosition.X > window.ActualWidth || windowPosition.Y > window.ActualHeight);
@@ -93,6 +120,7 @@ internal partial class TaskPeekView : UserControl
     }
     internal bool CancelDrag()
     {
+        EndPreview();
         var opening = _opening; _opening = null; opening?.Cancel();
         var was = _dragging; _dragging = false;
         if (_preview is not null)

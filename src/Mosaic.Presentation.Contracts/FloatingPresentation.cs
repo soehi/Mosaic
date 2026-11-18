@@ -8,6 +8,9 @@ public interface IFloatingDetachSource
     event EventHandler? AvailabilityChanged;
     IDisposable RegisterDetachHandler(IFloatingWindowApi handler);
     Task<OperationResult<FloatingOpenResult>> RequestDetachAsync(FloatingContentReference reference,FloatingPlacementHint? hint=null,CancellationToken cancellationToken=default);
+    void BeginPlacementPreview(FloatingContentReference reference,FloatingPlacementHint hint);
+    void UpdatePlacementPreview(FloatingPlacementHint hint);
+    void EndPlacementPreview();
 }
 public interface IFloatingContentFactory { IFloatingContentSession Create(FloatingContentReference reference); }
 public sealed record FloatingContentLayoutOptions(double ContentGap, double HeaderTrailingSpace);

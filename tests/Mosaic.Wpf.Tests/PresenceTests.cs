@@ -130,6 +130,46 @@ public sealed class PresenceTests
         Assert.InRange(filters.ActualWidth, 120, 236);
     });
 
+    [Fact]
+    public Task Peek_drag_forwards_placement_preview_and_ends_on_cancel() => Sta.Run(async () =>
+    {
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("预览任务")])) };
+        var floating = new FloatingApi();
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
+        using var registration = module.DetachSource.RegisterDetachHandler(floating);
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme")); await session.InitializeAsync(); Texts(session.View);
+        var view = session.View; var type = view.GetType();
+        var host = new Window { Content = view, Width = 300, Height = 200, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+        host.Show(); view.UpdateLayout();
+        try
+        {
+            var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
+            var row = (FrameworkElement)card.Parent;
+            type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, row);
+            type.GetField("_start", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
+            type.GetField("_grab", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
+            type.GetMethod("ActivateDrag", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, [new Point(60, 60)]);
+            Assert.Equal(1, floating.PreviewBegins); Assert.NotNull(floating.Hint); Assert.Equal(10, floating.Hint!.GrabX);
+            type.GetMethod("MovePreview", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, [new Point(80, 70)]);
+            Assert.Equal(1, floating.PreviewUpdates);
+            type.GetMethod("CancelDrag", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, null);
+            Assert.Equal(1, floating.PreviewEnds);
+        }
+        finally { host.Close(); }
+    });
+
+    private sealed class FloatingApi : IFloatingWindowApi
+    {
+        internal int PreviewBegins, PreviewUpdates, PreviewEnds;
+        internal FloatingPlacementHint? Hint;
+        public Task<OperationResult<FloatingOpenResult>> OpenAsync(FloatingContentReference reference, FloatingPlacementHint? hint = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<FloatingOpenResult>.Success(new(FloatingOpenDisposition.Created)));
+        public Task<OperationResult> CloseAsync(FloatingContentReference reference, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult.Success());
+        public void BeginPlacementPreview(FloatingContentReference reference, FloatingPlacementHint hint) { PreviewBegins++; Hint = hint; }
+        public void UpdatePlacementPreview(FloatingPlacementHint hint) { PreviewUpdates++; Hint = hint; }
+        public void EndPlacementPreview() => PreviewEnds++;
+    }
+
     private static Button Completion(FrameworkElement view) => Descendants(view).OfType<Button>().Single(button => button.Name == "CompleteButton");
     private static RadioButton Filter(FrameworkElement view, string name) => Descendants(view).OfType<RadioButton>().Single(button => button.Tag as string == name);
     private static async Task Drain() { for (var i = 0; i < 5; i++) await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }

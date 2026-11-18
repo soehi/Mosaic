@@ -27,7 +27,12 @@ public sealed class FloatingWindowCoordinator(IFloatingWindowRepository reposito
         var loaded = await repository.LoadAsync(ct);
         if (!loaded.IsSuccess) return OperationResult<FloatingOpenResult>.Failure(loaded.Error!);
         var previous = restore ?? loaded.Value.FirstOrDefault(item => item.Reference == reference);
-        var record = (previous ?? surface.CreateRecord(reference,hint)) with { IsOpen=true, Revision=(previous?.Revision ?? 0)+1 };
+        // A detach hint always wins over the saved position; sizes, mode and topmost still come from the old record.
+        var placement = hint is null ? null : surface.CreateRecord(reference, hint);
+        var placed = previous is null ? placement ?? surface.CreateRecord(reference, null)
+            : placement is null ? previous
+            : previous with { MonitorId = placement.MonitorId, X = placement.X, Y = placement.Y };
+        var record = placed with { IsOpen=true, Revision=(previous?.Revision ?? 0)+1 };
         var saved = await repository.SaveAsync(record, record.Revision-1,ct);
         if (!saved.IsSuccess) return OperationResult<FloatingOpenResult>.Failure(saved.Error!);
         try
@@ -76,6 +81,15 @@ public sealed class FloatingWindowCoordinator(IFloatingWindowRepository reposito
         }
         finally { _serial.Release(); }
     }
+    public void BeginPlacementPreview(FloatingContentReference reference,FloatingPlacementHint hint)
+    {
+        if(!_stopping)surface.BeginPreview(reference,hint);
+    }
+    public void UpdatePlacementPreview(FloatingPlacementHint hint)
+    {
+        if(!_stopping)surface.UpdatePreview(hint);
+    }
+    public void EndPlacementPreview()=>surface.EndPreview();
     public async Task<OperationResult> CloseAsync(FloatingContentReference reference,CancellationToken cancellationToken=default)
     {
         await _serial.WaitAsync(cancellationToken);

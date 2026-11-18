@@ -182,6 +182,9 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         _view.OpenRequested += OpenDetails;
         _view.CanDetach = () => !_closed && dependencies.Detach?.IsAvailable == true;
         _view.DetachRequested = DetachAsync;
+        _view.PreviewRequested = (row, hint) => dependencies.Detach?.BeginPlacementPreview(new("tasks-ui", row.Id.ToString("D")), hint);
+        _view.PreviewMoved = hint => dependencies.Detach?.UpdatePlacementPreview(hint);
+        _view.PreviewEnded = () => dependencies.Detach?.EndPlacementPreview();
         _view.DragChanged += active => { _dragActive = active; InteractionChanged?.Invoke(this, EventArgs.Empty); };
         _changes = dependencies.Changes?.Subscribe(change => _ = dependencies.Dispatcher.InvokeAsync(() =>
         {
@@ -352,6 +355,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         _view.CancelDrag(); _changes?.Dispose();
         _closed = true; ++_generation; ++_detailGeneration; _detailCancellation?.Cancel();
         _view.CompleteRequested = null; _view.FilterRequested = null;
+        _view.PreviewRequested = null; _view.PreviewMoved = null; _view.PreviewEnded = null;
         _view.OpenRequested -= OpenDetails; _lifetime.Cancel();
         MosaicLocalizationManager.LanguageChanged -= LanguageChanged;
         MosaicThemeManager.ThemeChanged -= LanguageChanged;

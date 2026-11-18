@@ -22,15 +22,19 @@ public sealed class FloatingTests
     }
     private sealed class Surface:IFloatingWindowSurface
     {
-        internal int Created,Activated,Destroyed;
+        internal int Created,Activated,Destroyed,PreviewBegins,PreviewUpdates,PreviewEnds;
         internal string? Error;
         internal Func<Task>? Wait;
-        public FloatingWindowRecord CreateRecord(FloatingContentReference reference,FloatingPlacementHint? hint)=>Record(reference);
+        public FloatingWindowRecord CreateRecord(FloatingContentReference reference,FloatingPlacementHint? hint)=>
+            hint is null?Record(reference):Record(reference) with{MonitorId="hint-monitor",X=hint.ScreenX,Y=hint.ScreenY};
         public async Task<OperationResult> ShowAsync(FloatingWindowRecord record,CancellationToken cancellationToken){Created++;if(Wait is not null)await Wait();return Error is null?OperationResult.Success():OperationResult.Failure(new(Error,"read failure"));}
         public void Activate(FloatingContentReference reference)=>Activated++;
         public Task DestroyAsync(FloatingContentReference reference){Destroyed++;return Task.CompletedTask;}
         public FloatingWindowRecord Snapshot(FloatingWindowRecord record)=>record;
         public void Apply(FloatingWindowRecord record){}
+        public void BeginPreview(FloatingContentReference reference,FloatingPlacementHint hint)=>PreviewBegins++;
+        public void UpdatePreview(FloatingPlacementHint hint)=>PreviewUpdates++;
+        public void EndPreview()=>PreviewEnds++;
     }
     private static FloatingContentReference Reference(string key="a")=>new("provider",key);
     private static FloatingWindowRecord Record(FloatingContentReference? reference=null)=>new(reference??Reference(),true,FloatingDisplayMode.Compact,320,400,360,"primary",24,24,true);
@@ -126,6 +130,25 @@ public sealed class FloatingTests
             await storage.Session.ExecuteAsync(new("DROP TABLE floating_windows"));await module.ActivateAsync();Assert.Empty((await module.Repository.LoadAsync()).Value);
         }
         File.Delete(path);
+    }
+
+    [Fact]
+    public async Task Detach_hint_overrides_saved_position_but_keeps_existing_sizes_and_forwards_preview()
+    {
+        var repo=new Repository();
+        var saved=Record() with{CompactWidth=240,X=24,Y=24,Revision=1,IsOpen=false};
+        repo.Records[Reference()]=saved;
+        var surface=new Surface();var core=new FloatingWindowCoordinator(repo,surface,()=>8,new Diagnostics());
+        var hint=new FloatingPlacementHint(500,400,10,10);
+        core.BeginPlacementPreview(Reference(),hint);core.UpdatePlacementPreview(hint with{ScreenX=520});
+        Assert.Equal(1,surface.PreviewBegins);Assert.Equal(1,surface.PreviewUpdates);
+        Assert.True((await core.OpenAsync(Reference(),hint)).IsSuccess);
+        var opened=repo.Records[Reference()];
+        Assert.Equal(500,opened.X);Assert.Equal(400,opened.Y);Assert.Equal("hint-monitor",opened.MonitorId);
+        Assert.Equal(240,opened.CompactWidth);Assert.Equal(400,opened.ExpandedWidth);
+        core.EndPlacementPreview();Assert.Equal(1,surface.PreviewEnds);
+        Assert.True((await core.PrepareExitAsync()).IsSuccess);
+        core.BeginPlacementPreview(Reference(),hint);Assert.Equal(1,surface.PreviewBegins);
     }
 
     [Fact]

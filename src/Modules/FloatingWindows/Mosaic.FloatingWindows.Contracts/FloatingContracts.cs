@@ -14,6 +14,10 @@ public interface IFloatingWindowApi
 {
     Task<OperationResult<FloatingOpenResult>> OpenAsync(FloatingContentReference reference, FloatingPlacementHint? hint = null, CancellationToken cancellationToken = default);
     Task<OperationResult> CloseAsync(FloatingContentReference reference, CancellationToken cancellationToken = default);
+    // UI-thread placement ghost. The hint uses the same math as OpenAsync so preview equals the eventual window.
+    void BeginPlacementPreview(FloatingContentReference reference, FloatingPlacementHint hint);
+    void UpdatePlacementPreview(FloatingPlacementHint hint);
+    void EndPlacementPreview();
 }
 public interface IFloatingWindowSurface
 {
@@ -23,4 +27,7 @@ public interface IFloatingWindowSurface
     Task DestroyAsync(FloatingContentReference reference);
     FloatingWindowRecord Snapshot(FloatingWindowRecord record);
     void Apply(FloatingWindowRecord record);
+    void BeginPreview(FloatingContentReference reference, FloatingPlacementHint hint);
+    void UpdatePreview(FloatingPlacementHint hint);
+    void EndPreview();
 }

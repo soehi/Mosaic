@@ -72,12 +72,77 @@ public sealed partial class DesktopTests
         }
     }
 
-    private static async Task PointerGesture(int x,int y,int dx,int dy,uint down=2,uint up=4)
+    [Fact]
+    public async Task Floating_header_buttons_move_on_drag_and_still_click_on_short_press()
     {
-        SetCursorPos(x,y);await Task.Delay(100);SendMouse(0,0,down);
-        try{for(var i=1;i<=6;i++){await Task.Delay(35);SetCursorPos(x+dx*i/6,y+dy*i/6);}}
+        var root=NewRoot();var path=Path.Combine(root,"Data/mosaic.sqlite");var id=Guid.NewGuid();
+        var reference=new FloatingContentReference("tasks-ui",id.ToString("D"));
+        await using(var storage=new Mosaic.Storage.Sqlite.SqliteModule(new(path),new FloatingDiagnostics()))
+        {
+            await storage.ActivateAsync();await using var tasks=new Mosaic.Tasks.Sqlite.TasksSqliteModule(storage.Session);await tasks.ActivateAsync();
+            var now=DateTimeOffset.UtcNow;Assert.True((await tasks.Repository.InsertAsync(new(id,"按钮拖动验收","正文仍可选择复制",false,now,now,1))).IsSuccess);
+            await using var windows=new Mosaic.FloatingWindows.Sqlite.FloatingWindowsSqliteModule(storage.Session);await windows.ActivateAsync();
+            Assert.True((await windows.Repository.SaveAsync(new(reference,true,FloatingDisplayMode.Compact,320,320,360,"missing monitor",200,200,true,1),0)).IsSuccess);
+        }
+        var oldDpi=SetThreadDpiAwarenessContext(-4);GetCursorPos(out var originalPointer);
+        Process? process=null;
+        AutomationElement? Floating()=>AutomationElement.RootElement.FindFirst(TreeScope.Children,new AndCondition(new PropertyCondition(AutomationElement.ProcessIdProperty,process!.Id),new PropertyCondition(AutomationElement.AutomationIdProperty,"FloatingWindow")));
+        async Task Exit()
+        {
+            var main=await Until(()=>AutomationElement.RootElement.FindAll(TreeScope.Children,new PropertyCondition(AutomationElement.ProcessIdProperty,process!.Id)).Cast<AutomationElement>().FirstOrDefault(e=>e.Current.Name.StartsWith("Mosaic v",StringComparison.Ordinal)),"Missing main");
+            ((WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern)).Close();await process!.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));Assert.Equal(0,process.ExitCode);process.Dispose();process=null;
+        }
+        try
+        {
+            process=Start(root);var floating=await Until(Floating,"Missing floating window");
+            var hwnd=(nint)floating.Current.NativeWindowHandle;SetForegroundWindow(hwnd);await Task.Delay(400);
+            var scale=GetDpiForWindow(hwnd)/96d;var before=ReadRect(hwnd);
+            Assert.InRange((before.Bottom-before.Top)/scale,64,76);
+            foreach(var (controlId,dx,dy) in new[]{("FloatingTaskState",40,0),("FloatingTaskExpand",40,30)})
+            {
+                var start=await DragHeaderButton(floating,hwnd,controlId,dx,dy);
+                var after=ReadRect(hwnd);
+                // The system drag threshold consumes the first few pointer steps before the move loop starts.
+                Assert.InRange(after.Left-start.Left,dx-10,dx+1);
+                Assert.InRange(after.Top-start.Top,dy-10,dy+1);
+                Assert.Equal(start.Bottom-start.Top,after.Bottom-after.Top);
+            }
+            // Dragging suppresses the buttons' own effects: the task stays open and the card stays compact.
+            var state=Id(floating,"FloatingTaskState")!;
+            Assert.Equal(ToggleState.Off,((TogglePattern)state.GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState);
+            var stillCompact=ReadRect(hwnd);Assert.InRange((stillCompact.Bottom-stillCompact.Top)/scale,64,76);
+            // A press inside the system drag threshold still expands.
+            SetForegroundWindow(hwnd);await Task.Delay(250);
+            var expand=Id(floating,"FloatingTaskExpand")!.Current.BoundingRectangle;
+            await PointerGesture((int)(expand.Left+expand.Width/2),(int)(expand.Top+expand.Height/2),0,0,steps:2,stepMs:40);
+            await UntilCondition(()=>(ReadRect(hwnd).Bottom-ReadRect(hwnd).Top)>100*scale,"Short press did not expand");
+            await Exit();
+        }
+        finally
+        {
+            try { var release=new NativeInput{Mouse=new(){Flags=4}};SendInput(1,[release],Marshal.SizeOf<NativeInput>());SetCursorPos(originalPointer.X,originalPointer.Y);SetThreadDpiAwarenessContext(oldDpi); }
+            finally { Cleanup(process); }
+        }
+    }
+
+    private static async Task<NativeRect> DragHeaderButton(AutomationElement floating,nint hwnd,string controlId,int dx,int dy)
+    {
+        for(var attempt=0;attempt<2;attempt++)
+        {
+            SetForegroundWindow(hwnd);await Task.Delay(250);
+            var start=ReadRect(hwnd);var bounds=Id(floating,controlId)!.Current.BoundingRectangle;
+            await PointerGesture((int)(bounds.Left+bounds.Width/2),(int)(bounds.Top+bounds.Height/2),dx,dy,steps:10,stepMs:45);
+            if(ReadRect(hwnd)!=start)return start;
+        }
+        throw new InvalidOperationException($"Header button {controlId} did not move the window");
+    }
+
+    private static async Task PointerGesture(int x,int y,int dx,int dy,uint down=2,uint up=4,int steps=6,int stepMs=35)
+    {
+        SetCursorPos(x,y);await Task.Delay(120);SendMouse(0,0,down);
+        try{for(var i=1;i<=steps;i++){await Task.Delay(stepMs);SetCursorPos(x+dx*i/steps,y+dy*i/steps);}await Task.Delay(80);}
         finally{SendMouse(0,0,up);}
-        await Task.Delay(250);
+        await Task.Delay(300);
     }
     private static void SendMouse(int x,int y,uint flags)
     {

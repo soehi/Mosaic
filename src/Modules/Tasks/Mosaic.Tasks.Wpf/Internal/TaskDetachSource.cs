@@ -20,6 +20,21 @@ internal sealed class TaskDetachSource(IUiDispatcher dispatcher) : IFloatingDeta
         IFloatingWindowApi? handler;lock(_sync)handler=_handler;
         return handler is null?Task.FromResult(OperationResult<FloatingOpenResult>.Failure(new(ErrorCodes.CapabilityUnavailable,"小窗功能尚未启用或正在退出。"))):handler.OpenAsync(reference,hint,cancellationToken);
     }
+    public void BeginPlacementPreview(FloatingContentReference reference,FloatingPlacementHint hint)
+    {
+        IFloatingWindowApi? handler;lock(_sync)handler=_handler;
+        handler?.BeginPlacementPreview(reference,hint);
+    }
+    public void UpdatePlacementPreview(FloatingPlacementHint hint)
+    {
+        IFloatingWindowApi? handler;lock(_sync)handler=_handler;
+        handler?.UpdatePlacementPreview(hint);
+    }
+    public void EndPlacementPreview()
+    {
+        IFloatingWindowApi? handler;lock(_sync)handler=_handler;
+        handler?.EndPlacementPreview();
+    }
     private sealed class Registration(TaskDetachSource source,IFloatingWindowApi handler):IDisposable
     {public void Dispose(){lock(source._sync){if(!ReferenceEquals(source._handler,handler))return;source._handler=null;}source.Signal();}}
 }

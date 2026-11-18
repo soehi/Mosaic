@@ -42,6 +42,15 @@ internal sealed record FloatingScreen(string Id,Rect Pixels,double Scale)
         if(window.Content is not FrameworkElement content)return 60;
         content.Measure(new Size(width,double.PositiveInfinity));return Math.Max(60,Math.Ceiling(content.DesiredSize.Height));
     }
+    internal static Rect Placement(FloatingScreen screen,FloatingWindowRecord record,double minimumWidth,double height)
+    {
+        // Same width/offset math as Place; the ghost window shares it so preview and creation cannot drift.
+        var width=Math.Min(screen.Width,Math.Max(minimumWidth,record.Mode==FloatingDisplayMode.Compact?record.CompactWidth:record.ExpandedWidth));
+        var boundedHeight=Math.Min(screen.Height,Math.Max(60,height));
+        var x=Math.Clamp(record.X,0,Math.Max(0,screen.Width-width));
+        var y=Math.Clamp(record.Y,0,Math.Max(0,screen.Height-boundedHeight));
+        return new Rect(screen.Pixels.Left/screen.Scale+x,screen.Pixels.Top/screen.Scale+y,width,boundedHeight);
+    }
     internal static (FloatingScreen Screen,Point Relative) Locate(Window window)
     {
         var point=window.PointToScreen(new Point());var screen=Resolve(screenPoint:point);

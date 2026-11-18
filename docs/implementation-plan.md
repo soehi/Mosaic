@@ -676,6 +676,14 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 
 改动：`TaskPeekView.xaml/.cs`、`DragHintAdorner.cs`、`TaskPeekViewFactory.cs`；测试 `tests/Mosaic.Wpf.Tests/PresenceTests.cs`。无设置、数据库、配置或装配迁移；模块边界与公开拖出申请链路不变。详见 [专项计划](peek-drag-area-and-filter-polish-plan.md)。
 
+### 阶段 18：小窗落点预览与标题栏按钮拖动（0.11.0）
+
+状态：2026-11-18，已实施源码与自动化验证；真实指针与 DPI 矩阵仍待独立桌面验收。
+
+交付：拖出任务超过阈值后显示与小窗同宽、预估紧凑高度的虚线幽灵窗，随指针移动；幽灵与创建窗口共用屏幕解析、抓取偏移和夹取数学。小窗标题栏的状态、展开与工具按钮支持按住拖动窗口，阈值内短按保持原操作，正文按钮与文本不参与。关闭后再拖出已打开过的任务按本次落点放置。
+
+改动：`FloatingContracts.cs`、`FloatingPresentation.cs`、`TaskDetachSource.cs`、`FloatingWindowCoordinator.cs`、`FloatingSurface.cs`、`FloatingScreen.cs`、`FloatingWindowInput.cs`、`TaskPeekView.xaml.cs`、`TaskPeekViewFactory.cs`；测试 `FloatingTests.cs`、`FloatingWindowsTests.cs`、`PresenceTests.cs`、`FloatingDragTests.cs`。无设置、数据库、配置或装配迁移；详见 [专项计划](floating-placement-preview-plan.md)。
+
 阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
 
 每个阶段交付时遵循 [架构原则](architecture-principles.md) 第 13 节的同步交付规则：源码、测试、用户可见行为、发布说明和实施记录必须属于同一个变更单元；影响旧数据目录、配置或安装升级的改动必须同时交付迁移逻辑与迁移验收项。发布说明必须写清对已有安装的影响和用户需要执行的动作。诊断与修复还必须写明错误位置（具体文件、行、契约或调用链，说明根因）和改动位置（实际修改的文件、行、测试与文档），二者随同一交付单元记录。
@@ -740,6 +748,10 @@ Presentation.Contracts增加通用内容工厂/分离来源/交互协议，并�
 ## 0.10.1 速览整卡拖出修复补充
 
 已实施：新增内部 `DragHintAdorner`（Tasks WPF），拖动提示从抢占鼠标捕获的 `Popup` 改为 `AdornerLayer` 呈现；`TaskPeekView` 的 `CaptureLost`/`EndGesture` 收敛到统一终局判定，面板外判定直接使用窗口坐标，并补 Esc 取消。模块边界不变：拖出申请仍走公开分离来源，不新增设置、依赖或迁移。根因、实施步骤与验收矩阵见 [速览整卡拖出修复计划](peek-card-drag-fix-plan.md)。
+
+## 0.11.0 小窗落点预览与标题栏按钮拖动补充
+
+已实施：`IFloatingWindowApi`/`IFloatingWindowSurface`/`IFloatingDetachSource` 增加预览申请；`FloatingSurface` 新增不抢焦点、不接收鼠标的虚线幽灵窗，`FloatingScreen.Placement` 与创建路径共用夹取数学；`FloatingWindowCoordinator.OpenCoreAsync` 在存在落点时用落点覆盖旧记录的屏幕与坐标；`TaskPeekView` 在拖动开始/移动/结束提交预览，`TaskPeekViewFactory` 接线；`FloatingWindowInput` 增加标题栏按钮阈值拖动并抑制点击。无设置、数据库、配置或模块装配迁移，公开类型清单不变；详见 [专项计划](floating-placement-preview-plan.md)。
 
 ## 0.10.2 速览整行拖出与筛选视觉补充
 

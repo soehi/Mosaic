@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -18,6 +19,9 @@ internal sealed class FloatingWindowInput : IDisposable
     private readonly ToolTip _tip = new();
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private HwndSource? _source;
+    private FrameworkElement? _pressButton;
+    private Point _pressPoint;
+    private bool _suppressClick;
     private bool _disposed;
 
     internal FloatingWindowInput(Window window, Border frame, FrameworkElement tools, FrameworkElement? header, Func<double> band)
@@ -26,6 +30,58 @@ internal sealed class FloatingWindowInput : IDisposable
         _tip.SetResourceReference(ContentControl.ContentProperty, "Floating.Move");
         _hover.Tick += (_, _) => { _hover.Stop(); if (!_disposed && _window.IsEnabled) _tip.IsOpen = true; };
         window.SourceInitialized += Attach;
+        window.PreviewMouseLeftButtonDown += OnMouseDown;
+        window.PreviewMouseMove += OnMouseMove;
+        window.PreviewMouseLeftButtonUp += OnMouseUp;
+    }
+
+    // Buttons stay HTCLIENT so clicks keep working; a WPF threshold gesture turns a press-and-drag into a real move.
+    internal bool CanStartHeaderDrag(object? source) => HeaderButton(source) is not null;
+    private FrameworkElement? HeaderButton(object? source)
+    {
+        if (_disposed || !_window.IsEnabled || source is not DependencyObject node) return null;
+        var button = Ancestor<ButtonBase>(node);
+        if (button is null || !button.IsVisible || !button.IsEnabled) return null;
+        return Contains(_tools, button) || (_header is { IsVisible: true } header && Contains(header, button)) ? button : null;
+    }
+    private void OnMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _suppressClick = false; _pressButton = null;
+        if (e.ChangedButton != MouseButton.Left) return;
+        _pressButton = HeaderButton(e.OriginalSource);
+        if (_pressButton is not null) _pressPoint = e.GetPosition(_window);
+    }
+    private void OnMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_pressButton is null || e.LeftButton != MouseButtonState.Pressed) return;
+        var point = e.GetPosition(_window);
+        if (Math.Abs(point.X - _pressPoint.X) <= SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(point.Y - _pressPoint.Y) <= SystemParameters.MinimumVerticalDragDistance) return;
+        _pressButton = null; _suppressClick = true; CancelHint();
+        // Reuse the native caption move loop: Window.DragMove() posts SC_MOVE, which ends at once for a
+        // press that started on a captured child button; releasing capture and asking for HTCAPTION does not.
+        ReleaseCapture();
+        SendMessage(new WindowInteropHelper(_window).Handle, 0x00A1, 2, 0);
+    }
+    private void OnMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _pressButton = null;
+        if (_suppressClick) e.Handled = true;
+    }
+    private static T? Ancestor<T>(DependencyObject node) where T : DependencyObject
+    {
+        for (var current = node; current is not null; current = Parent(current)) if (current is T match) return match;
+        return null;
+    }
+    private static bool Contains(DependencyObject ancestor, DependencyObject node)
+    {
+        for (var current = node; current is not null; current = Parent(current)) if (ReferenceEquals(current, ancestor)) return true;
+        return false;
+    }
+    private static DependencyObject? Parent(DependencyObject node)
+    {
+        try { return node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node); }
+        catch (InvalidOperationException) { return LogicalTreeHelper.GetParent(node); }
     }
 
     private void Attach(object? sender, EventArgs e)
@@ -93,9 +149,13 @@ internal sealed class FloatingWindowInput : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true; CancelHint(); _window.SourceInitialized -= Attach; _source?.RemoveHook(Hook); _source = null;
+        _disposed = true; CancelHint(); _window.SourceInitialized -= Attach;
+        _window.PreviewMouseLeftButtonDown -= OnMouseDown; _window.PreviewMouseMove -= OnMouseMove; _window.PreviewMouseLeftButtonUp -= OnMouseUp;
+        _source?.RemoveHook(Hook); _source = null;
     }
     [StructLayout(LayoutKind.Sequential)] private struct TrackMouse { public int Size, Flags; public nint Window; public int HoverTime; }
+    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern nint SendMessage(nint window, int message, nint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern bool TrackMouseEvent(ref TrackMouse tracking);
     [DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, int name);
     [DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);

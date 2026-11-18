@@ -1,8 +1,11 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Mosaic.Contracts;
@@ -20,6 +23,9 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     private readonly Func<Task> _restore;
     private readonly Dictionary<FloatingContentReference,Entry> _windows=[];
     private IReadOnlyDictionary<string,object?> _values=new Dictionary<string,object?>();
+    private Window? _previewWindow;
+    private FloatingContentReference? _previewReference;
+    private const double PreviewHeight=76;
     internal FloatingWindowCoordinator Coordinator {get;set;}=null!;
     internal FloatingSurface(IFloatingContentFactory content,IUiDispatcher dispatcher,IDiagnosticSink diagnostics,Func<Task> restore)
     {
@@ -59,6 +65,55 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         if(point is {} physical && !screen.Pixels.Contains(physical))throw new ArgumentException("释放点不在可用屏幕工作区。");
         return new(reference,true,FloatingDisplayMode.Compact,Number("floating.defaultCompactWidth",320),Number("floating.defaultExpandedWidth",320),Number("floating.defaultExpandedHeight",360),screen.Id,
             point is {} p?(p.X-screen.Pixels.Left)/screen.Scale-hint!.GrabX:24,point is {} q?(q.Y-screen.Pixels.Top)/screen.Scale-hint!.GrabY:24,Flag("floating.defaultTopmost",true));
+    }
+    public void BeginPreview(FloatingContentReference reference,FloatingPlacementHint hint)
+    {
+        if(!_dispatcher.CheckAccess()){_=_dispatcher.InvokeAsync(()=>BeginPreview(reference,hint));return;}
+        EndPreview();
+        // An already-open task can only be activated by a detach; a ghost would promise a new position.
+        if(_windows.ContainsKey(reference))return;
+        _previewReference=reference;
+        _previewWindow=CreatePreviewWindow();
+        _previewWindow.Show();
+        UpdatePreview(hint);
+    }
+    public void UpdatePreview(FloatingPlacementHint hint)
+    {
+        if(_previewWindow is null || _previewReference is null)return;
+        if(!_dispatcher.CheckAccess()){_=_dispatcher.InvokeAsync(()=>UpdatePreview(hint));return;}
+        try
+        {
+            var record=CreateRecord(_previewReference,hint);
+            var screen=FloatingScreen.Resolve(record.MonitorId);
+            var rect=FloatingScreen.Placement(screen,record,Number("floating.minWidth",220),PreviewHeight);
+            _previewWindow.Left=rect.Left;_previewWindow.Top=rect.Top;
+            _previewWindow.Width=rect.Width;_previewWindow.Height=rect.Height;
+            _previewWindow.Opacity=1;
+        }
+        catch(ArgumentException) { _previewWindow.Opacity=0; } // Release point outside every work area.
+    }
+    public void EndPreview()
+    {
+        if(_previewWindow is null)return;
+        if(!_dispatcher.CheckAccess()){_=_dispatcher.InvokeAsync(EndPreview);return;}
+        var window=_previewWindow;_previewWindow=null;_previewReference=null;
+        window.Close();
+    }
+    private Window CreatePreviewWindow()
+    {
+        var outline=new Rectangle{StrokeThickness=1.5,StrokeDashArray=new DoubleCollection{4,2.5},RadiusX=12,RadiusY=12,Opacity=0.8};
+        outline.SetResourceReference(Shape.StrokeProperty,MosaicTheme.AccentBrushKey);
+        outline.SetResourceReference(Shape.FillProperty,MosaicTheme.AccentSoftBrushKey);
+        var window=new Window{WindowStyle=WindowStyle.None,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,
+            ShowActivated=false,IsHitTestVisible=false,Focusable=false,ResizeMode=ResizeMode.NoResize,Topmost=true,Content=outline};
+        System.Windows.Automation.AutomationProperties.SetAutomationId(window,"FloatingPlacementPreview");
+        window.SourceInitialized+=(_,_)=>
+        {
+            var handle=new WindowInteropHelper(window).Handle;
+            var style=GetWindowLongPtr(handle,-20);
+            SetWindowLongPtr(handle,-20,(nint)((long)style|0x20L|0x08000000L|0x80L));
+        };
+        return window;
     }
     public async Task<OperationResult> ShowAsync(FloatingWindowRecord record,CancellationToken cancellationToken)
     {
@@ -184,7 +239,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         await _dispatcher.InvokeAsync(()=>{entry.Destroying=true;entry.Input.Dispose();entry.Moving=false;entry.Timer.Stop();entry.Session.LayoutInvalidated-=entry.LayoutHandler;entry.Session.Missing-=entry.MissingHandler;entry.Session.ModeRequested-=entry.ModeHandler;entry.Window.Close();entry.Window.Content=null;});
         await entry.Session.DisposeAsync();
     }
-    internal void Freeze(){foreach(var entry in _windows.Values){entry.Input.CancelHint();entry.Moving=false;entry.Window.IsEnabled=false;entry.Timer.Stop();}}
+    internal void Freeze(){EndPreview();foreach(var entry in _windows.Values){entry.Input.CancelHint();entry.Moving=false;entry.Window.IsEnabled=false;entry.Timer.Stop();}}
     internal async Task FlushAsync()
     {
         Freeze();
@@ -199,5 +254,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     private void DisplayChanged(object? sender,EventArgs e)=>_ = _dispatcher.InvokeAsync(()=>{foreach(var entry in _windows.Values.ToArray())Layout(entry);});
     private void SystemChanged(object? sender,PropertyChangedEventArgs e)=>DisplayChanged(sender,e);
     private void Report(Exception ex){try{_diagnostics.Report(Guid.NewGuid().ToString("N"),ex);}catch{}}
-    public void Dispose(){SystemEvents.DisplaySettingsChanged-=DisplayChanged;SystemParameters.StaticPropertyChanged-=SystemChanged;MosaicLocalizationManager.LanguageChanged-=DisplayChanged;}
+    public void Dispose(){EndPreview();SystemEvents.DisplaySettingsChanged-=DisplayChanged;SystemParameters.StaticPropertyChanged-=SystemChanged;MosaicLocalizationManager.LanguageChanged-=DisplayChanged;}
+    [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]private static extern nint GetWindowLongPtr(nint window,int index);
+    [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]private static extern nint SetWindowLongPtr(nint window,int index,nint value);
 }

@@ -103,6 +103,57 @@ public sealed class FloatingWindowsTests
         {await restored.ActivateAsync();await restored.RestoreAsync();Assert.Single(Windows(restored));}
     });
     [Fact]
+    public Task Header_and_toolbar_buttons_are_drag_candidates_but_body_controls_are_not() => Sta.Run(async()=>
+    {
+        var api=new Api();var item=Item();api.Items[item.Id]=item;var reference=new FloatingContentReference("tasks-ui",item.Id.ToString("D"));
+        var repo=new Repository();await using var settings=new SettingsModule(new(new SettingsRepository()));await settings.ActivateAsync();
+        await using var tasks=new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));await tasks.ActivateAsync();
+        await using var module=new FloatingWindowsModule(new(repo,tasks.FloatingFactory,tasks.DetachSource,settings.Api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Diagnostics(),()=>Task.CompletedTask));
+        await module.ActivateAsync();await module.Api.OpenAsync(reference);
+        var window=Windows(module).Single();
+        var surface=typeof(FloatingWindowsModule).GetField("_surface",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(module)!;
+        var entries=(IDictionary)surface.GetType().GetField("_windows",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!;
+        var entry=entries.Values.Cast<object>().Single();
+        var input=entry.GetType().GetField("Input",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(entry)!;
+        var can=input.GetType().GetMethod("CanStartHeaderDrag",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!;
+        var expand=Descendants(window).OfType<Button>().Single(button=>System.Windows.Automation.AutomationProperties.GetAutomationId(button)=="FloatingTaskExpand");
+        var close=Descendants(window).OfType<Button>().Single(button=>System.Windows.Automation.AutomationProperties.GetAutomationId(button)=="FloatingClose");
+        var state=Descendants(window).OfType<ToggleButton>().Single();
+        Assert.True((bool)can.Invoke(input,[expand])!);Assert.True((bool)can.Invoke(input,[close])!);Assert.True((bool)can.Invoke(input,[state])!);
+        expand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);window.UpdateLayout();
+        var bodyButton=Descendants(window).OfType<Button>().FirstOrDefault(button=>button.IsVisible&&button.Name is "DeleteButton" or "ReloadButton" or "BackToTaskListButton");
+        var notes=Descendants(window).OfType<TextBox>().First();
+        if(bodyButton is not null)Assert.False((bool)can.Invoke(input,[bodyButton])!);
+        Assert.False((bool)can.Invoke(input,[notes])!);
+    });
+    [Fact]
+    public Task Placement_preview_ghost_tracks_the_hint_and_ends_without_a_window() => Sta.Run(async()=>
+    {
+        var api=new Api();var a=Item();var b=Item();api.Items[a.Id]=a;api.Items[b.Id]=b;
+        var repo=new Repository();await using var settings=new SettingsModule(new(new SettingsRepository()));await settings.ActivateAsync();
+        await using var tasks=new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics()));await tasks.ActivateAsync();
+        await using var module=new FloatingWindowsModule(new(repo,tasks.FloatingFactory,tasks.DetachSource,settings.Api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Diagnostics(),()=>Task.CompletedTask));
+        await module.ActivateAsync();await module.Api.OpenAsync(new("tasks-ui",a.Id.ToString("D")));
+        var window=Windows(module).Single();var origin=window.PointToScreen(new Point(20,20));
+        var target=new FloatingContentReference("tasks-ui",b.Id.ToString("D"));
+        module.Api.BeginPlacementPreview(target,new FloatingPlacementHint(origin.X,origin.Y,10,10));
+        var surface=typeof(FloatingWindowsModule).GetField("_surface",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(module)!;
+        var preview=(Window?)surface.GetType().GetField("_previewWindow",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface);
+        Assert.NotNull(preview);Assert.True(preview!.IsVisible);Assert.InRange(preview.Width,220,640);
+        var left=preview.Left;
+        module.Api.UpdatePlacementPreview(new FloatingPlacementHint(origin.X+40,origin.Y+20,10,10));
+        Assert.NotEqual(left,preview.Left);
+        preview.Resources.MergedDictionaries.Add(new ResourceDictionary{Source=new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml",UriKind.Relative)});
+        preview.UpdateLayout();
+        var root=new DirectoryInfo(AppContext.BaseDirectory);while(root is not null&&!File.Exists(Path.Combine(root.FullName,"Mosaic.sln")))root=root.Parent;
+        var directory=Path.Combine(root!.FullName,"artifacts/ui-preview");Directory.CreateDirectory(directory);
+        var bitmap=new RenderTargetBitmap((int)Math.Ceiling(preview.Width),(int)Math.Ceiling(preview.Height),96,96,PixelFormats.Pbgra32);bitmap.Render((FrameworkElement)preview.Content);
+        var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var stream=File.Create(Path.Combine(directory,"floating-placement-preview.png")))encoder.Save(stream);
+        module.Api.EndPlacementPreview();Assert.False(preview.IsVisible);
+        Assert.Single(Windows(module));
+    });
+
+    [Fact]
     public Task Preview_clamps_without_saving_preference_and_failed_close_keeps_window() => Sta.Run(async()=>
     {
         var api=new Api();var item=Item();api.Items[item.Id]=item;var reference=new FloatingContentReference("tasks-ui",item.Id.ToString("D"));

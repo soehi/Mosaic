@@ -169,29 +169,29 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.10.2, )"
+          "Mosaic.Contracts": "[0.11.0, )"
         }
       },
       "mosaic.tasks.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.10.2, )"
+          "Mosaic.Contracts": "[0.11.0, )"
         }
       },
       "mosaic.tasks.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.10.2, )",
-          "Mosaic.Settings.Contracts": "[0.10.2, )",
-          "Mosaic.Tasks.Contracts": "[0.10.2, )",
-          "Mosaic.Tasks.Persistence.Contracts": "[0.10.2, )"
+          "Mosaic.Contracts": "[0.11.0, )",
+          "Mosaic.Settings.Contracts": "[0.11.0, )",
+          "Mosaic.Tasks.Contracts": "[0.11.0, )",
+          "Mosaic.Tasks.Persistence.Contracts": "[0.11.0, )"
         }
       },
       "mosaic.tasks.persistence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.10.2, )",
-          "Mosaic.Tasks.Contracts": "[0.10.2, )"
+          "Mosaic.Contracts": "[0.11.0, )",
+          "Mosaic.Tasks.Contracts": "[0.11.0, )"
         }
       }
     }
