@@ -1,5 +1,14 @@
 # Mosaic：实施与验证记录
 
+## 0.12.1：浮窗工具栏矢量图标（2026-11-18）
+
+- 0.12.0 的 `FloatingSurface.Create` 在第 147–154 行直接将 `↗`、`◇`、`×` 用作按钮内容。`FloatingSurface.Layout` 在第 200 行用 `◆/◇` 表示置顶状态。字体字形各自渲染，导致图标笔画、大小和重心不一致，菱形也缺少图钉语义。
+- `FloatingSurface.Create` 为打开主窗口、置顶和关闭按钮加载矢量资源，点击区域间隔 2 DIP。`UpdatePin` 从 `FloatingWindowRecord.IsTopmost` 同时更新置顶图标和操作名称。`Layout` 将工具栏实测宽度传给内容布局。`FloatingLocalization.Dictionary` 提供中英文的置顶和取消置顶名称。[逐文件改动清单](releases/v0.12.1-files.md)
+- 兼容和升级沿用原任务、设置、浮窗记录及每用户安装器 `UpgradeCode`。旧 SQLite 工作空间由现有存储模块读取，浮窗还原时直接用已有的 `IsTopmost` 生成新图标，无需改写旧记录。MSI 继续由现有 `MajorUpgrade` 更新程序文件。
+
+- 锁定还原、Release 构建和 Windows x64 自包含发布通过。181 项非桌面回归和 28 项发布版桌面 Smoke 全部通过。验收覆盖 220 DIP 紧凑窗、展开窗、多浮窗、置顶保存失败及重启恢复、三个按钮中央的鼠标拖动、短按和未保存草稿的关闭保护。使用浅色、深色和高对比度主题生成 96、144、192 DPI 的 WPF 渲染图。实际多屏切换、不同系统缩放下的指针交互及干净环境中的 MSI 安装与升级尚未验收。
+- Windows x64 MSI 为 `Mosaic-0.12.1-win-x64.msi`，51,982,468 字节，附 `SHA256SUMS-0.12.1.txt`。安装包版本、原有升级标识和桌面快捷方式组件检查通过。MSI SHA-256 为 `726F26D343687FA1B6DB87AB4E75852A8C3A2F8D5C0572E11028C475E1368F17`。发布内容指纹为 `941AE6ACDC7F2C4DA6F424B14BD2A211FFB81DB22381F3533904265A55A4E02B`。
+
 ## 0.12.0：浮窗无边框控件与可选正文编辑（2026-11-18）
 
 - 根因位置：0.11.0 的 `TaskFloatingStateStyle`（`src/Modules/Tasks/Mosaic.Tasks.Wpf/Themes/Floating.xaml:3`）及 `TaskFloatingContentSession` 构造函数和 `FloatingSurface.Create` 复用的 `QuietButtonKey`，会在默认或焦点状态绘制描边。`TaskPeekDetailsView.AddText` 通过通用 TextBox 模板渲染只读正文，焦点触发器会绘制内容外框。`TaskPeekDetailsView.Render` 会重建控件，无法保留输入或选区。`TaskUiSettingsTarget.Apply` 只向主页面分发设置。`FloatingWindowCoordinator.CloseAsync` 和 `PrepareExitAsync` 在缺少内容关闭协议时直接保存布局，无法确认未保存的正文。

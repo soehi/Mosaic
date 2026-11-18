@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -32,7 +33,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         _content=content;_dispatcher=dispatcher;_diagnostics=diagnostics;_restore=restore;
         SystemEvents.DisplaySettingsChanged+=DisplayChanged;SystemParameters.StaticPropertyChanged+=SystemChanged;MosaicLocalizationManager.LanguageChanged+=DisplayChanged;
     }
-    private sealed class Entry(Window window,IFloatingContentSession session,FloatingWindowRecord record,TextBlock error,Button retry)
+    private sealed class Entry(Window window,IFloatingContentSession session,FloatingWindowRecord record,TextBlock error,Button retry,Button pin)
     {
         internal Window Window=window;
         internal IFloatingContentSession Session=session;
@@ -43,7 +44,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         internal Button Retry=retry;
         internal bool Destroying,Shown,Applying,Moving,Resized;
         internal double StartWidth,StartHeight;
-        internal Button? Pin;
+        internal readonly Button Pin = pin;
         internal Border Frame=null!;
         internal StackPanel Tools=null!;
         internal FloatingWindowInput Input=null!;
@@ -144,19 +145,28 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         frame.SetResourceReference(Border.BackgroundProperty,MosaicTheme.SurfaceBrushKey);frame.SetResourceReference(Border.BorderBrushProperty,MosaicTheme.BorderBrushKey);
         var grid=new Grid();grid.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});grid.RowDefinitions.Add(new(){Height=GridLength.Auto});
         var bar=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Top};
-        Button Button(string key,string text,string id)
+        Button ToolButton(string id, string icon, string actionKey, string style = "FloatingToolButtonStyle")
         {
-            var button=new Button {Content=text,Padding=new Thickness(4,0,4,0),MinWidth=28,MinHeight=28};button.SetResourceReference(FrameworkElement.StyleProperty,"FloatingToolButtonStyle");
-            button.SetResourceReference(FrameworkElement.ToolTipProperty,key);button.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty,key);System.Windows.Automation.AutomationProperties.SetAutomationId(button,id);bar.Children.Add(button);return button;
+            var button = new Button
+            {
+                Content = window.FindResource(icon),
+                Margin = bar.Children.Count == 0 ? default : new Thickness(2, 0, 0, 0)
+            };
+            button.SetResourceReference(FrameworkElement.StyleProperty, style);
+            button.SetResourceReference(FrameworkElement.ToolTipProperty, actionKey);
+            button.SetResourceReference(AutomationProperties.NameProperty, actionKey);
+            AutomationProperties.SetAutomationId(button, id);
+            bar.Children.Add(button);
+            return button;
         }
-        var restore=Button("Floating.Restore","↗","FloatingRestore");
-        var pin=Button("Floating.Pin","◇","FloatingPin");
-        var close=Button("Floating.Close","×","FloatingClose");
+        var restore = ToolButton("FloatingRestore", "FloatingRestoreIcon", "Floating.Restore");
+        var pin = ToolButton("FloatingPin", "FloatingPinIcon", "Floating.Pin");
+        var close = ToolButton("FloatingClose", "FloatingCloseIcon", "Floating.Close", "FloatingCloseToolButtonStyle");
         grid.Children.Add(session.View);grid.Children.Add(bar);
         var footer=new StackPanel{Visibility=Visibility.Collapsed};var error=new TextBlock{TextWrapping=TextWrapping.Wrap,FontSize=12};error.SetResourceReference(TextBlock.ForegroundProperty,MosaicTheme.TextSecondaryBrushKey);
         var retry=new Button{Visibility=Visibility.Collapsed,HorizontalAlignment=HorizontalAlignment.Left};retry.SetResourceReference(ContentControl.ContentProperty,"Floating.Retry");footer.Children.Add(error);footer.Children.Add(retry);Grid.SetRow(footer,1);grid.Children.Add(footer);
         frame.Child=grid;window.Content=frame;
-        var entry=new Entry(window,session,record,error,retry){Pin=pin,Frame=frame,Tools=bar,Footer=footer};
+        var entry=new Entry(window,session,record,error,retry,pin){Frame=frame,Tools=bar,Footer=footer};
         entry.Input=new FloatingWindowInput(window,frame,bar,session.Header,()=>Number("floating.dragBandHeight",12));
         _windows.Add(record.Reference,entry);
         entry.Timer.Tick+=async(_,_)=>{entry.Timer.Stop();await SaveBoundsAsync(entry);};
@@ -184,8 +194,19 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
                 _ = window.Dispatcher.BeginInvoke(new Action(() => _ = CloseUserAsync(entry)));
         };
         session.LayoutInvalidated+=entry.LayoutHandler;session.ModeRequested+=entry.ModeHandler;session.Missing+=entry.MissingHandler;
-        pin.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty,"Floating.Pin");
         return entry;
+    }
+    private static void UpdatePin(Entry entry)
+    {
+        var pin = entry.Pin;
+        var pinned = entry.Record.IsTopmost;
+        var icon = entry.Window.FindResource(pinned ? "FloatingPinnedIcon" : "FloatingPinIcon");
+        if (!ReferenceEquals(pin.Content, icon)) pin.Content = icon;
+        var action = pinned
+            ? FloatingLocalization.Text("Floating.Unpin", "取消置顶")
+            : FloatingLocalization.Text("Floating.Pin", "置顶");
+        pin.ToolTip = action;
+        AutomationProperties.SetName(pin, action);
     }
     private void Layout(Entry entry)
     {
@@ -194,10 +215,10 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         try
         {
             entry.Window.Topmost=entry.Record.IsTopmost;
+            UpdatePin(entry);
             entry.Frame.Padding=new Thickness(Number("floating.cardPadding",8));
             entry.Tools.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
             entry.Session.ConfigureLayout(new(Number("floating.contentGap",4),entry.Tools.DesiredSize.Width+Number("floating.contentGap",4)));
-            if(entry.Pin is {} pin)pin.Content=entry.Record.IsTopmost?"◆":"◇";
             FloatingScreen.Resolve(entry.Record.MonitorId).Place(entry.Window,entry.Record,Number("floating.minWidth",220),Number("floating.minExpandedHeight",180));
         }
         finally{entry.Applying=false;}

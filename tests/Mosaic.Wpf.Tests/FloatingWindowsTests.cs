@@ -115,6 +115,11 @@ public sealed class FloatingWindowsTests
             Assert.True(notes.IsReadOnly);
             Assert.Equal("浮窗草稿\n第二行", notes.Text);
             Assert.Equal(0, api.Writes);
+            Find("FloatingClose").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.Same(window, Assert.Single(Windows(module)));
+            Assert.True(repository.Records[reference].IsOpen);
+            Assert.Equal("浮窗草稿\n第二行", notes.Text);
             Assert.Equal(ErrorCodes.Canceled, (await module.Api.CloseAsync(reference)).Error?.Code);
             await using (var edit = (await settings.Api.BeginEditSessionAsync()).Value)
             {
@@ -155,6 +160,148 @@ public sealed class FloatingWindowsTests
         Assert.True((await session.PrepareCloseAsync(CancellationToken.None)).IsSuccess);
         Assert.Equal("重启后保存", api.Items[task.Id].Notes);
         Assert.Equal(3, api.Items[task.Id].Revision);
+    });
+
+    [Fact]
+    public Task Toolbar_icons_have_independent_hit_targets_and_pin_follows_saved_state() => Sta.Run(async () =>
+    {
+        string[] ids = ["FloatingRestore", "FloatingPin", "FloatingClose"];
+        var api = new Api();
+        var first = Item() with { Title = "任务一", Notes = "" };
+        var second = Item() with { Title = "任务二", Notes = "" };
+        api.Items[first.Id] = first;
+        api.Items[second.Id] = second;
+        var firstReference = new FloatingContentReference("tasks-ui", first.Id.ToString("D"));
+        var secondReference = new FloatingContentReference("tasks-ui", second.Id.ToString("D"));
+        var repo = new Repository();
+        repo.Records[firstReference] = new(firstReference, true, FloatingDisplayMode.Compact, 220, 220, 360, "primary", 24, 24, false, 1);
+        repo.Records[secondReference] = new(secondReference, true, FloatingDisplayMode.Expanded, 320, 320, 360, "primary", 24, 130, true, 1);
+        var dispatcher = new UiDispatcher(Dispatcher.CurrentDispatcher);
+        await using var settings = new SettingsModule(new(new SettingsRepository()));
+        await settings.ActivateAsync();
+        await using var tasks = new TasksUiModule(new(api, dispatcher, new Dialogs(), new Diagnostics()));
+        await tasks.ActivateAsync();
+        await using var module = new FloatingWindowsModule(new(repo, tasks.FloatingFactory, tasks.DetachSource, settings.Api, dispatcher, new Diagnostics(), () => Task.CompletedTask));
+        await module.ActivateAsync();
+        await module.RestoreAsync();
+
+        static string Id(Button button) => System.Windows.Automation.AutomationProperties.GetAutomationId(button);
+        Button[] Tools(Window window) => Descendants(window).OfType<Button>().Where(button => ids.Contains(Id(button))).ToArray();
+        static System.Windows.Shapes.Path Icon(Button button) => Assert.Single(Descendants(button).OfType<System.Windows.Shapes.Path>());
+        static string Name(Button button) => System.Windows.Automation.AutomationProperties.GetName(button);
+        static async Task Click(Button button)
+        {
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        }
+
+        var windows = Windows(module);
+        Assert.Equal(2, windows.Length);
+        var compact = windows.Single(window => !window.Topmost);
+        var expanded = windows.Single(window => window.Topmost);
+        foreach (var window in windows)
+        {
+            window.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative)
+            });
+            window.UpdateLayout();
+            var buttons = Tools(window);
+            Assert.Equal(ids, buttons.Select(Id));
+            foreach (var button in buttons)
+            {
+                var icon = Icon(button);
+                Assert.False(icon.IsHitTestVisible);
+                Assert.Equal(16, icon.ActualWidth);
+                Assert.Equal(16, icon.ActualHeight);
+                Assert.True(button.ActualWidth >= 28 && button.ActualHeight >= 28);
+                Assert.Equal(1.7, icon.StrokeThickness);
+                Assert.NotNull(icon.Stroke);
+            }
+            var expand = Descendants(window).OfType<Button>().Single(button => Id(button) == "FloatingTaskExpand");
+            Assert.True(expand.TranslatePoint(new Point(expand.ActualWidth, 0), window).X <= buttons[0].TranslatePoint(new Point(), window).X);
+        }
+        Assert.InRange(compact.Height, 64, 76);
+        Assert.NotSame(Icon(Tools(compact)[0]), Icon(Tools(expanded)[0]));
+        var pin = Tools(compact)[1];
+        var pinned = Tools(expanded)[1];
+        Assert.Null(Icon(pin).Fill);
+        Assert.NotNull(Icon(pinned).Fill);
+        Assert.NotEqual(Name(pin), Name(pinned));
+        Assert.Equal(Name(pin), pin.ToolTip);
+        Assert.Equal(Name(pinned), pinned.ToolTip);
+        var oldLanguage = MosaicLocalizationManager.Current;
+        try
+        {
+            foreach (var (language, pinLabel, unpinLabel) in new[]
+            {
+                (MosaicLanguage.Chinese, "置顶", "取消置顶"),
+                (MosaicLanguage.English, "Keep on top", "Stop keeping on top")
+            })
+            {
+                MosaicLocalizationManager.SetLanguage(language);
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                Assert.Equal(pinLabel, Name(pin));
+                Assert.Equal(unpinLabel, Name(pinned));
+                Assert.Equal(pinLabel, pin.ToolTip);
+                Assert.Equal(unpinLabel, pinned.ToolTip);
+            }
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(oldLanguage);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        }
+        var originalName = Name(pin);
+        var originalRecord = repo.Records[firstReference];
+
+        repo.Fail = true;
+        await Click(pin);
+        Assert.Equal(originalRecord, repo.Records[firstReference]);
+        Assert.False(compact.Topmost);
+        Assert.Null(Icon(pin).Fill);
+        Assert.Equal(originalName, Name(pin));
+
+        repo.Fail = false;
+        await Click(pin);
+        Assert.True(repo.Records[firstReference].IsTopmost);
+        Assert.True(compact.Topmost);
+        Assert.NotNull(Icon(pin).Fill);
+        Assert.Equal(Name(pinned), Name(pin));
+        await Click(pin);
+        Assert.False(repo.Records[firstReference].IsTopmost);
+        Assert.False(compact.Topmost);
+        Assert.Null(Icon(pin).Fill);
+        Assert.Equal(originalName, Name(pin));
+        Assert.True(expanded.Topmost);
+
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Mosaic.sln"))) root = root.Parent;
+        var directory = Path.Combine(root!.FullName, "artifacts/ui-preview");
+        Directory.CreateDirectory(directory);
+        var oldTheme = MosaicThemeManager.Current;
+        try
+        {
+            foreach (var theme in new[] { MosaicThemeVariant.Light, MosaicThemeVariant.Dark, MosaicThemeVariant.HighContrast })
+            {
+                MosaicThemeManager.Apply(compact.Resources, theme);
+                compact.UpdateLayout();
+                var content = (FrameworkElement)compact.Content;
+                // WPF render checks at 100%, 150%, and 200% without altering the desktop display settings.
+                foreach (var dpi in new[] { 96, 144, 192 })
+                {
+                    var scale = dpi / 96d;
+                    var bitmap = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth * scale),
+                        (int)Math.Ceiling(content.ActualHeight * scale), dpi, dpi, PixelFormats.Pbgra32);
+                    bitmap.Render(content);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var stream = File.Create(Path.Combine(directory, $"floating-toolbar-{theme}-{dpi}.png"));
+                    encoder.Save(stream);
+                }
+            }
+        }
+        finally { MosaicThemeManager.Apply(compact.Resources, oldTheme); }
     });
 
     [Fact]

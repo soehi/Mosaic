@@ -8,7 +8,7 @@ internal static class FloatingLocalization
     {
         var english=language==MosaicLanguage.English;
         var result=new ResourceDictionary();
-        foreach(var (key,zh,en) in new[]{("Title","悬浮任务","Floating task"),("Pin","置顶 / 取消置顶","Toggle always on top"),("Close","关闭小窗","Close this window"),("Restore","打开主窗口","Open main window"),("Move","拖动以移动窗口","Drag to move window"),("SaveError","布局尚未保存，请重试","Layout was not saved. Retry"),("Retry","重试保存","Retry save")})result["Floating."+key]=english?en:zh;
+        foreach(var (key,zh,en) in new[]{("Title","悬浮任务","Floating task"),("Pin","置顶","Keep on top"),("Unpin","取消置顶","Stop keeping on top"),("Close","关闭小窗","Close this window"),("Restore","打开主窗口","Open main window"),("Move","拖动以移动窗口","Drag to move window"),("SaveError","布局尚未保存，请重试","Layout was not saved. Retry"),("Retry","重试保存","Retry save")})result["Floating."+key]=english?en:zh;
         result["Settings.Section.FloatingWindows"]=english?"Floating tasks":"悬浮任务窗";
         var definitions=new FloatingSettings(_=>Task.CompletedTask).Definitions;
         var names=new[]{"Restore windows on startup","New windows always on top","Compact width","Expanded width","Expanded height","Minimum window width","Minimum expanded height","Maximum open windows","Layout save delay","Top drag band","Card padding","Content spacing"};

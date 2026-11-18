@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.12.0",
+  "currentReleaseId": "mosaic-0.12.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -292,6 +292,20 @@
         "关闭浮窗或退出应用时保护未保存的正文。保存失败、版本冲突或取消关闭时保留草稿。"
       ],
       "contentSha256": "388CF74F67BDAC4B3F67F8A81DAEF575F435D04E4E26DE61645EEA4DA9AE0CC2"
+    },
+    {
+      "releaseId": "mosaic-0.12.1",
+      "version": "0.12.1",
+      "releasedOn": "2026-11-18",
+      "previousReleaseId": "mosaic-0.12.0",
+      "added": [],
+      "improved": [
+        "任务浮窗的打开主窗口、置顶和关闭按钮采用统一的矢量图标，置顶时显示实心图钉。"
+      ],
+      "fixed": [
+        "工具按钮保持原有短按和拖动行为；置顶提示随已保存的状态切换。"
+      ],
+      "contentSha256": "941AE6ACDC7F2C4DA6F424B14BD2A211FFB81DB22381F3533904265A55A4E02B"
     }
   ]
 }

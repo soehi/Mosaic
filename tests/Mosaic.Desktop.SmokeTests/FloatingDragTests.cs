@@ -45,6 +45,8 @@ public sealed partial class DesktopTests
             // Lower side border resizes; it must not move the origin.
             await PointerGesture(moved.Right-(int)(5*scale),moved.Top+(moved.Bottom-moved.Top)/2,32,0);
             var resized=ReadRect(hwnd);Assert.Equal(moved.Left,resized.Left);Assert.Equal(moved.Top,resized.Top);Assert.InRange((resized.Right-resized.Left)-(moved.Right-moved.Left),30,34);
+            var pinnedName=Id(floating,"FloatingPin")!.Current.Name;
+            Assert.True(IsTopmost(hwnd));
             foreach(var controlId in new[]{"FloatingPin","FloatingTaskState","FloatingTaskExpand","FloatingRestore"})
             {
                 SetForegroundWindow(hwnd);await Task.Delay(120);
@@ -52,12 +54,16 @@ public sealed partial class DesktopTests
                 await PointerGesture((int)(bounds.Left+bounds.Width/2),(int)(bounds.Top+bounds.Height/2),0,0);
                 var after=ReadRect(hwnd);Assert.Equal(rect.Left,after.Left);Assert.Equal(rect.Top,after.Top);
             }
+            Assert.False(IsTopmost(hwnd));
+            Assert.NotEqual(pinnedName, Id(floating,"FloatingPin")!.Current.Name);
             SetForegroundWindow(hwnd);await Task.Delay(120);
             var expanded=ReadRect(hwnd);Assert.True(expanded.Bottom-expanded.Top>100*scale,$"Did not expand: {expanded}; scale={scale}");
             await PointerGesture(expanded.Left+100,expanded.Top+(int)(5*scale),20,20);
             var saved=ReadRect(hwnd);await Exit();
             process=Start(root);floating=await Until(Floating,"Restoration lost the window");hwnd=(nint)floating.Current.NativeWindowHandle;
             await Task.Delay(300);var restored=ReadRect(hwnd);Assert.InRange(Math.Abs(saved.Left-restored.Left),0,2);Assert.InRange(Math.Abs(saved.Top-restored.Top),0,2);
+            Assert.False(IsTopmost(hwnd));
+            Assert.NotEqual(pinnedName, Id(floating,"FloatingPin")!.Current.Name);
             SetForegroundWindow(hwnd);await Task.Delay(120);
             var close=Id(floating,"FloatingClose")!.Current.BoundingRectangle;
             await PointerGesture((int)(close.Left+close.Width/2),(int)(close.Top+close.Height/2),0,0);
@@ -107,6 +113,27 @@ public sealed partial class DesktopTests
                 Assert.InRange(after.Top-start.Top,dy-10,dy+1);
                 Assert.Equal(start.Bottom-start.Top,after.Bottom-after.Top);
             }
+            var main = await Until(() => AutomationElement.RootElement.FindAll(TreeScope.Children, new PropertyCondition(AutomationElement.ProcessIdProperty, process!.Id)).Cast<AutomationElement>().FirstOrDefault(e => e.Current.Name.StartsWith("Mosaic v", StringComparison.Ordinal)), "Missing main");
+            var mainWindow = (WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern);
+            mainWindow.SetWindowVisualState(WindowVisualState.Minimized);
+            await UntilCondition(() => mainWindow.Current.WindowVisualState == WindowVisualState.Minimized, "Main did not minimize");
+            var pinName = Id(floating, "FloatingPin")!.Current.Name;
+            foreach (var toolId in new[] { "FloatingRestore", "FloatingPin", "FloatingClose" })
+            {
+                var start = await DragHeaderButton(floating, hwnd, toolId, -36, 0);
+                var after = ReadRect(hwnd);
+                Assert.InRange(after.Left - start.Left, -37, -26);
+                Assert.InRange(Math.Abs(after.Top - start.Top), 0, 1);
+                Assert.Equal(start.Right - start.Left, after.Right - after.Left);
+                Assert.Equal(start.Bottom - start.Top, after.Bottom - after.Top);
+                Assert.Equal(hwnd, (nint)Floating()!.Current.NativeWindowHandle);
+                Assert.True(IsTopmost(hwnd));
+                Assert.Equal(pinName, Id(floating, "FloatingPin")!.Current.Name);
+            }
+            Assert.Equal(WindowVisualState.Minimized, mainWindow.Current.WindowVisualState);
+            var restore = Id(floating, "FloatingRestore")!.Current.BoundingRectangle;
+            await PointerGesture((int)(restore.Left + restore.Width / 2), (int)(restore.Top + restore.Height / 2), 0, 0);
+            await UntilCondition(() => mainWindow.Current.WindowVisualState == WindowVisualState.Normal, "Short press did not restore the main window");
             // Dragging suppresses the buttons' own effects: the task stays open and the card stays compact.
             var state=Id(floating,"FloatingTaskState")!;
             Assert.Equal(ToggleState.Off,((TogglePattern)state.GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState);
@@ -156,6 +183,8 @@ public sealed partial class DesktopTests
     [StructLayout(LayoutKind.Explicit,Size=40)] private struct NativeInput { [FieldOffset(0)] public uint Type; [FieldOffset(8)] public NativeMouse Mouse; }
     [DllImport("user32.dll")] private static extern nint SetThreadDpiAwarenessContext(nint context);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
+    private static bool IsTopmost(nint hwnd) => (GetWindowLong(hwnd, -20) & 0x00000008) != 0;
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(nint hwnd, int index);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint hwnd,out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativePoint point);
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x,int y);
