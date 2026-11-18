@@ -7,6 +7,7 @@
 - 模块边界：Tasks UI 只通过公开 `IFloatingDetachSource` 提交预览；Floating Windows 不取得任务 DTO；预览不写存储。无公开类型新增，`build/public-api.txt` 不变；无设置、数据库、配置或模块装配迁移，设置维持 98 项（16 普通/82 高级）。
 - 验证：Release 构建 0 警告/0 错误；非桌面自动化 177/177 通过（WPF 72/72）。新增 `artifacts/ui-preview/floating-placement-preview.png` 显示幽灵窗样式；真实指针 Smoke 通过：`Floating_header_buttons_move_on_drag_and_still_click_on_short_press`（从 `FloatingTaskState`/`FloatingTaskExpand` 拖动移动窗口、完成状态与紧凑高度不变、阈值内短按仍展开），`Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds` 连续 2 次通过（移动、缩放、按钮短按、重启恢复与关闭）。真实指针拖出速览、100–200% DPI、多屏与高对比度仍待独立桌面验收。
 - 兼容：窗口记录结构不变，旧记录按原字段读取；关闭后再拖出会使用新落点，尺寸/模式/置顶沿用旧记录。
+- 本机产物（2026-11-18）：自包含目录 `artifacts/local-run`，`Mosaic.Desktop.exe` ProductVersion 0.11.0；MSI `artifacts/installer/Mosaic-0.11.0-win-x64.msi`，51,961,988 字节，ProductVersion `0.11.0`，SHA-256 `B52BBE79D5A95DB95B2D5E8FF055752C83B931B7D3C47217244C4680C89DB435`，校验文件 `artifacts/installer/SHA256SUMS-0.11.0.txt`。MSI 数据库回读确认桌面快捷方式归属 `Application` 且工作目录为 `INSTALLFOLDER`；打包使用 `SuppressValidation`（本机无 pwsh，按 `build/package.ps1` 步骤复现），真实安装、升级与 ICE 矩阵未在本轮执行。
 
 ## 0.10.2：速览整行拖出与筛选视觉（2026-11-18）
 
