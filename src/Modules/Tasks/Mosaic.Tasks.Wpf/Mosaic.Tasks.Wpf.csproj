@@ -8,5 +8,6 @@
 <ProjectReference Include="..\..\Settings\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
 <PackageReference Include="CommunityToolkit.Mvvm" />
 </ItemGroup>
-<ItemGroup><ProjectReference Include="../../FloatingWindows/Mosaic.FloatingWindows.Contracts/Mosaic.FloatingWindows.Contracts.csproj" /></ItemGroup></Project>
+<ItemGroup><ProjectReference Include="../../FloatingWindows/Mosaic.FloatingWindows.Contracts/Mosaic.FloatingWindows.Contracts.csproj" /></ItemGroup>
+<ItemGroup><InternalsVisibleTo Include="Mosaic.Wpf.Tests" /></ItemGroup></Project>
 

@@ -8,6 +8,7 @@ $mosaicRoot = Split-Path $PSScriptRoot -Parent
 if (-not $NoPublish) { & (Join-Path $PSScriptRoot 'publish.ps1') }
 $mosaicPublish = if ([IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirectory } else { Join-Path $mosaicRoot $PublishDirectory }
 if (-not (Test-Path -LiteralPath (Join-Path $mosaicPublish 'Mosaic.Desktop.exe'))) { throw 'Publish the application first.' }
+& (Join-Path $PSScriptRoot 'verify-published.ps1') -PublishDirectory $mosaicPublish -ProductVersion $ProductVersion
 & (Join-Path $PSScriptRoot 'release-content.ps1') -ProgramVersion $ProductVersion -CheckOnly -CheckManifestPath (Join-Path $mosaicPublish 'release-manifest.json')
 $mosaicRuntimeDataDirectories = @('Data', 'Config', 'Logs')
 function Test-MosaicPayloadItem([IO.FileSystemInfo]$Item) {

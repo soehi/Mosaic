@@ -118,6 +118,25 @@ public sealed class ReleaseSummaryTests
     }
 
     [Fact]
+    public void Shipped_manifest_announces_every_version_after_the_last_receipt()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Mosaic.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        var version = typeof(ReleaseSummaryModule).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+        var manifest = ReleaseManifest.Parse(File.ReadAllText(Path.Combine(directory.FullName, "build/release-content.json")), version);
+        Assert.True(manifest.IsSuccess, manifest.Error?.Message);
+        var result = ReleaseSummaryComposer.Compose(manifest.Value, ["mosaic-0.12.2"]);
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var latest = manifest.Value.Releases[^1];
+        Assert.Contains("[0.13.0]", result.Value.Notes);
+        Assert.Contains($"[{latest.Version}]", result.Value.Notes);
+        Assert.Equal(latest.ReleaseId, result.Value.ReleaseId);
+        Assert.Empty(ReleaseSummaryComposer.Compose(manifest.Value, [latest.ReleaseId]).Value.Notes);
+    }
+
+    [Fact]
     public async Task Published_start_creates_once_with_explicit_incomplete_state_and_cached_attempt()
     {
         var tasks = new Tasks();

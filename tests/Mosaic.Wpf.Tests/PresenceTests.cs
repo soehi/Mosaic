@@ -346,7 +346,7 @@ public sealed class PresenceTests
         await session.InitializeAsync(); Texts(session.View);
         Descendants(session.View).OfType<Button>().Single(button => button.DataContext?.GetType().Name == "TaskPeekRow" && button.Name == "TaskCard").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Texts(session.View);
-        Assert.Contains(Descendants(session.View).OfType<TextBox>(), field => field.Text.Contains("删除"));
+        Assert.Contains(Descendants(session.View).OfType<TextBlock>(), text => text.Text.Contains("删除"));
         var retry = Descendants(session.View).OfType<Button>().Last(button => button.Content as string == "重试");
         retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await session.CloseAsync(); Assert.True(token.IsCancellationRequested);

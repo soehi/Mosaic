@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.13.0",
+  "currentReleaseId": "mosaic-0.13.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -339,6 +339,20 @@
         "普通编辑不再影响自动归档计时基线；取消完成会停止计时。"
       ],
       "contentSha256": "DD0D244E625D81B19995F14D60C1D3524F6ADAC4F71386319C2D3FA492CF5830"
+    },
+    {
+      "releaseId": "mosaic-0.13.1",
+      "version": "0.13.1",
+      "releasedOn": "2026-11-18",
+      "previousReleaseId": "mosaic-0.13.0",
+      "added": [],
+      "improved": [
+        "任务速览详情改为卡片式只读视图：标题、状态与备注集中在一张卡片内，时间信息独立显示；备注可直接选中复制，不再出现点击后的绿色焦点框。"
+      ],
+      "fixed": [
+        "0.13.0 安装包缺少正式发布标记，升级后未生成“更新简要”。本次以正式发布构建重新打包，升级到 0.13.1 后会补发生成一条覆盖 0.13.0 与 0.13.1 的更新简要，并在此之前增加打包校验。"
+      ],
+      "contentSha256": "1D1EB0AC9E68F1E231F254C483540228EC1C9EDC4859D48A8AACCF8CDE86391E"
     }
   ]
 }

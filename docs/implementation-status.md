@@ -1,5 +1,12 @@
 # Mosaic：实施与验证记录
 
+## 0.13.1：速览详情卡片与更新简要补发（2026-11-18）
+
+- 根因位置：`build/publish.ps1` 的 0.13.0 发布流程未以 `-p:MosaicPublishedBuild=true` 构建，`BuiltInModuleCatalog.cs:126–134` 因此将已安装程序判定为开发构建，`ReleaseSummaryModule` 在启动时直接返回 `DevelopmentBuild`，用户数据目录没有 `mosaic-0.13.0` 回执。`TaskPeekDetailsView.Render` 此前把标题、状态、备注等以多条 `TextBox` 逐条拼接，点击标题或正文即触发全局 TextBox 模板的 2px 焦点框（图 1、图 2）。
+- 改动位置：`TaskPeekDetailsView` 改为卡片式只读视图——标题、状态、备注收敛到圆角卡片 `Card`，时间信息独立显示；备注改用 `Peek.xaml` 中的 `TaskPeekNotesStyle`（无边框、可选中复制、键盘焦点沿用共享短条）。新增 `build/verify-published.ps1` 在打包前校验 `MosaicPublishedBuild` 元数据与 `release-manifest.json`，并在 `build/package.ps1` 中调用；`tests/Mosaic.ReleaseSummary.Tests/ReleaseSummaryTests.cs` 新增“清单覆盖所有未公告版本”的回归；`tests/Mosaic.Wpf.Tests/PeekDetailsTests.cs` 覆盖卡片布局、只读备注、紧凑模式与三主题渲染截图。
+- 修复效果：以正式发布构建重新打包后，在复制真实数据目录的隔离实例上首次启动即生成 `mosaic-0.13.1` 更新简要，正文覆盖 0.13.0 与 0.13.1 全部条目；第二次启动不回执重复生成。0.13.0 用户在升级后启动 0.13.1 时同样会收到这条合并的更新简要。
+- 验证：非桌面回归 187/188 通过（1 项 PresenceTests 断言详情失败分支仍查找 TextBox，新视图改为 TextBlock，已修正断言并重跑通过）；WPF 回归含浅色、深色、高对比度速览详情截图（各文件及验证入口见[改动清单](releases/v0.13.1-files.md)）；MSI 经 `msi.dll` 表查询确认 `StartupCleanup` 组件及卸载清理项存在，快捷方式与安装目录工作目录保持 0.13.0 行为。桌面真实登录与 MSI 实际安装/升级仍以既有流程另行验收。
+
 ## 0.13.0：任务归档、自动归档与登录自启（2026-11-18）
 
 - 根因位置：`TaskService.SetCompletedAsync` 只保存布尔完成状态，自动归档缺少完成时间基线；`SqliteTaskRepository` 没有归档时间、恢复时间和到期候选查询；`HostSettingSource.ApplyAsync` 为空操作，宿主设置保存后不会同步系统启动项。
