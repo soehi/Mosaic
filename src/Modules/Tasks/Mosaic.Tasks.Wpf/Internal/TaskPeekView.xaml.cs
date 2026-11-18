@@ -14,6 +14,7 @@ internal partial class TaskPeekView : UserControl
     private async void CompleteTask(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
+        if (_suppressClick) return;
         CancelDrag();
         if (sender is Button { DataContext: TaskPeekRow row } && CompleteRequested is { } complete) await complete(row);
     }
@@ -25,7 +26,7 @@ internal partial class TaskPeekView : UserControl
     internal Func<TaskPeekRow, FloatingPlacementHint?, CancellationToken, Task>? DetachRequested;
     internal Func<bool>? CanDetach;
     internal event Action<bool>? DragChanged;
-    private Button? _candidate;
+    private FrameworkElement? _candidate;
     private Point _start;
     private Point _grab;
     private bool _dragging, _suppressClick;
@@ -41,8 +42,8 @@ internal partial class TaskPeekView : UserControl
     private void StartGesture(object sender, MouseButtonEventArgs e)
     {
         CancelDrag(); _suppressClick = false;
-        if (CanDetach?.Invoke() != true || sender is not Button button) return;
-        _candidate = button; _start = e.GetPosition(this); _grab = e.GetPosition(button);
+        if (CanDetach?.Invoke() != true || sender is not FrameworkElement surface) return;
+        _candidate = surface; _start = e.GetPosition(this); _grab = e.GetPosition(surface);
     }
     private void MoveGesture(object sender, MouseEventArgs e)
     {
@@ -56,9 +57,9 @@ internal partial class TaskPeekView : UserControl
     }
     internal void ActivateDrag(Point position)
     {
-        if (_candidate is null) return;
-        _dragging = true; _suppressClick = true; _candidate.CaptureMouse(); DragChanged?.Invoke(true);
-        _preview = new DragHintAdorner(this, TaskLocalization.Localize("Tasks.Floating.Drag", "松手以创建小窗 · Esc取消"));
+        if (_candidate is not { } surface) return;
+        _dragging = true; _suppressClick = true; surface.CaptureMouse(); DragChanged?.Invoke(true);
+        _preview = new DragHintAdorner(this, TaskLocalization.Localize("Tasks.Floating.Drag", "松手以创建小窗 · Esc取消"), surface);
         AdornerLayer.GetAdornerLayer(this)?.Add(_preview);
         _escapeHandler = (_, args) => { if (args.Key == Key.Escape) CancelDrag(); };
         Window.GetWindow(this)?.PreviewKeyDown += _escapeHandler;
@@ -69,18 +70,20 @@ internal partial class TaskPeekView : UserControl
     {
         if (!_dragging || _candidate is null) { _candidate = null; return; }
         e.Handled = true;
-        var button = _candidate; _candidate = null;
-        await FinishDrag(button, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
+        var surface = _candidate; _candidate = null;
+        await FinishDrag(surface, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
     }
     private async void CaptureLost(object sender, MouseEventArgs e)
     {
         if (!_dragging || _candidate is null) return;
-        var button = _candidate; _candidate = null;
-        await FinishDrag(button, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
+        // A child button releasing its own capture during hand-off must not end the drag.
+        if (!ReferenceEquals(e.OriginalSource, _candidate)) return;
+        var surface = _candidate; _candidate = null;
+        await FinishDrag(surface, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
     }
-    internal async Task FinishDrag(Button button, Point windowPosition, Point viewPosition)
+    internal async Task FinishDrag(FrameworkElement surface, Point windowPosition, Point viewPosition)
     {
-        if (button.DataContext is not TaskPeekRow row) { CancelDrag(); return; }
+        if (surface.DataContext is not TaskPeekRow row) { CancelDrag(); return; }
         var window = Window.GetWindow(this);
         var outside = window is not null && (windowPosition.X < 0 || windowPosition.Y < 0 || windowPosition.X > window.ActualWidth || windowPosition.Y > window.ActualHeight);
         var opening = new CancellationTokenSource(); _opening = opening;
@@ -100,8 +103,8 @@ internal partial class TaskPeekView : UserControl
         var host = Window.GetWindow(this);
         if (_escapeHandler is not null && host is not null) host.PreviewKeyDown -= _escapeHandler;
         _escapeHandler = null;
-        var button = _candidate; _candidate = null;
-        if (button?.IsMouseCaptured == true) button.ReleaseMouseCapture();
+        var surface = _candidate; _candidate = null;
+        if (surface?.IsMouseCaptured == true) surface.ReleaseMouseCapture();
         if (was) DragChanged?.Invoke(false);
         return was;
     }

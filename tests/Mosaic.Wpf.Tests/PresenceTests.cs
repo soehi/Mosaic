@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Linq.Expressions;
 using System.Windows.Media.Imaging;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using Mosaic.Contracts;
 using Mosaic.DesktopPresence.Contracts;
 using Mosaic.DesktopPresence.Wpf;
@@ -90,7 +91,7 @@ public sealed class PresenceTests
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
     [Fact]
-    public Task Peek_whole_card_routes_title_status_padding_gestures_but_completion_and_filter_do_not() => Sta.Run(async () =>
+    public Task Peek_whole_label_routes_title_status_padding_and_buttons_but_filter_does_not() => Sta.Run(async () =>
     {
         var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("整卡标题")])) };
         await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
@@ -98,20 +99,35 @@ public sealed class PresenceTests
         var view = session.View; var type = view.GetType();
         type.GetField("CanDetach", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<bool>)(() => true));
         var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
+        var row = (FrameworkElement)card.Parent;
         var title = Descendants(card).OfType<TextBlock>().Single(text => text.Text == "整卡标题");
         var status = Descendants(card).OfType<TextBlock>().Single(text => text.Text == "未完成");
         var cancel = type.GetMethod("CancelDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var candidate = type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        foreach (var origin in new UIElement[] { title, status, card })
+        foreach (var origin in new UIElement[] { title, status, card, Completion(view) })
         {
             origin.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseDownEvent });
-            Assert.Same(card, candidate.GetValue(view)); cancel.Invoke(view, null);
+            Assert.Same(row, candidate.GetValue(view)); cancel.Invoke(view, null);
         }
-        foreach (var origin in new UIElement[] { Completion(view), Filter(view, "All") })
+        foreach (var origin in new UIElement[] { Filter(view, "All") })
         {
             origin.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseDownEvent });
             Assert.Null(candidate.GetValue(view));
         }
+    });
+
+    [Fact]
+    public Task Peek_summary_and_filter_segments_stay_inside_narrow_layouts() => Sta.Run(async () =>
+    {
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("窄布局任务")])) };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme")); await session.InitializeAsync(); Texts(session.View);
+        session.View.Measure(new Size(236, 420)); session.View.Arrange(new Rect(0, 0, 236, 420)); session.View.UpdateLayout();
+        var filters = (FrameworkElement)session.View.FindName("Filters");
+        Assert.Equal(Visibility.Visible, filters.Visibility);
+        var right = filters.TranslatePoint(new Point(filters.ActualWidth, 0), session.View).X;
+        Assert.InRange(right, 1, 236);
+        Assert.InRange(filters.ActualWidth, 120, 236);
     });
 
     private static Button Completion(FrameworkElement view) => Descendants(view).OfType<Button>().Single(button => button.Name == "CompleteButton");
@@ -160,17 +176,29 @@ public sealed class PresenceTests
         type.GetField("DetachRequested", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<object, FloatingPlacementHint?, CancellationToken, Task>)((_, _, _) => { detachCount++; return Task.CompletedTask; }));
         var host = new Window { Content = view, Width = 300, Height = 200, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
         host.Show();
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative) });
+        view.UpdateLayout();
         var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
-        card.Measure(new Size(400, double.PositiveInfinity)); card.Arrange(new Rect(0, 0, 400, 36));
+        var row = (FrameworkElement)card.Parent;
         try
         {
-            type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, card);
+            type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, row);
             type.GetField("_start", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
             type.GetField("_grab", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
             type.GetMethod("ActivateDrag", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, [new Point(60, 60)]);
+            host.UpdateLayout();
             Assert.True((bool)type.GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
             Assert.Null(Descendants(view).OfType<Popup>().FirstOrDefault());
-            await (Task)type.GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(view, [card, new Point(-500, -500), new Point(-500, -500)])!;
+            var layer = AdornerLayer.GetAdornerLayer(view);
+            Assert.NotNull(layer);
+            Assert.Contains(layer.GetAdorners(view) ?? [], adorner => adorner.GetType().Name == "DragHintAdorner");
+            var root = new DirectoryInfo(AppContext.BaseDirectory);
+            while (root is not null && !File.Exists(Path.Combine(root.FullName, "Mosaic.sln"))) root = root.Parent;
+            var directory = Path.Combine(root!.FullName, "artifacts/ui-preview"); Directory.CreateDirectory(directory);
+            var image = new RenderTargetBitmap(300, 200, 96, 96, PixelFormats.Pbgra32); image.Render(host);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
+            using var stream = File.Create(Path.Combine(directory, "peek-drag-frame.png")); encoder.Save(stream);
+            await (Task)type.GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(view, [row, new Point(-500, -500), new Point(-500, -500)])!;
             Assert.Equal(1, detachCount);
             Assert.False((bool)type.GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
             Assert.Null((UIElement?)type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view));

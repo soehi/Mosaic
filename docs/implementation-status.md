@@ -1,5 +1,14 @@
 # Mosaic：实施与验证记录
 
+## 0.10.2：速览整行拖出与筛选视觉（2026-11-18）
+
+- 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml:87`（0.10.1 基线）四个鼠标处理器只绑在详情 Button 上，完成按钮和两列间约 4 DIP 留白不属于可拖出元素；`TaskPeekView.xaml.cs:42–47`（`StartGesture`）只接受 `Button` 起点。`DragHintAdorner` 只显示跟随指针的文字，拖动时任务标签本身没有标记。筛选视觉位于 `TaskPeekView.xaml:51–58` 与 `:14–43`：摘要与筛选放在 `WrapPanel`，单选按钮使用透明底与临时边框，选中态和间距不统一。
+- 改动位置：`TaskPeekView.xaml` 把 `PreviewMouseLeftButtonDown/Move/Up`、`LostMouseCapture` 移到带 `Background="Transparent"` 的 `TaskRow`，`TaskCard` 只保留 `Click` 与右键菜单；筛选区改为“摘要 + 轨道”的 `Grid`，`PeekFilterButton` 重写为轨道内药丸模板并新增 `FilterOptions`。`TaskPeekView.xaml.cs`：`_candidate` 改为 `FrameworkElement`，`StartGesture/ActivateDrag/EndGesture/FinishDrag/CancelDrag` 使用行容器，`CaptureLost` 通过 `ReferenceEquals(e.OriginalSource, _candidate)` 忽略子按钮交还捕获的冒泡，`CompleteTask` 增加 `_suppressClick` 保护。`DragHintAdorner.cs`：新增整标签虚线 `Rectangle` 与主题化提示。`TaskPeekViewFactory.cs`：筛选遍历与焦点回退改用 `FilterOptions.Children`。`tests/Mosaic.Wpf.Tests/PresenceTests.cs`：整标签路由覆盖标题、状态文字、任务卡片、完成按钮，筛选仍不建立候选；新增窄宽度布局回归。
+- 模块边界：拖出仍由 Tasks UI 通过公开 `IFloatingDetachSource` 申请；Floating Windows、Presence、Storage、Tasks Core 未改；无公开 API 变化；无设置、数据库、配置或模块装配迁移，设置维持 98 项（16 普通/82 高级）。
+- 验证：Release 构建 0 警告/0 错误；非桌面自动化 173/173 通过（WPF 69/69）。`presence-popup-light/dark`、`presence-tasks-readonly` 预览图已重拍，新增 `peek-drag-frame.png` 显示整标签虚线框；窄宽度回归断言 236 DIP 内容宽下筛选完整位于视图内。真实指针拖出、100–200% DPI、多屏与高对比度仍待独立桌面验收，不以路由测试代替。
+- 构建环境修复：此前锁文件被带 `-r win-x64` 的还原写入了 RID 目标，未声明 `RuntimeIdentifiers` 的项目在 `dotnet restore Mosaic.sln --locked-mode` 时报 NU1004。本轮为这些项目重新生成非 RID 锁文件，仅 `Mosaic.Desktop` 与 `Mosaic.Settings.Wpf`（声明 `RuntimeIdentifiers=win-x64`）保留 `win-x64` 目标；锁定解决方案还原、Desktop 自包含还原与 `dotnet publish` 全部通过，产品依赖未变。发布内容指纹用同一算法复核了全部 14 条记录。
+- 本机产物（2026-11-18）：自包含目录 `artifacts/local-run`；MSI `artifacts/installer/Mosaic-0.10.2-win-x64.msi`，ProductVersion 0.10.2，校验值见 `artifacts/installer/SHA256SUMS-0.10.2.txt`。MSI 数据库回读确认桌面快捷方式归属 `Application` 且工作目录为 `INSTALLFOLDER`。打包使用 `SuppressValidation`，真实安装、升级与 ICE 矩阵未在本轮执行。
+
 ## 0.10.1：整卡拖出捕获修复与速览筛选样式（2026-11-17）
 
 - 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs:45–77`（`MoveGesture`/`EndGesture`/`CaptureLost`）超过拖动阈值后打开 `Popup`，`Popup` 打开时抢占鼠标捕获，按钮收到 `LostMouseCapture` 后被旧逻辑当作失败取消；快速拖动时按钮收不到 `MouseLeftButtonUp`，缺少终局兜底。视觉问题位于 `TaskPeekView.xaml:14–43`（`PeekFilterButton`）：分段控件缺少统一高度与清晰选中边界，弱化可读性。

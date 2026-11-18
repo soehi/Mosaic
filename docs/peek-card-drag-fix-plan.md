@@ -41,7 +41,7 @@
 
 ### 3.3 保持不变的行为
 
-- 手势仍只绑在任务卡 Button（`TaskPeekView.xaml:84`），不迁移到面板容器；完成按钮与筛选控件的排除路由不变。
+- 当时手势仍只绑在任务卡 Button（`TaskPeekView.xaml:84`），不迁移到面板容器；完成按钮与筛选控件的排除路由不变。0.10.2 已按用户要求把命中扩大到整行（含完成按钮），见 [速览整标签拖出与筛选视觉收口](peek-drag-area-and-filter-polish-plan.md)。
 - 短按打开详情、`_suppressClick`、右键菜单、`DragChanged` 交互保活、公开 `IFloatingDetachSource` 申请链路与去重全部不变；Tasks UI 不读 Presence 或 Floating Windows 内部。
 - `floating.*`、`desktop.*` 设置与窗口恢复记录不变；本修复不改设置。
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.10.1",
+  "currentReleaseId": "mosaic-0.10.2",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -246,6 +246,21 @@
         "捕获意外丢失或快速甩出鼠标时，按最后指针位置完成拖出或取消，不再静默失效。"
       ],
       "contentSha256": "EBF93E9C26F367AEA1D8793F6702E03F98E11F6DE39561B9E032AF550B640B99"
+    },
+    {
+      "releaseId": "mosaic-0.10.2",
+      "version": "0.10.2",
+      "releasedOn": "2026-11-18",
+      "previousReleaseId": "mosaic-0.10.1",
+      "added": [],
+      "improved": [
+        "速览整行都可作为拖出起点，包括完成按钮、状态文字与行内留白；拖动时以虚线框标出整个任务标签。",
+        "速览筛选改为带轨道的分段控件，选中项使用表面色药丸，摘要与筛选同排并在窄宽度下自动截断。"
+      ],
+      "fixed": [
+        "点击任务标签仍打开详情、点击完成按钮仍切换状态；拖出仍只通过公开分离来源申请，模块边界与设置不变。"
+      ],
+      "contentSha256": "0351151B10E7DC792B39DA5102BD556AF8C407CBE61495D0F433BB3AE676A69C"
     }
   ]
 }

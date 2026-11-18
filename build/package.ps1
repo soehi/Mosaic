@@ -1,5 +1,5 @@
 param(
-    [string]$ProductVersion = '0.10.1',
+    [string]$ProductVersion = '0.10.2',
     [switch]$NoPublish,
     [string]$PublishDirectory = 'artifacts/local-run',
     [switch]$SkipValidation)

@@ -14,26 +14,39 @@
         <Style x:Key="PeekFilterButton" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
             <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="MinWidth" Value="54"/>
+            <Setter Property="Margin" Value="1,0"/>
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderThickness="1" BorderBrush="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsChecked" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+                            </MultiTrigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
-                                <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter TargetName="Frame" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
                                 <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
                             </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -48,14 +61,22 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <WrapPanel Margin="0,0,0,8">
-                <TextBlock x:Name="Summary" FontSize="12" Margin="0,0,0,8" Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                <WrapPanel x:Name="Filters" VerticalAlignment="Center">
-                    <RadioButton Tag="All" AutomationProperties.AutomationId="PeekFilterAll" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked" Padding="6,4"/>
-                    <RadioButton Tag="Open" AutomationProperties.AutomationId="PeekFilterOpen" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked" Padding="6,4"/>
-                    <RadioButton Tag="Completed" AutomationProperties.AutomationId="PeekFilterCompleted" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked" Padding="6,4"/>
-                </WrapPanel>
-            </WrapPanel>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="Summary" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                <Border x:Name="Filters" Grid.Column="1" Margin="10,0,0,0" Padding="1" CornerRadius="8" BorderThickness="1"
+                        Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                        BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
+                    <StackPanel x:Name="FilterOptions" Orientation="Horizontal">
+                        <RadioButton Tag="All" AutomationProperties.AutomationId="PeekFilterAll" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked"/>
+                        <RadioButton Tag="Open" AutomationProperties.AutomationId="PeekFilterOpen" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked"/>
+                        <RadioButton Tag="Completed" AutomationProperties.AutomationId="PeekFilterCompleted" Style="{StaticResource PeekFilterButton}" GroupName="PeekFilter" Checked="FilterClicked"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
             <StackPanel Grid.Row="1">
                 <DockPanel x:Name="OperationFeedback" Visibility="Collapsed" Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite">
                     <Button x:Name="DismissFeedback" DockPanel.Dock="Right" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"/>
@@ -73,7 +94,7 @@
                         <ItemsControl x:Name="Rows">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="{Binding Margin}">
+                                    <Grid x:Name="TaskRow" Margin="{Binding Margin}" Background="Transparent" PreviewMouseLeftButtonDown="StartGesture" PreviewMouseMove="MoveGesture" PreviewMouseLeftButtonUp="EndGesture" LostMouseCapture="CaptureLost">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
@@ -84,7 +105,7 @@
                                                 <Path Visibility="{Binding GlyphVisibility}" Width="18" Height="18" Stretch="Uniform" Data="{Binding Geometry}" StrokeThickness="1.7" Style="{StaticResource PeekStatusGlyph}"/>
                                             </Grid>
                                         </Button>
-                                        <Button x:Name="TaskCard" Grid.Column="1" Click="OpenTask" PreviewMouseLeftButtonDown="StartGesture" PreviewMouseMove="MoveGesture" PreviewMouseLeftButtonUp="EndGesture" LostMouseCapture="CaptureLost" ContextMenuOpening="OpenMenu" Padding="{Binding Padding}" BorderThickness="1" HorizontalContentAlignment="Stretch" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}" AutomationProperties.Name="{Binding AccessibleName}" ToolTip="{DynamicResource Tasks.Peek.ViewDetails}">
+                                        <Button x:Name="TaskCard" Grid.Column="1" Click="OpenTask" ContextMenuOpening="OpenMenu" Padding="{Binding Padding}" BorderThickness="1" HorizontalContentAlignment="Stretch" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}" AutomationProperties.Name="{Binding AccessibleName}" ToolTip="{DynamicResource Tasks.Peek.ViewDetails}">
                                             <Button.ContextMenu>
                                                 <ContextMenu/>
                                             </Button.ContextMenu>

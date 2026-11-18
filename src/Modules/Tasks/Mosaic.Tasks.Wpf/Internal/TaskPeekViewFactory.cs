@@ -239,7 +239,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         if (focused?.DataContext is TaskPeekRow focusedRow) { _focusId = focusedRow.Id; _focusName = focused.Name; }
         var focusedId = _focusId; var focusedName = _focusName;
         _view.Filters.Visibility = _options.ShowFilterSwitch ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var button in _view.Filters.Children.OfType<System.Windows.Controls.RadioButton>())
+        foreach (var button in _view.FilterOptions.Children.OfType<System.Windows.Controls.RadioButton>())
         {
             var filter = Enum.Parse<TaskFilter>((string)button.Tag);
             button.Content = TaskLocalization.Localize("Tasks.Peek.Filter." + filter, filter.ToString());
@@ -278,7 +278,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
                 var node = row is null ? null : _view.Rows.ItemContainerGenerator.ContainerFromItem(row);
                 var target = node is null ? null : Buttons(node).FirstOrDefault(button => button.Name == focusedName && button.IsEnabled && button.IsVisible);
                 if (target is not null) target.Focus();
-                else if (_options.ShowFilterSwitch) _view.Filters.Children.OfType<RadioButton>().FirstOrDefault(button => button.IsChecked == true)?.Focus();
+                else if (_options.ShowFilterSwitch) _view.FilterOptions.Children.OfType<RadioButton>().FirstOrDefault(button => button.IsChecked == true)?.Focus();
                 else Buttons(_view.Rows).FirstOrDefault(button => button.IsEnabled && button.IsVisible)?.Focus();
                 _focusId = null; _focusName = null;
             }));

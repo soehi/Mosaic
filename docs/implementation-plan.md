@@ -666,6 +666,16 @@ WPF Closing 事件先取消默认关窗，交给 ShutdownCoordinator 异步处�
 
 完成切换只通过 Tasks 公开 `SetCompletedAsync` 提交，使用行 Revision 并由 `tasks.changes` 刷新；筛选是会话内状态，不写设置或主页面。通用选项由 Presence 通过扩展的 `CompanionViewOptions` 传递，浮窗模块不解释任务字段。能力缺口、默认行为、新增设置、拖动/点击判定和验收矩阵见 [速览完成切换与筛选计划](peek-completion-filter-plan.md)。
 
+### 阶段 17：速览整标签拖出与筛选视觉（0.10.2）
+
+状态：2026-11-18，已实施源码与自动化验证；真实指针与 DPI 矩阵仍待独立桌面验收。
+
+交付：拖出手势从任务卡片 Button 移到整行容器，完成按钮、任务卡与列间留白都可作为起点；拖动时以主题强调色虚线框标出整个任务标签；筛选重做为带轨道的三段分段控件，摘要与筛选同排、窄宽度下摘要截断。点击详情、完成切换、筛选和右键菜单语义不变。
+
+根因：`TaskPeekView.xaml:87`（0.10.1 基线）处理器只绑定在详情 Button，完成按钮与列间留白没有拖动候选；`DragHintAdorner` 只有文字提示；筛选使用 `WrapPanel` 与临时按钮边框，选中态和间距不统一。
+
+改动：`TaskPeekView.xaml/.cs`、`DragHintAdorner.cs`、`TaskPeekViewFactory.cs`；测试 `tests/Mosaic.Wpf.Tests/PresenceTests.cs`。无设置、数据库、配置或装配迁移；模块边界与公开拖出申请链路不变。详见 [专项计划](peek-drag-area-and-filter-polish-plan.md)。
+
 阶段按依赖顺序推进，每阶段验证后再继续，不提前构建提醒、同步或插件市场。
 
 每个阶段交付时遵循 [架构原则](architecture-principles.md) 第 13 节的同步交付规则：源码、测试、用户可见行为、发布说明和实施记录必须属于同一个变更单元；影响旧数据目录、配置或安装升级的改动必须同时交付迁移逻辑与迁移验收项。发布说明必须写清对已有安装的影响和用户需要执行的动作。诊断与修复还必须写明错误位置（具体文件、行、契约或调用链，说明根因）和改动位置（实际修改的文件、行、测试与文档），二者随同一交付单元记录。
@@ -730,3 +740,7 @@ Presentation.Contracts增加通用内容工厂/分离来源/交互协议，并�
 ## 0.10.1 速览整卡拖出修复补充
 
 已实施：新增内部 `DragHintAdorner`（Tasks WPF），拖动提示从抢占鼠标捕获的 `Popup` 改为 `AdornerLayer` 呈现；`TaskPeekView` 的 `CaptureLost`/`EndGesture` 收敛到统一终局判定，面板外判定直接使用窗口坐标，并补 Esc 取消。模块边界不变：拖出申请仍走公开分离来源，不新增设置、依赖或迁移。根因、实施步骤与验收矩阵见 [速览整卡拖出修复计划](peek-card-drag-fix-plan.md)。
+
+## 0.10.2 速览整行拖出与筛选视觉补充
+
+已实施：`TaskPeekView.xaml` 把四个鼠标处理器从 `TaskCard` 移到带透明背景的 `TaskRow`，完成按钮与列间留白也建立拖动候选；`TaskPeekView.xaml.cs` 的候选改为行容器，`CaptureLost` 只处理行容器自身捕获丢失，`CompleteTask` 在拖动后抑制点击；`DragHintAdorner` 增加整标签虚线框并改用主题画笔；筛选改为“摘要 + 轨道 + 药丸段”的 `Grid` 布局，`TaskPeekViewFactory` 改用 `FilterOptions`。`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 覆盖四类起点与窄宽度布局。无设置、数据库、配置或模块装配迁移，公开 API 不变；详见 [专项计划](peek-drag-area-and-filter-polish-plan.md)。
