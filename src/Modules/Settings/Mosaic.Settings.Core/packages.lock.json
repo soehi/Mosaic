@@ -8,7 +8,7 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.11.0, )"
+          "Mosaic.Contracts": "[0.12.0, )"
         }
       }
     }

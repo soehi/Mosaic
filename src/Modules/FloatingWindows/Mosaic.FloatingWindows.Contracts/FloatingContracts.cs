@@ -24,6 +24,8 @@ public interface IFloatingWindowSurface
     FloatingWindowRecord CreateRecord(FloatingContentReference reference, FloatingPlacementHint? hint);
     Task<OperationResult> ShowAsync(FloatingWindowRecord record, CancellationToken cancellationToken);
     void Activate(FloatingContentReference reference);
+    Task<OperationResult> PrepareCloseAsync(FloatingContentReference reference, CancellationToken cancellationToken) => Task.FromResult(OperationResult.Success());
+    Task CancelClosePreparationAsync(FloatingContentReference reference) => Task.CompletedTask;
     Task DestroyAsync(FloatingContentReference reference);
     FloatingWindowRecord Snapshot(FloatingWindowRecord record);
     void Apply(FloatingWindowRecord record);

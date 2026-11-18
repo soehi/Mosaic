@@ -5,7 +5,23 @@ namespace Mosaic.Tasks.Wpf.Internal;
 
 internal sealed class TaskUiSettingsTarget
 {
+    internal const string FloatingNotesEditing = "tasks.floating.allowNotesEditing";
     private Action<IReadOnlyDictionary<string, object?>>? _handler;
+    private readonly List<Subscription> _subscribers = [];
+
+    private sealed class Subscription(TaskUiSettingsTarget owner, Action<IReadOnlyDictionary<string, object?>> handler) : IDisposable
+    {
+        public void Notify(IReadOnlyDictionary<string, object?> values) => handler(values);
+        public void Dispose() => owner._subscribers.Remove(this);
+    }
+
+    public IDisposable Subscribe(Action<IReadOnlyDictionary<string, object?>> handler)
+    {
+        var subscription = new Subscription(this, handler);
+        _subscribers.Add(subscription);
+        if (_latest is not null) subscription.Notify(_latest);
+        return subscription;
+    }
     private IReadOnlyDictionary<string, object?>? _latest;
     public bool HasValues => _latest is not null;
 
@@ -21,6 +37,7 @@ internal sealed class TaskUiSettingsTarget
     {
         _latest = new Dictionary<string, object?>(values);
         _handler?.Invoke(_latest);
+        foreach (var subscriber in _subscribers.ToArray()) subscriber.Notify(_latest);
     }
 }
 
@@ -30,6 +47,7 @@ internal sealed class TaskUiSettingSource(IUiDispatcher dispatcher, TaskUiSettin
 
     public IReadOnlyList<SettingDefinition> Definitions { get; } = Localize(
     [
+        new(TaskUiSettingsTarget.FloatingNotesEditing, "tasks-ui", "允许编辑浮窗详细内容", "开启后可在浮窗编辑任务备注，保存后同步到任务列表。", SettingValueKind.Boolean, false, null, null, null, SettingsGroup.FloatingWindows, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.Reversible),
         new("tasks.confirmDelete", "tasks-ui", "删除前确认", "删除任务前显示确认框", SettingValueKind.Boolean, true, null, null, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.Reversible),
         new("tasks.confirmUnsaved", "tasks-ui", "未保存离开确认", "离开编辑器前确认未保存内容", SettingValueKind.Boolean, true, null, null, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.Reversible),
         new("tasks.defaultFilter", "tasks-ui", "默认筛选", "打开任务页时使用的筛选", SettingValueKind.Enum, "All", null, null, ["All", "Open", "Completed"], SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.Reversible),
@@ -69,6 +87,7 @@ internal sealed class TaskUiSettingSource(IUiDispatcher dispatcher, TaskUiSettin
 
     private static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
     {
+        [TaskUiSettingsTarget.FloatingNotesEditing] = "Settings.Setting.FloatingNotesEditing",
         ["tasks.confirmDelete"] = "Settings.Setting.ConfirmDelete",
         ["tasks.confirmUnsaved"] = "Settings.Setting.ConfirmUnsaved",
         ["tasks.defaultFilter"] = "Settings.Setting.DefaultFilter",

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.11.0",
+  "currentReleaseId": "mosaic-0.12.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -276,6 +276,22 @@
       ],
       "fixed": [],
       "contentSha256": "E8B0316636D3447B61D2E12C963A22CD7F838A63FAA37536B93AF92A9B914848"
+    },
+    {
+      "releaseId": "mosaic-0.12.0",
+      "version": "0.12.0",
+      "releasedOn": "2026-11-18",
+      "previousReleaseId": "mosaic-0.11.0",
+      "added": [
+        "浮窗设置新增“允许编辑浮窗详细内容”，默认关闭。开启后可编辑任务备注，保存后同步到任务列表。"
+      ],
+      "improved": [
+        "浮窗的正文和按钮移除矩形描边，使用主题底色提示悬停、按下和键盘焦点。"
+      ],
+      "fixed": [
+        "关闭浮窗或退出应用时保护未保存的正文。保存失败、版本冲突或取消关闭时保留草稿。"
+      ],
+      "contentSha256": "388CF74F67BDAC4B3F67F8A81DAEF575F435D04E4E26DE61645EEA4DA9AE0CC2"
     }
   ]
 }

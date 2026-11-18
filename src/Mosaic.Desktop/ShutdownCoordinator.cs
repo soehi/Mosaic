@@ -49,10 +49,11 @@ internal sealed class ShutdownCoordinator(ShellWindow shell, Bootstrapper bootst
                 while(true)
                 {
                     var prepared=await floating.PrepareExitAsync();
-                    if(prepared.IsSuccess)break;
+                    if (prepared.IsSuccess) break;
+                    if (prepared.Error!.Code == Mosaic.Contracts.ErrorCodes.Canceled) return ExitRequestResult.Cancelled;
                     shell.Show();
-                    var choice=MessageBox.Show(shell,prepared.Error!.Message+"\n是：重试保存；否：不保存本次布局并退出；取消：返回应用。","Mosaic",MessageBoxButton.YesNoCancel,MessageBoxImage.Warning);
-                    if(choice==MessageBoxResult.Cancel){floating.Resume();return ExitRequestResult.Cancelled;}
+                    var choice=MessageBox.Show(shell,prepared.Error.Message+"\n是：重试；否：丢弃未保存的浮窗正文和布局并退出；取消：返回应用。","Mosaic",MessageBoxButton.YesNoCancel,MessageBoxImage.Warning);
+                    if(choice==MessageBoxResult.Cancel)return ExitRequestResult.Cancelled;
                     if(choice==MessageBoxResult.No){floating.AllowUnsavedExit();break;}
                 }
             }

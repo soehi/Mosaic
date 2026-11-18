@@ -87,4 +87,23 @@
     <sys:String x:Key="Tasks.Peek.Processing">处理中…</sys:String>
     <sys:String x:Key="Tasks.Peek.CompletionFailed">无法更改任务状态，请重试。</sys:String>
     <sys:String x:Key="Tasks.Peek.DismissFeedback">关闭提示</sys:String>
+    <sys:String x:Key="Settings.Setting.FloatingNotesEditing">允许编辑浮窗详细内容</sys:String>
+    <sys:String x:Key="Settings.Setting.FloatingNotesEditing.Description">开启后可在浮窗编辑任务备注，保存后同步到任务列表。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Label">任务备注</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Edit">编辑备注</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Save">保存</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Cancel">取消</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Copy">复制草稿</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Reload">重新读取</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Dirty">备注尚未保存</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Saving">正在保存备注…</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Disabled">浮窗编辑已关闭。未保存内容可复制或放弃。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Missing">原任务已删除。可复制未保存的备注，或放弃草稿并关闭浮窗。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Conflict">任务已在其他位置更改。可复制草稿，或重新读取已保存内容。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardTitle">放弃未保存的备注？</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardDraft">放弃未保存的备注，返回已保存内容。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardMissing">原任务已删除。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardDisabled">浮窗编辑已关闭。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Canceled">已取消关闭或保存浮窗备注。</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.SaveFailed">无法保存备注，请重试。</sys:String>
 </ResourceDictionary>

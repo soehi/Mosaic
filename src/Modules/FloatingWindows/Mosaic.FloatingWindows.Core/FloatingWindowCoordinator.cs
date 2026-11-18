@@ -9,7 +9,10 @@ public sealed class FloatingWindowCoordinator(IFloatingWindowRepository reposito
 {
     private readonly SemaphoreSlim _serial = new(1);
     private readonly Dictionary<FloatingContentReference,FloatingWindowRecord> _open = [];
-    private bool _stopping;
+    private readonly Dictionary<FloatingContentReference, Task<OperationResult>> _closing = [];
+    private readonly SemaphoreSlim _exit = new(1);
+    private volatile bool _stopping;
+    private bool _exitPrepared;
     public async Task<OperationResult<FloatingOpenResult>> OpenAsync(FloatingContentReference reference, FloatingPlacementHint? hint = null, CancellationToken cancellationToken = default)
     {
         await _serial.WaitAsync(cancellationToken);
@@ -92,18 +95,60 @@ public sealed class FloatingWindowCoordinator(IFloatingWindowRepository reposito
     public void EndPlacementPreview()=>surface.EndPreview();
     public async Task<OperationResult> CloseAsync(FloatingContentReference reference,CancellationToken cancellationToken=default)
     {
+        TaskCompletionSource<OperationResult>? request = null;
+        Task<OperationResult> pending;
         await _serial.WaitAsync(cancellationToken);
         try
         {
-            if (_stopping) return OperationResult.Failure(new(ErrorCodes.CapabilityUnavailable,"正在退出，请稍候。"));
-            if (!_open.TryGetValue(reference,out var record)) return OperationResult.Success();
-            var saved=await SaveCoreAsync(surface.Snapshot(record) with { IsOpen=false },cancellationToken);
-            if (!saved.IsSuccess) return saved;
-            await surface.DestroyAsync(reference); _open.Remove(reference);
-            return OperationResult.Success();
+            if (!_closing.TryGetValue(reference, out pending!))
+            {
+                if (_stopping) return Canceled();
+                if (!_open.ContainsKey(reference)) return OperationResult.Success();
+                request = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                _closing.Add(reference, pending = request.Task);
+            }
         }
         finally { _serial.Release(); }
+        if (request is not null) await CompleteCloseAsync(reference, request, cancellationToken);
+        return await pending.WaitAsync(cancellationToken);
     }
+
+    private async Task CompleteCloseAsync(FloatingContentReference reference, TaskCompletionSource<OperationResult> request, CancellationToken ct)
+    {
+        var destroyed = false;
+        OperationResult result;
+        try
+        {
+            result = await surface.PrepareCloseAsync(reference, ct);
+            if (result.IsSuccess)
+            {
+                await _serial.WaitAsync(ct);
+                try
+                {
+                    if (_open.TryGetValue(reference, out var record))
+                    {
+                        result = await SaveCoreAsync(surface.Snapshot(record) with { IsOpen = false }, ct);
+                        if (result.IsSuccess)
+                        {
+                            _open.Remove(reference);
+                            destroyed = true;
+                            await surface.DestroyAsync(reference);
+                        }
+                    }
+                }
+                finally { _serial.Release(); }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { result = Canceled(); }
+        catch (Exception ex) { Report(ex.Message); result = OperationResult.Failure(new(ErrorCodes.InternalError, "无法关闭小窗，请重试。")); }
+        try { if (!destroyed) await surface.CancelClosePreparationAsync(reference); }
+        catch (Exception ex) { Report(ex.Message); }
+        await _serial.WaitAsync();
+        try { _closing.Remove(reference); request.SetResult(result); }
+        finally { _serial.Release(); }
+    }
+
+    private static OperationResult Canceled() => OperationResult.Failure(new(ErrorCodes.Canceled, "已取消关闭小窗。"));
     public async Task<OperationResult> ChangeAsync(FloatingContentReference reference,Func<FloatingWindowRecord,FloatingWindowRecord> change,CancellationToken ct=default)
     {
         await _serial.WaitAsync(ct);
@@ -123,22 +168,73 @@ public sealed class FloatingWindowCoordinator(IFloatingWindowRepository reposito
         if(saved.IsSuccess) _open[record.Reference]=next;
         return saved;
     }
-    public async Task<OperationResult> PrepareExitAsync(CancellationToken ct=default)
+    public Task<OperationResult> PrepareExitAsync(CancellationToken ct=default) => PrepareExitAsync(null, ct);
+
+    public async Task<OperationResult> PrepareExitAsync(Func<Task>? flush, CancellationToken ct=default)
     {
-        await _serial.WaitAsync(ct);
+        await _exit.WaitAsync(ct);
+        var reserved = new List<FloatingContentReference>();
         try
         {
-            _stopping=true;
-            foreach(var record in _open.Values.ToArray())
+            if (_exitPrepared) return OperationResult.Success();
+            Task<OperationResult>[] closing;
+            await _serial.WaitAsync(ct);
+            try { _stopping = true; closing = _closing.Values.ToArray(); }
+            finally { _serial.Release(); }
+            var completed = await Task.WhenAll(closing);
+            ct.ThrowIfCancellationRequested();
+            var failed = completed.FirstOrDefault(result => !result.IsSuccess);
+            if (failed is not null) return failed;
+
+            foreach (var reference in _open.Keys.ToArray())
             {
-                var saved=await SaveCoreAsync(surface.Snapshot(record),ct);
-                if(!saved.IsSuccess) { _stopping=false; return saved; }
+                reserved.Add(reference);
+                var prepared = await surface.PrepareCloseAsync(reference, ct);
+                if (!prepared.IsSuccess) return prepared;
             }
-            return OperationResult.Success();
+            if (flush is not null) await flush();
+            await _serial.WaitAsync(ct);
+            try
+            {
+                foreach (var record in _open.Values.ToArray())
+                {
+                    var saved = await SaveCoreAsync(surface.Snapshot(record), ct);
+                    if (!saved.IsSuccess) return saved;
+                }
+                _exitPrepared = true;
+                return OperationResult.Success();
+            }
+            finally { _serial.Release(); }
         }
-        finally {_serial.Release();}
+        finally
+        {
+            try
+            {
+                if (!_exitPrepared)
+                {
+                    foreach (var reference in reserved) await surface.CancelClosePreparationAsync(reference);
+                }
+            }
+            finally
+            {
+                if (!_exitPrepared) _stopping = false;
+                _exit.Release();
+            }
+        }
     }
-    public void Resume() => _stopping=false;
+    public async Task ResumeAsync()
+    {
+        await _exit.WaitAsync();
+        try
+        {
+            if (_exitPrepared)
+                foreach (var reference in _open.Keys.ToArray()) await surface.CancelClosePreparationAsync(reference);
+            _exitPrepared = false;
+            _stopping = false;
+        }
+        finally { _exit.Release(); }
+    }
+
     public async Task StopAsync()
     {
         var saved=await PrepareExitAsync();

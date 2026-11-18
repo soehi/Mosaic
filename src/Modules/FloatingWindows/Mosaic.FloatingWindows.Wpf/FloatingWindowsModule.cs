@@ -51,14 +51,18 @@ public sealed class FloatingWindowsModule : IModuleActivation
         _handler?.Dispose();_handler=null;
         try
         {
-            await _surface.FlushAsync();
-            var result=await _coordinator.PrepareExitAsync();
-            if(!result.IsSuccess)Resume();
+            var result=await _coordinator.PrepareExitAsync(_surface.FlushAsync);
+            if(!result.IsSuccess)await ResumeAsync();
             return result;
         }
-        catch(Exception ex){Report(ex);Resume();return OperationResult.Failure(new(ErrorCodes.StorageUnavailable,"无法保存小窗布局，请重试退出。"));}
+        catch(Exception ex){Report(ex);await ResumeAsync();return OperationResult.Failure(new(ErrorCodes.StorageUnavailable,"无法保存小窗布局，请重试退出。"));}
     }
-    public void Resume(){_coordinator.Resume();_surface.Enable();_handler??=_dependencies.Detach.RegisterDetachHandler(_coordinator);}
+    private async Task ResumeAsync()
+    {
+        await _coordinator.ResumeAsync();
+        _surface.Enable();
+        _handler ??= _dependencies.Detach.RegisterDetachHandler(_coordinator);
+    }
     public async Task StopAsync()
     {
         if(_stopped)return;

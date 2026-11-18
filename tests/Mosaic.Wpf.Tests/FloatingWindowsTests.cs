@@ -23,9 +23,10 @@ public sealed class FloatingWindowsTests
     private sealed class Diagnostics:IDiagnosticSink{public void Report(string id,Exception exception){}}
     private sealed class Dialogs:IUserDialogService
     {
+        internal UnsavedChoice Choice = UnsavedChoice.Cancel;
         public Task<bool> ConfirmDeleteAsync(string title)=>Task.FromResult(false);
         public Task<bool> ConfirmAsync(string title,string message)=>Task.FromResult(false);
-        public Task<UnsavedChoice> AskUnsavedChangesAsync()=>Task.FromResult(UnsavedChoice.Cancel);
+        public Task<UnsavedChoice> AskUnsavedChangesAsync()=>Task.FromResult(Choice);
         public Task ShowErrorAsync(string message)=>Task.CompletedTask;
     }
     private sealed class SettingsRepository:ISettingRepository
@@ -51,9 +52,18 @@ public sealed class FloatingWindowsTests
         {Writes++;var next=Items[request.Id] with{IsCompleted=request.IsCompleted,Revision=Items[request.Id].Revision+1};Items[request.Id]=next;return Task.FromResult(OperationResult<TaskItemDto>.Success(next));}
         public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query,CancellationToken cancellationToken=default)=>Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(Items.Values.ToArray()));
         public Task<OperationResult<TaskItemDto>> CreateAsync(CreateTaskRequest request,CancellationToken cancellationToken=default)=>throw new NotSupportedException();
-        public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request,CancellationToken cancellationToken=default)=>throw new NotSupportedException();
+        public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request,CancellationToken cancellationToken=default)
+        {
+            Writes++;
+            if (!Items.TryGetValue(request.Id, out var item)) return Task.FromResult(OperationResult<TaskItemDto>.Failure(new(ErrorCodes.NotFound, "deleted")));
+            if (item.Revision != request.ExpectedRevision) return Task.FromResult(OperationResult<TaskItemDto>.Failure(new(ErrorCodes.Conflict, "conflict")));
+            var updated = item with { Title = request.Title, Notes = request.Notes, Revision = item.Revision + 1 };
+            Items[request.Id] = updated;
+            return Task.FromResult(OperationResult<TaskItemDto>.Success(updated));
+        }
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request,CancellationToken cancellationToken=default)=>throw new NotSupportedException();
-        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken=default)=>throw new NotSupportedException();
+        public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken=default)=>
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20000, true, false, 1)));
     }
     private static TaskItemDto Item()=>new(Guid.NewGuid(),"可复制任务 Long title",string.Concat(Enumerable.Repeat("长备注 long notes ",100)),false,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow,1);
     private static Window[] Windows(FloatingWindowsModule module)
@@ -66,6 +76,87 @@ public sealed class FloatingWindowsTests
     {
         yield return node;for(var i=0;i<VisualTreeHelper.GetChildrenCount(node);i++)foreach(var child in Descendants(VisualTreeHelper.GetChild(node,i)))yield return child;
     }
+    [Fact]
+    public Task Floating_notes_preview_conflict_and_close_protect_drafts() => Sta.Run(async () =>
+    {
+        const string key = "tasks.floating.allowNotesEditing";
+        var api = new Api();
+        var task = Item();
+        api.Items.Add(task.Id, task);
+        var reference = new FloatingContentReference("tasks-ui", task.Id.ToString("D"));
+        var dispatcher = new UiDispatcher(Dispatcher.CurrentDispatcher);
+        var dialogs = new Dialogs();
+        var repository = new Repository();
+        var stored = new SettingsRepository();
+        await using (var settings = new SettingsModule(new(stored)))
+        {
+            await settings.ActivateAsync();
+            await using var tasks = new TasksUiModule(new(api, dispatcher, dialogs, new Diagnostics(), settings.Api));
+            await tasks.ActivateAsync();
+            await using var module = new FloatingWindowsModule(new(repository, tasks.FloatingFactory, tasks.DetachSource, settings.Api, dispatcher, new Diagnostics(), () => Task.CompletedTask));
+            await module.ActivateAsync();
+            Assert.Equal(false, (await settings.Api.GetValuesAsync()).Value[key]);
+            Assert.True((await module.Api.OpenAsync(reference)).IsSuccess);
+            var window = Assert.Single(Windows(module));
+            Button Find(string id) => Descendants(window).OfType<Button>().Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == id);
+            Find("FloatingTaskExpand").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await dispatcher.InvokeAsync(window.UpdateLayout);
+            var notes = Assert.Single(Descendants(window).OfType<TextBox>());
+            Assert.True(notes.IsReadOnly);
+            Assert.False(Find("FloatingNotesEdit").IsVisible);
+            await using (var edit = (await settings.Api.BeginEditSessionAsync()).Value)
+            {
+                Assert.True((await edit.PreviewAsync(new Dictionary<string, object?> { [key] = true }, 1)).IsSuccess);
+                Find("FloatingNotesEdit").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.False(notes.IsReadOnly);
+                notes.Text = "浮窗草稿\n第二行";
+                Assert.True((await edit.DiscardAsync()).IsSuccess);
+            }
+            Assert.True(notes.IsReadOnly);
+            Assert.Equal("浮窗草稿\n第二行", notes.Text);
+            Assert.Equal(0, api.Writes);
+            Assert.Equal(ErrorCodes.Canceled, (await module.Api.CloseAsync(reference)).Error?.Code);
+            await using (var edit = (await settings.Api.BeginEditSessionAsync()).Value)
+            {
+                Assert.True((await edit.PreviewAsync(new Dictionary<string, object?> { [key] = true }, 1)).IsSuccess);
+                Assert.True((await edit.CommitAsync(1)).IsSuccess);
+            }
+            Assert.False(notes.IsReadOnly);
+            api.Items[task.Id] = task with { Notes = "外部备注", Revision = 2 };
+            dialogs.Choice = UnsavedChoice.Save;
+            Assert.Equal(ErrorCodes.Conflict, (await module.Api.CloseAsync(reference)).Error?.Code);
+            Assert.Equal("浮窗草稿\n第二行", notes.Text);
+            Assert.Equal("外部备注", api.Items[task.Id].Notes);
+            Assert.True(repository.Records[reference].IsOpen);
+            dialogs.Choice = UnsavedChoice.Discard;
+            repository.Fail = true;
+            Assert.Equal(ErrorCodes.StorageUnavailable, (await module.Api.CloseAsync(reference)).Error?.Code);
+            Assert.Equal("浮窗草稿\n第二行", notes.Text);
+            repository.Fail = false;
+            Assert.True((await module.Api.CloseAsync(reference)).IsSuccess);
+            Assert.False(repository.Records[reference].IsOpen);
+        }
+        await using var restartedSettings = new SettingsModule(new(stored));
+        await restartedSettings.ActivateAsync();
+        await using var restartedTasks = new TasksUiModule(new(api, dispatcher, dialogs, new Diagnostics(), restartedSettings.Api));
+        await restartedTasks.ActivateAsync();
+        await using var session = restartedTasks.FloatingFactory.Create(reference);
+        Assert.True((await session.InitializeAsync()).IsSuccess);
+        session.SetExpanded(true);
+        var view = session.View;
+        view.Measure(new Size(400, 400));
+        view.Arrange(new Rect(0, 0, 400, 400));
+        var editor = Assert.Single(Descendants(view).OfType<TextBox>());
+        var editButton = Descendants(view).OfType<Button>().Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "FloatingNotesEdit");
+        editButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(editor.IsReadOnly);
+        editor.Text = "重启后保存";
+        dialogs.Choice = UnsavedChoice.Save;
+        Assert.True((await session.PrepareCloseAsync(CancellationToken.None)).IsSuccess);
+        Assert.Equal("重启后保存", api.Items[task.Id].Notes);
+        Assert.Equal(3, api.Items[task.Id].Revision);
+    });
+
     [Fact]
     public Task Independent_windows_deduplicate_toggle_modes_complete_close_and_restore() => Sta.Run(async()=>
     {

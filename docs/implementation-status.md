@@ -1,5 +1,13 @@
 # Mosaic：实施与验证记录
 
+## 0.12.0：浮窗无边框控件与可选正文编辑（2026-11-18）
+
+- 根因位置：0.11.0 的 `TaskFloatingStateStyle`（`src/Modules/Tasks/Mosaic.Tasks.Wpf/Themes/Floating.xaml:3`）及 `TaskFloatingContentSession` 构造函数和 `FloatingSurface.Create` 复用的 `QuietButtonKey`，会在默认或焦点状态绘制描边。`TaskPeekDetailsView.AddText` 通过通用 TextBox 模板渲染只读正文，焦点触发器会绘制内容外框。`TaskPeekDetailsView.Render` 会重建控件，无法保留输入或选区。`TaskUiSettingsTarget.Apply` 只向主页面分发设置。`FloatingWindowCoordinator.CloseAsync` 和 `PrepareExitAsync` 在缺少内容关闭协议时直接保存布局，无法确认未保存的正文。
+- 改动位置：`TaskFloatingDetailsView.Render` 保持正文输入控件持久并分开展示阅读、编辑和错误状态。`TaskFloatingNotesViewModel.SaveAsync` 使用 Tasks API 的长度约束和编辑时的任务 Revision。`TaskFloatingContentSession.PrepareCloseAsync` 等待已有任务操作并保护草稿。`FloatingWindowCoordinator` 在锁外准备内容、合并重复关闭、确认后保存窗口状态。浮窗局部模板提供底色焦点反馈。完整位置见[逐文件清单](releases/v0.12.0-files.md)。
+- 兼容与迁移：旧工作空间缺少 `tasks.floating.allowNotesEditing` 时由 Settings 合并默认值 `false`。保存开关后使用原用户设置存储，沿用已有任务和浮窗记录。普通设置增至 17 项，高级设置 82 项，共 99 项。WPF 回归覆盖缺键、预览放弃、持久化重启、草稿冲突与关闭失败。发布版 Smoke 使用旧设置缺键的 SQLite 工作空间验证只读、原窗口恢复和启用后更新备注。
+- 验证：锁定还原和 Release 构建通过，0 警告、0 错误。非桌面测试 180 项通过，发布版桌面 Smoke 3 项通过，覆盖旧工作空间恢复、备注保存、标题栏按钮短按与真实指针拖动。干净环境 MSI 安装与升级、不同 DPI、多屏、高对比度和输入法矩阵待验收。
+- 产物：`artifacts/local-run/Mosaic.Desktop.exe` 与 `artifacts/installer/Mosaic-0.12.0-win-x64.msi`。安装包 51,966,084 字节，`ProductVersion=0.12.0`，沿用原 `UpgradeCode`，WiX 构建和快捷方式检查通过。因本机使用 PowerShell 5.1，以等效路径和哈希 API 执行打包。发布清单和历史版本指纹校验通过，MSI 的 SHA-256 为 `FD544B599AABFFE165B12AB2CCD08905D7F4BD7FFEDF61FCFDB800F034C8233A`，校验文件为 `artifacts/installer/SHA256SUMS-0.12.0.txt`。
+
 ## 0.11.0：小窗落点预览与标题栏按钮拖动（2026-11-18）
 
 - 根因位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs`（0.10.2 基线 `FinishDrag`）只在松手后提交 `FloatingPlacementHint`，拖动过程中没有目标位置计算或预览输出；`FloatingSurface` 没有独立于窗口的放置预览；`FloatingWindowCoordinator.OpenCoreAsync` 存在历史记录时整条复用旧记录，落点被忽略；`FloatingWindowInput.HitTest` 对按钮返回 `HTCLIENT` 以保留点击，但没有 WPF 阈值拖动兜底，按住标题栏按钮拖动无效。真实指针复核还发现：`FloatingWindowInput.OnMouseMove` 首版用 `Window.DragMove()` 启动移动，而它发出的 `WM_SYSCOMMAND`/`SC_MOVE` 在按压起点为已捕获鼠标的子按钮时会被系统移动循环立即结束并回送 `WM_LBUTTONUP`，窗口不移动（跟踪记录：`WM_SYSCOMMAND 0x0112` 后 1 ms 内收到 `WM_LBUTTONUP 0x0202`）。

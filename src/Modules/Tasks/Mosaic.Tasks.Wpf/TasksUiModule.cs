@@ -18,7 +18,7 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
     private bool _active;
     private readonly TaskDetachSource _detach=new(dependencies.Dispatcher);
     public IFloatingDetachSource DetachSource=>_detach;
-    public IFloatingContentFactory FloatingFactory=>new TaskFloatingContentFactory(dependencies,()=>_active);
+    public IFloatingContentFactory FloatingFactory=>new TaskFloatingContentFactory(dependencies,_settingsTarget,()=>_active);
     private IDisposable? _localizationRegistration;
     private IDisposable? _settingsRegistration;
     private readonly TaskUiSettingsTarget _settingsTarget = new();
@@ -33,15 +33,20 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
         ? [new("tasks.navigation", "任务", "check-square", "tasks.list", 100, "Tasks.Navigation")]
         : [];
     public IReadOnlyList<ViewContribution> Views => _active ? [new("tasks.list", new TaskViewFactory(dependencies, _settingsTarget))] : [];
-    public Task ActivateAsync(CancellationToken cancellationToken = default)
+    public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _localizationRegistration ??= Mosaic.Presentation.Wpf.MosaicLocalizationManager.Register(
             "tasks-ui",
             language => Mosaic.Tasks.Wpf.Internal.TaskLocalization.Dictionary(language == Mosaic.Presentation.Wpf.MosaicLanguage.English));
-        _settingsRegistration ??= dependencies.Settings?.Register(new TaskUiSettingSource(dependencies.Dispatcher, _settingsTarget));
+        if (dependencies.Settings is { } settings && _settingsRegistration is null)
+        {
+            var source = new TaskUiSettingSource(dependencies.Dispatcher, _settingsTarget);
+            _settingsRegistration = settings.Register(source);
+            var values = await settings.GetValuesAsync(cancellationToken);
+            if (values.IsSuccess) await source.ApplyAsync(values.Value, cancellationToken);
+        }
         _active = true;
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync()

@@ -729,7 +729,11 @@ public sealed class PresentationTests
         await module.ActivateAsync();
         var source = Assert.Single(settings.Sources);
         Assert.Equal("tasks-ui", source.ModuleId);
-        Assert.Equal(25, source.Definitions.Count);
+        Assert.Equal(26, source.Definitions.Count);
+        var floating = Assert.Single(source.Definitions, definition => definition.Id == "tasks.floating.allowNotesEditing");
+        Assert.Equal(SettingsGroup.FloatingWindows, floating.Group);
+        Assert.Equal(false, floating.DefaultValue);
+        Assert.Equal(SettingPreviewMode.Reversible, floating.PreviewMode);
         Assert.All(source.Definitions, item => Assert.Equal("tasks-ui", item.ModuleId));
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.emptyAllTitle");
         Assert.Contains(source.Definitions, item => item.Id == "ui.text.restoredSuccess");

@@ -87,4 +87,23 @@
     <sys:String x:Key="Tasks.Peek.Processing">Processing…</sys:String>
     <sys:String x:Key="Tasks.Peek.CompletionFailed">Could not change task status. Try again.</sys:String>
     <sys:String x:Key="Tasks.Peek.DismissFeedback">Dismiss message</sys:String>
+    <sys:String x:Key="Settings.Setting.FloatingNotesEditing">Allow editing floating window details</sys:String>
+    <sys:String x:Key="Settings.Setting.FloatingNotesEditing.Description">Edit task notes in a floating window and sync them to the task list when saved.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Label">Task notes</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Edit">Edit notes</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Save">Save</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Cancel">Cancel</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Copy">Copy draft</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Reload">Reload saved notes</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Dirty">Unsaved notes</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Saving">Saving notes…</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Disabled">Editing is off. You can copy or discard the unsaved notes.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Missing">The task was deleted. Copy the unsaved notes or discard them and close the window.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Conflict">The task changed elsewhere. Copy the draft or reload the saved notes.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardTitle">Discard unsaved notes?</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardDraft">Discard the draft and return to the saved notes.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardMissing">The task was deleted. Discard the draft and close? Choose No to return and copy it.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.DiscardDisabled">Editing is off. Discard the draft and close? Choose No to return and copy it.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.Canceled">Closing or saving floating notes was canceled.</sys:String>
+    <sys:String x:Key="Tasks.Floating.Notes.SaveFailed">Unable to save notes. Try again.</sys:String>
 </ResourceDictionary>

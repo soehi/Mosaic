@@ -48,7 +48,6 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         internal StackPanel Tools=null!;
         internal FloatingWindowInput Input=null!;
         internal StackPanel Footer=null!;
-        internal Task Work=Task.CompletedTask;
         internal EventHandler? LayoutHandler,MissingHandler,ModeHandler;
     }
     private int Number(string id,int fallback)=>FloatingSettings.Read(_values,id,fallback);
@@ -135,6 +134,10 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         var session=_content.Create(record.Reference);
         var window=new Window {WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.CanResize,AllowsTransparency=true,
             Background=System.Windows.Media.Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,UseLayoutRounding=true,Title="Mosaic",MinWidth=180,MinHeight=60};
+        window.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/Mosaic.FloatingWindows.Wpf;component/Themes/Floating.xaml", UriKind.Relative)
+        });
         window.SetResourceReference(Control.ForegroundProperty,MosaicTheme.TextPrimaryBrushKey);
         System.Windows.Automation.AutomationProperties.SetAutomationId(window,"FloatingWindow");
         var frame=new Border{CornerRadius=new CornerRadius(12),BorderThickness=new Thickness(1),Padding=new Thickness(Number("floating.cardPadding",8)),Margin=new Thickness(4)};
@@ -143,7 +146,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         var bar=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Top};
         Button Button(string key,string text,string id)
         {
-            var button=new Button {Content=text,Padding=new Thickness(4,0,4,0),MinWidth=28,MinHeight=28};button.SetResourceReference(FrameworkElement.StyleProperty,MosaicTheme.QuietButtonKey);
+            var button=new Button {Content=text,Padding=new Thickness(4,0,4,0),MinWidth=28,MinHeight=28};button.SetResourceReference(FrameworkElement.StyleProperty,"FloatingToolButtonStyle");
             button.SetResourceReference(FrameworkElement.ToolTipProperty,key);button.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty,key);System.Windows.Automation.AutomationProperties.SetAutomationId(button,id);bar.Children.Add(button);return button;
         }
         var restore=Button("Floating.Restore","↗","FloatingRestore");
@@ -162,7 +165,12 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         restore.Click+=async(_,_)=>{try{await _restore();}catch(Exception ex){Report(ex);Feedback(entry,OperationResult.Failure(new(ErrorCodes.InternalError,ex.Message)));}};
         retry.Click+=async(_,_)=>{if(entry.Pending is not null)await SaveBoundsAsync(entry);else await ChangeAsync(entry,r=>r);};
         window.Closing+=async(_,e)=>{if(entry.Destroying)return;e.Cancel=true;await CloseUserAsync(entry);};
-        window.PreviewKeyDown+=async(_,e)=>{if(e.Key==Key.Escape && entry.Record.Mode==FloatingDisplayMode.Expanded){e.Handled=true;await ChangeAsync(entry,r=>r with {Mode=FloatingDisplayMode.Compact});}};
+        window.PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != Key.Escape || entry.Record.Mode != FloatingDisplayMode.Expanded) return;
+            e.Handled = true;
+            if (!session.HandleEscape()) await ChangeAsync(entry, record => record with { Mode = FloatingDisplayMode.Compact });
+        };
         window.SourceInitialized+=(_,_)=>HwndSource.FromHwnd(new WindowInteropHelper(window).Handle)?.AddHook((nint hwnd,int message,nint wp,nint lp,ref bool handled)=>{if(message==0x0231){entry.Moving=true;entry.Resized=false;entry.StartWidth=window.ActualWidth;entry.StartHeight=window.ActualHeight;}
             if(message==0x0214)entry.Resized=true;
             if(message==0x001F || message==0x0215)entry.Moving=false;
@@ -170,7 +178,11 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         window.DpiChanged+=(_,_)=>window.Dispatcher.BeginInvoke(new Action(()=>{if(!entry.Destroying&&!entry.Moving)Layout(entry);}));
         entry.LayoutHandler=(_,_)=> {if(entry.Destroying||entry.Applying)return;window.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,new Action(()=>{if(!entry.Destroying&&!entry.Moving)Layout(entry);}));};
         entry.ModeHandler=async(_,_)=>await ChangeAsync(entry,r=>r with {Mode=r.Mode==FloatingDisplayMode.Compact?FloatingDisplayMode.Expanded:FloatingDisplayMode.Compact});
-        entry.MissingHandler=(_,_)=>{if(entry.Shown&&!entry.Destroying)entry.Work=Task.WhenAll(entry.Work,ChangeAsync(entry,r=>r with {IsOpen=false}));};
+        entry.MissingHandler = (_, _) =>
+        {
+            if (entry.Shown && !entry.Destroying)
+                _ = window.Dispatcher.BeginInvoke(new Action(() => _ = CloseUserAsync(entry)));
+        };
         session.LayoutInvalidated+=entry.LayoutHandler;session.ModeRequested+=entry.ModeHandler;session.Missing+=entry.MissingHandler;
         pin.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty,"Floating.Pin");
         return entry;
@@ -216,7 +228,12 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     }
     private async Task CloseUserAsync(Entry entry)
     {
-        try{var result=await Coordinator.CloseAsync(entry.Record.Reference);if(!result.IsSuccess)Feedback(entry,result);}
+        if (entry.Destroying) return;
+        try
+        {
+            var result = await Coordinator.CloseAsync(entry.Record.Reference);
+            if (!result.IsSuccess && result.Error!.Code != ErrorCodes.Canceled) Feedback(entry, result);
+        }
         catch(Exception ex){Report(ex);Feedback(entry,OperationResult.Failure(new(ErrorCodes.StorageUnavailable,"无法保存关闭状态，请重试。")));}
     }
     private static void Feedback(Entry entry,OperationResult result)
@@ -233,6 +250,28 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     {
         if(_windows.TryGetValue(reference,out var entry)){if(entry.Window.WindowState==WindowState.Minimized)entry.Window.WindowState=WindowState.Normal;entry.Window.Show();entry.Window.Activate();}
     }
+    public async Task<OperationResult> PrepareCloseAsync(FloatingContentReference reference, CancellationToken cancellationToken)
+    {
+        Task<OperationResult>? pending = null;
+        void Prepare()
+        {
+            if (_windows.TryGetValue(reference, out var entry))
+                pending = entry.Session.PrepareCloseAsync(cancellationToken);
+        }
+        if (_dispatcher.CheckAccess()) Prepare();
+        else await _dispatcher.InvokeAsync(Prepare);
+        return pending is null ? OperationResult.Success() : await pending;
+    }
+    public Task CancelClosePreparationAsync(FloatingContentReference reference)
+    {
+        void Cancel()
+        {
+            if (_windows.TryGetValue(reference, out var entry)) entry.Session.CancelClosePreparation();
+        }
+        if (!_dispatcher.CheckAccess()) return _dispatcher.InvokeAsync(Cancel);
+        Cancel();
+        return Task.CompletedTask;
+    }
     public async Task DestroyAsync(FloatingContentReference reference)
     {
         if(!_windows.Remove(reference,out var entry))return;
@@ -245,12 +284,17 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         Freeze();
         foreach(var entry in _windows.Values.ToArray())
         {
-            entry.Window.IsEnabled=false;entry.Timer.Stop();await entry.Work;await entry.Session.FlushAsync();
-            if(entry.Pending is not null)await SaveBoundsAsync(entry);
-            if(entry.Pending is not null)throw new InvalidOperationException("小窗布局保存失败。");
+            await entry.Session.FlushAsync();
         }
     }
-    internal void Enable(){foreach(var entry in _windows.Values)entry.Window.IsEnabled=true;}
+    internal void Enable()
+    {
+        foreach (var entry in _windows.Values)
+        {
+            entry.Window.IsEnabled = true;
+            if (entry.Pending is not null) entry.Timer.Start();
+        }
+    }
     private void DisplayChanged(object? sender,EventArgs e)=>_ = _dispatcher.InvokeAsync(()=>{foreach(var entry in _windows.Values.ToArray())Layout(entry);});
     private void SystemChanged(object? sender,PropertyChangedEventArgs e)=>DisplayChanged(sender,e);
     private void Report(Exception ex){try{_diagnostics.Report(Guid.NewGuid().ToString("N"),ex);}catch{}}

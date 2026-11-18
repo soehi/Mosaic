@@ -25,6 +25,18 @@ public sealed class FloatingTests
         internal int Created,Activated,Destroyed,PreviewBegins,PreviewUpdates,PreviewEnds;
         internal string? Error;
         internal Func<Task>? Wait;
+        internal Func<FloatingContentReference, Task<OperationResult>>? Prepare;
+        internal int Preparations, Releases;
+        public Task<OperationResult> PrepareCloseAsync(FloatingContentReference reference, CancellationToken ct)
+        {
+            Preparations++;
+            return Prepare?.Invoke(reference) ?? Task.FromResult(OperationResult.Success());
+        }
+        public Task CancelClosePreparationAsync(FloatingContentReference reference)
+        {
+            Releases++;
+            return Task.CompletedTask;
+        }
         public FloatingWindowRecord CreateRecord(FloatingContentReference reference,FloatingPlacementHint? hint)=>
             hint is null?Record(reference):Record(reference) with{MonitorId="hint-monitor",X=hint.ScreenX,Y=hint.ScreenY};
         public async Task<OperationResult> ShowAsync(FloatingWindowRecord record,CancellationToken cancellationToken){Created++;if(Wait is not null)await Wait();return Error is null?OperationResult.Success():OperationResult.Failure(new(Error,"read failure"));}
@@ -54,6 +66,49 @@ public sealed class FloatingTests
         Assert.True((await next.CloseAsync(Reference())).IsSuccess);Assert.False(repo.Records[Reference()].IsOpen);
         var afterClose=new Surface();await new FloatingWindowCoordinator(repo,afterClose,()=>1,new Diagnostics()).RestoreAsync();Assert.Equal(0,afterClose.Created);
     }
+    [Fact]
+    public async Task Close_confirmation_is_shared_and_does_not_block_other_windows()
+    {
+        var repository = new Repository();
+        var surface = new Surface();
+        var core = new FloatingWindowCoordinator(repository, surface, () => 8, new Diagnostics());
+        await core.OpenAsync(Reference());
+        var choice = new TaskCompletionSource<OperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        surface.Prepare = _ => choice.Task;
+        var first = core.CloseAsync(Reference());
+        var duplicate = core.CloseAsync(Reference());
+        try
+        {
+            Assert.False(first.IsCompleted);
+            Assert.True((await core.OpenAsync(Reference("b")).WaitAsync(TimeSpan.FromSeconds(2))).IsSuccess);
+            Assert.Equal(1, surface.Preparations);
+        }
+        finally { choice.SetResult(OperationResult.Failure(new(ErrorCodes.Canceled, "cancel"))); }
+        Assert.All(await Task.WhenAll(first, duplicate), result => Assert.Equal(ErrorCodes.Canceled, result.Error?.Code));
+        Assert.True(repository.Records[Reference()].IsOpen);
+        Assert.Equal(1, repository.Records[Reference()].Revision);
+        Assert.Equal(0, surface.Destroyed);
+        surface.Prepare = null;
+        Assert.True((await core.CloseAsync(Reference())).IsSuccess);
+        Assert.False(repository.Records[Reference()].IsOpen);
+    }
+
+    [Fact]
+    public async Task Exit_cancellation_releases_prepared_content_and_allows_new_windows()
+    {
+        var repository = new Repository();
+        var surface = new Surface { Prepare = reference => Task.FromResult(reference == Reference("b")
+            ? OperationResult.Failure(new(ErrorCodes.Canceled, "cancel")) : OperationResult.Success()) };
+        var core = new FloatingWindowCoordinator(repository, surface, () => 8, new Diagnostics());
+        await core.OpenAsync(Reference());
+        await core.OpenAsync(Reference("b"));
+        Assert.Equal(ErrorCodes.Canceled, (await core.PrepareExitAsync()).Error?.Code);
+        Assert.Equal(2, surface.Preparations);
+        Assert.Equal(2, surface.Releases);
+        Assert.All(repository.Records.Values, record => Assert.Equal(1, record.Revision));
+        Assert.True((await core.OpenAsync(Reference("c"))).IsSuccess);
+    }
+
     [Fact]
     public async Task Open_close_and_exit_failures_preserve_visible_window_and_allow_retry()
     {

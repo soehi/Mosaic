@@ -24,6 +24,10 @@ public interface IFloatingContentSession : IAsyncDisposable
     event EventHandler? ModeRequested;
     Task<OperationResult> InitializeAsync(CancellationToken cancellationToken=default);
     void SetExpanded(bool expanded);
+    bool HandleEscape() => false;
+    // A successful preparation reserves the current draft until disposal or cancellation.
+    Task<OperationResult> PrepareCloseAsync(CancellationToken cancellationToken) => Task.FromResult(OperationResult.Success());
+    void CancelClosePreparation() { }
     Task FlushAsync();
 }
 public interface ICompanionInteraction
