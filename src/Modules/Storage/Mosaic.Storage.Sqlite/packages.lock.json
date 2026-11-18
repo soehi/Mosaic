@@ -63,13 +63,13 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )"
         }
       },
       "mosaic.storage.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )"
         }
       }
     }

@@ -41,6 +41,19 @@
         <Setter Property="FontSize" Value="12"/>
     </Style>
 
+    <Style x:Key="MosaicButtonFocusVisual" TargetType="Control">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Control">
+                    <theme:ButtonFocusMark Width="16" Height="4" Margin="0,0,0,1" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                            BorderThickness="1" CornerRadius="2" IsHitTestVisible="False" SnapsToDevicePixels="True"
+                            BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                            Background="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <ControlTemplate x:Key="ButtonTemplate" TargetType="Button">
         <Border x:Name="ButtonBorder"
                 Background="{TemplateBinding Background}"
@@ -61,11 +74,8 @@
             <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.72"/>
             </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="ButtonBorder" Property="BorderBrush"
-                        Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
-            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="ButtonBorder" Property="Opacity" Value="1"/>
                 <Setter TargetName="ButtonBorder" Property="Background"
                         Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledSurfaceBrushKey}}"/>
                 <Setter TargetName="ButtonBorder" Property="BorderBrush"
@@ -87,6 +97,7 @@
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
         <Setter Property="Template" Value="{StaticResource ButtonTemplate}"/>
     </Style>
 

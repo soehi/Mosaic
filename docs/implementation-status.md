@@ -1,5 +1,15 @@
 # Mosaic：实施与验证记录
 
+## 0.12.2 应用内按钮反馈（2026-11-18）
+
+- 0.12.1 的 `Theme.xaml:64` 在鼠标点击留下键盘焦点时持续显示描边。`FloatingWindows.Wpf/Themes/Floating.xaml:36` 给已置顶的图钉持续填色，第 44 行又给获得焦点的按钮填色。`Tasks.Wpf/Themes/Floating.xaml:10` 的焦点与按压共用底色。速览 `TaskPeekView.xaml:45` 和设置 `SettingsView.xaml:44` 也以输入焦点直接绘制边框。旧版回归复现了 `IsPressed` 和 `IsMouseOver` 均为 `false` 时置顶按钮仍有底色。
+- 共享 `MosaicButtonFocusVisual` 使用 WPF 焦点装饰显示短条。若鼠标点击已由键盘聚焦的按钮，`ButtonFocusMark` 隐藏短条。再次使用键盘时恢复提示。主窗口、速览、设置及浮窗使用该资源，按压由 `IsPressed` 驱动，悬停由 `IsMouseOver` 驱动。置顶图钉继续用空心与实心表示状态。各文件及验证入口见[改动清单](releases/v0.12.2-files.md)。
+- 旧任务、配置及浮窗记录沿用原有存储格式和读取路径。MSI 继续使用原有每用户 `UpgradeCode` 和 `MajorUpgrade`。
+- 首轮发布版回归中，`Tasks.Wpf/Themes/Floating.xaml` 的禁用态触发器使用 `TemplateBinding` 作为 `Setter.Value`，导致浮窗模板加载失败。改用启用态与悬停态的 `MultiTrigger` 后，两个浮窗可正常恢复。
+
+- 最终 Release 构建为 0 警告、0 错误。181 项非桌面回归和 29 项桌面 Smoke 全部通过。真实鼠标与键盘覆盖按下、松开、移出、拖出取消、禁用、Tab、Shift+Tab、Space 和 Enter。发布版像素采样确认图钉仅在悬停及按压时显示底色。旧 SQLite 数据的浮窗恢复、备注编辑以及快捷键均通过现有回归。干净环境的 MSI 实际安装与升级尚未验收。
+- 最终 Windows x64 MSI 为 `Mosaic-0.12.2-win-x64.msi`，51,990,660 字节，SHA-256 为 `FEA88285110E33F8010BBDA524857EB99850EB9B0EAA270F9F6D96FE6A9C9910`。已核对版本、升级范围和桌面快捷方式组件。发布内容指纹为 `D9AA5388262D8585F7C0448F527CD986B7414A29850F2F9D1D6D59C11143A32D`。
+
 ## 0.12.1：浮窗工具栏矢量图标（2026-11-18）
 
 - 0.12.0 的 `FloatingSurface.Create` 在第 147–154 行直接将 `↗`、`◇`、`×` 用作按钮内容。`FloatingSurface.Layout` 在第 200 行用 `◆/◇` 表示置顶状态。字体字形各自渲染，导致图标笔画、大小和重心不一致，菱形也缺少图钉语义。

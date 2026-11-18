@@ -16,6 +16,7 @@
         <local:SettingOptionDisplayConverter x:Key="OptionDisplay"/>
         <local:SectionSelectedHighlightConverter x:Key="SectionSelected"/>
         <Style x:Key="Switch" TargetType="CheckBox">
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
             <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
             <Setter Property="MinHeight" Value="40"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -23,7 +24,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
-                        <Border x:Name="FocusBorder" Padding="3" BorderThickness="1" CornerRadius="7" BorderBrush="Transparent" Background="Transparent">
+                        <Border x:Name="SwitchFace" Padding="4" CornerRadius="7" Background="Transparent">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Border x:Name="Track" Width="36" Height="22" CornerRadius="11"
                                         Background="{DynamicResource {x:Static theme:MosaicTheme.DisabledSurfaceBrushKey}}"
@@ -41,11 +42,15 @@
                                 <Setter TargetName="Thumb" Property="Fill" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"/>
                                 <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
                             </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="FocusBorder" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SwitchFace" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="SwitchFace" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="FocusBorder" Property="Opacity" Value="0.55"/>
+                                <Setter TargetName="SwitchFace" Property="Background" Value="Transparent"/>
+                                <Setter TargetName="SwitchFace" Property="Opacity" Value="0.55"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

@@ -227,6 +227,9 @@ public sealed class FloatingWindowsTests
         var pinned = Tools(expanded)[1];
         Assert.Null(Icon(pin).Fill);
         Assert.NotNull(Icon(pinned).Fill);
+        Assert.False(pinned.IsPressed);
+        Assert.False(pinned.IsMouseOver);
+        Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(pinned.Background).Color);
         Assert.NotEqual(Name(pin), Name(pinned));
         Assert.Equal(Name(pin), pin.ToolTip);
         Assert.Equal(Name(pinned), pinned.ToolTip);

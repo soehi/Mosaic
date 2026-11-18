@@ -169,7 +169,7 @@
       "mosaic.kernel": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )"
         }
       }
     }

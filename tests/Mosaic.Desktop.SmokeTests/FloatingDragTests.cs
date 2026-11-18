@@ -47,7 +47,35 @@ public sealed partial class DesktopTests
             var resized=ReadRect(hwnd);Assert.Equal(moved.Left,resized.Left);Assert.Equal(moved.Top,resized.Top);Assert.InRange((resized.Right-resized.Left)-(moved.Right-moved.Left),30,34);
             var pinnedName=Id(floating,"FloatingPin")!.Current.Name;
             Assert.True(IsTopmost(hwnd));
-            foreach(var controlId in new[]{"FloatingPin","FloatingTaskState","FloatingTaskExpand","FloatingRestore"})
+            var pinBounds = Id(floating, "FloatingPin")!.Current.BoundingRectangle;
+            var pinX = (int)(pinBounds.Left + pinBounds.Width / 2);
+            var pinY = (int)(pinBounds.Top + pinBounds.Height / 2);
+            var sampleX = (int)(pinBounds.Left + 4 * scale);
+            var sampleY = (int)(pinBounds.Top + 8 * scale);
+            uint PinColor() => ReadDesktopPixel(sampleX, sampleY);
+            SetCursorPos(resized.Left - 10, pinY);
+            await Task.Delay(120);
+            var idle = PinColor();
+            Assert.Equal(ReadDesktopPixel((int)pinBounds.Left - 1, sampleY), idle);
+            SetCursorPos(pinX, pinY);
+            await UntilCondition(() => PinColor() != idle, "Pinned button did not show hover feedback");
+            var hovered = PinColor();
+            SendMouse(0, 0, 2);
+            await UntilCondition(() => PinColor() != hovered, "Pin press did not change the rendered background");
+            SendMouse(0, 0, 4);
+            await UntilCondition(() => !IsTopmost(hwnd) && PinColor() == hovered, "Pin release did not return to hover");
+            SetCursorPos(resized.Left - 10, pinY);
+            await UntilCondition(() => PinColor() == idle, "Pin background did not return to idle off pointer");
+            if (Environment.GetEnvironmentVariable("MOSAIC_CAPTURE_BUTTON_FEEDBACK") == "1")
+            {
+                await PointerGesture(pinX, pinY, 0, 0);
+                SetCursorPos(resized.Left - 10, pinY);
+                await UntilCondition(() => IsTopmost(hwnd) && PinColor() == idle, "Pinned button did not return to idle");
+                CaptureFloatingFeedback(resized);
+                await PointerGesture(pinX, pinY, 0, 0);
+                await UntilCondition(() => !IsTopmost(hwnd), "Short press did not clear pin");
+            }
+            foreach(var controlId in new[]{"FloatingTaskState","FloatingTaskExpand","FloatingRestore"})
             {
                 SetForegroundWindow(hwnd);await Task.Delay(120);
                 var control=Id(floating,controlId)!;var bounds=control.Current.BoundingRectangle;var rect=ReadRect(hwnd);
@@ -180,7 +208,13 @@ public sealed partial class DesktopTests
     [StructLayout(LayoutKind.Sequential)] private record struct NativeRect { public int Left,Top,Right,Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X,Y; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeMouse { public int X,Y; public uint Data,Flags,Time; public nuint Extra; }
-    [StructLayout(LayoutKind.Explicit,Size=40)] private struct NativeInput { [FieldOffset(0)] public uint Type; [FieldOffset(8)] public NativeMouse Mouse; }
+    [StructLayout(LayoutKind.Explicit, Size = 40)]
+    private struct NativeInput
+    {
+        [FieldOffset(0)] public uint Type;
+        [FieldOffset(8)] public NativeMouse Mouse;
+        [FieldOffset(8)] public NativeKeyboard Keyboard;
+    }
     [DllImport("user32.dll")] private static extern nint SetThreadDpiAwarenessContext(nint context);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
     private static bool IsTopmost(nint hwnd) => (GetWindowLong(hwnd, -20) & 0x00000008) != 0;

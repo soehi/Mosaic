@@ -169,14 +169,14 @@
       "mosaic.desktoppresence.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )"
         }
       },
       "mosaic.desktoppresence.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )",
-          "Mosaic.DesktopPresence.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )",
+          "Mosaic.DesktopPresence.Contracts": "[0.12.2, )"
         }
       }
     }

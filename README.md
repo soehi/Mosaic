@@ -8,9 +8,9 @@
 
 已确认技术方案：C# + WPF，采用 .NET 10、MVVM 和 SQLite。
 
-当前版本为 0.12.1。任务浮窗采用统一的矢量工具图标，空心和实心图钉分别表示未置顶和已置顶。开启“允许编辑浮窗详细内容”后，可在浮窗编辑和保存任务备注。浮窗关闭及应用退出时会确认未保存的草稿。实际验证范围见[实施记录](docs/implementation-status.md)。
+当前版本为 0.12.2。应用内按钮松开后结束按压反馈，键盘焦点通过独立标记提示。任务浮窗用空心和实心图钉表示置顶状态。开启“允许编辑浮窗详细内容”后，可在浮窗编辑和保存任务备注，关闭浮窗或退出应用时会确认未保存的草稿。实际验证范围见[实施记录](docs/implementation-status.md)。
 
-Windows 安装包：[下载 Mosaic 0.12.1](https://github.com/soehi/Mosaic/releases/download/v0.12.1/Mosaic-0.12.1-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.12.2](https://github.com/soehi/Mosaic/releases/download/v0.12.2/Mosaic-0.12.2-win-x64.msi)。发布文件自带 .NET 10.0.15 运行时，无需安装 SDK。
 
 目标为 Windows 10 2004（build 19041）及以上的 x64 系统；已验证 Windows 11 x64。其他系统、ARM64、干净虚拟机及不同 DPI/输入法组合仍需独立验收。
 

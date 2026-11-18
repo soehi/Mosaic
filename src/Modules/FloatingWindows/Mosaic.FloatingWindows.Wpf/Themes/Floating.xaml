@@ -21,7 +21,7 @@
         <Setter Property="MinHeight" Value="28"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
         <Setter Property="ContentTemplate" Value="{StaticResource FloatingToolIconTemplate}"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -33,24 +33,16 @@
             </Setter.Value>
         </Setter>
         <Style.Triggers>
-            <Trigger Property="Content" Value="{StaticResource FloatingPinnedIcon}">
-                <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"/>
-                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
-            </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"/>
-                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-            </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
-                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentHoverBrushKey}}"/>
                 <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"/>
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.6"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -59,7 +51,7 @@
             <MultiTrigger>
                 <MultiTrigger.Conditions>
                     <Condition Property="IsMouseOver" Value="True"/>
-                    <Condition Property="IsKeyboardFocused" Value="False"/>
+                    <Condition Property="IsEnabled" Value="True"/>
                 </MultiTrigger.Conditions>
                 <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.DangerSoftBrushKey}}"/>
                 <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.DangerBrushKey}}"/>

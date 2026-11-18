@@ -203,37 +203,37 @@
       "mosaic.settings.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )"
         }
       },
       "mosaic.settings.core": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )",
-          "Mosaic.Settings.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )",
+          "Mosaic.Settings.Contracts": "[0.12.2, )"
         }
       },
       "mosaic.settings.sqlite": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )",
-          "Mosaic.Settings.Contracts": "[0.12.1, )",
-          "Mosaic.Storage.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )",
+          "Mosaic.Settings.Contracts": "[0.12.2, )",
+          "Mosaic.Storage.Contracts": "[0.12.2, )"
         }
       },
       "mosaic.storage.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.12.1, )"
+          "Mosaic.Contracts": "[0.12.2, )"
         }
       },
       "mosaic.storage.sqlite": {
         "type": "Project",
         "dependencies": {
           "Microsoft.Data.Sqlite": "[10.0.9, )",
-          "Mosaic.Contracts": "[0.12.1, )",
-          "Mosaic.Settings.Contracts": "[0.12.1, )",
-          "Mosaic.Storage.Contracts": "[0.12.1, )",
+          "Mosaic.Contracts": "[0.12.2, )",
+          "Mosaic.Settings.Contracts": "[0.12.2, )",
+          "Mosaic.Storage.Contracts": "[0.12.2, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
         }
       },
