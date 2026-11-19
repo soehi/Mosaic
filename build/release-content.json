@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.15.2",
+  "currentReleaseId": "mosaic-0.15.3",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -412,6 +412,18 @@
       ],
       "fixed": [],
       "contentSha256": "3421D9EAAD6EF8417E29D74528342FBCEF545CA894C2AD1755E41E4A273FEA90"
+    },
+    {
+      "releaseId": "mosaic-0.15.3",
+      "version": "0.15.3",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.15.2",
+      "added": [],
+      "improved": [
+        "强化自动归档开关的回归测试：关闭时断言归档循环根本没有启动、超过等待期的已完成任务保持未归档；开启后断言只归档候选任务，关闭后循环停止并把等待天数归零。产品行为与 0.15.2 一致。"
+      ],
+      "fixed": [],
+      "contentSha256": "CD85654836A042B3600E16914C2AA166E86536A6502E51877F3642E56E5216E6"
     }
   ]
 }

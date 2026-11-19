@@ -1,5 +1,19 @@
 # Mosaic：实施与验证记录
 
+## 0.15.3：自动归档启停路径的断言补强（2026-11-19）
+
+- 测试缺口位置：0.15.2 新增的两个测试只断言 `ITasksApi.SetArchivedAsync` 的调用次数与仓库中的归档状态（`tests/Mosaic.Tasks.Core.Tests/AutoArchiveTests.cs` 0.15.2 版 :129-176），没有断言归档循环本身是否启动。`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskAutoArchive.cs:12-14` 的 `_delayDays`、`_cancellation`、`_loop` 是启停状态的真实来源：如果 `ApplyAsync` 把关闭误判为启用（循环启动但本轮候选为空，或轮询间隔尚未到），`SetArchivedAsync` 仍可能一次都不被调用，0.15.2 的测试就会空过。
+- 改动位置（仅测试与发布元数据，产品源码未改）：
+  - `tests/Mosaic.Tasks.Core.Tests/AutoArchiveTests.cs`：`Disabled_auto_archive_never_archives_due_completed_tasks` 更名为 `Auto_archive_disabled_policy_never_archives_due_completed_tasks`，候选任务改为等待期 7 天、完成于 8 天前，并在两次 `ApplyAsync`（空字典默认值与显式 `autoEnabled=false`）后新增断言：`_delayDays == 0`、`_cancellation` 为 null、`_loop` 仍是 `Task.CompletedTask`，证明归档循环没有启动；`Enabled_auto_archive_archives_due_candidates_and_stops_when_disabled_again` 在开启后断言 `_delayDays == 7`、`_cancellation` 非空，关闭后断言 `_delayDays == 0`、`_cancellation` 为 null，再插入 30 天前完成的已完成任务并确认不再归档；新增 `Field` 辅助方法反射读取 `TaskAutoArchive` 私有字段。
+  - `Directory.Build.props`、`build/installer/Mosaic.Installer.wixproj`：版本 0.15.3。
+  - `build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`：追加 `mosaic-0.15.3`（`previousReleaseId=mosaic-0.15.2`，指纹 `CD85654836A042B3600E16914C2AA166E86536A6502E51877F3642E56E5216E6`），索引第 25 条；0.14.0、0.15.0、0.15.1、0.15.2 的已发布条目与哈希未改动（逐条复算一致，索引仅新增）。
+  - `README.md`、`docs/releases/v0.15.3.md`、`docs/releases/v0.15.3-files.md`：版本说明与交付清单。
+- 与 0.15.2 的关系：0.15.2 已在收到本次要求前发布（tag v0.15.2），其内容不可修改，因此断言补强作为 0.15.3 独立交付；两版均为纯测试补丁，应用行为不变。
+- 兼容与迁移：产品行为、数据库结构、设置键与配置格式均未变化；已有安装直接升级，不需要迁移。
+- 验证：Release 全量重建 0 警告 0 错误；非桌面测试 204 项全绿——Architecture 4、DesktopPresence.Core 17、FloatingWindows 12、Kernel 5、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 1、Storage.Sqlite 12、Tasks.Contract 7、Tasks.Core 22、Wpf 82。桌面 Smoke 未重跑：它驱动真实指针会抢占用户鼠标，且本机仍有用户正在运行的真实安装，无法独立确认。
+- 发布内容：`build/published-release-index.json` 25 条；发布产物 `artifacts/local-run` 通过 `verify-published.ps1`（`PASS: published payload is a release build with manifest mosaic-0.15.3`）。MSI：`Mosaic-0.15.3-win-x64.msi`，52469940 字节，SHA-256 `60379E4CCD71A8ED27DF0C2DA1C31CDF0AB615EA5BD1D873A6F843E46E547637`，数据库回读 ProductVersion=0.15.3，`test-package-shortcuts.ps1` PASS；发布产物 ProductVersion 为 `0.15.3+9f7f1b4...`（工作树改动尚未提交时的构建）。
+- 未验证项：MSI 的实际安装/升级/卸载不在本机执行（本机存在正在运行的真实安装）；桌面 Smoke 未在本版本重跑。
+
 ## 0.15.2：自动归档启停行为回归测试（2026-11-19）
 
 - 覆盖缺口位置（0.15.1 的测试未断言行为）：`tests/Mosaic.Tasks.Core.Tests/AutoArchiveTests.cs`（0.15.1 版）只断言 `TaskSettingsSource` 的默认值与 `ITaskRepository.QueryArchiveCandidatesAsync` 的候选查询（:87-127），从未调用 `TaskAutoArchive.ApplyAsync`。因此 `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskAutoArchive.cs:16-19` 的关闭分支（`autoEnabled` 不是 `true` 时传 0）与 `TaskAutoArchive.SetDelayAsync`（:21-41）的启动/取消循环路径都没有行为断言：如果关闭策略仍然启动归档循环，或开启后归档了非候选任务，现有测试不会发现。

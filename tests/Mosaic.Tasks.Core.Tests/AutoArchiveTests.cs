@@ -127,23 +127,26 @@ public sealed class AutoArchiveTests
     }
 
     [Fact]
-    public async Task Disabled_auto_archive_never_archives_due_completed_tasks()
+    public async Task Auto_archive_disabled_policy_never_archives_due_completed_tasks()
     {
         var repository = new MemoryTaskRepository();
-        var due = TaskItem(true, completedAt: Now.AddDays(-60));
+        var due = TaskItem(true, completedAt: Now.AddDays(-8));
         var open = TaskItem(false, completedAt: Now.AddDays(-365));
         Assert.True((await Insert(repository, due)).IsSuccess);
         Assert.True((await Insert(repository, open)).IsSuccess);
         var api = new PassThroughTasksApi(repository);
         var archive = NewArchive(repository, api);
 
-        await ApplyPolicy(archive, enabled: null);
+        await ApplyPolicy(archive, enabled: null, delayDays: 7);
         await ApplyPolicy(archive, enabled: false, delayDays: 7);
         await Task.Delay(300);
 
         Assert.Empty(api.ArchiveRequests);
         Assert.True((await repository.FindAsync(due.Id)).Value is { IsArchived: false });
         Assert.True((await repository.FindAsync(open.Id)).Value is { IsArchived: false });
+        Assert.Equal(0, Field(archive, "_delayDays"));
+        Assert.Null(Field(archive, "_cancellation"));
+        Assert.Same(Task.CompletedTask, Field(archive, "_loop"));
         await StopPolicy(archive);
     }
 
@@ -159,6 +162,8 @@ public sealed class AutoArchiveTests
         var archive = NewArchive(repository, api);
 
         await ApplyPolicy(archive, enabled: true, delayDays: 7);
+        Assert.Equal(7, Field(archive, "_delayDays"));
+        Assert.NotNull(Field(archive, "_cancellation"));
         await Until(() => api.ArchiveRequests.Count > 0, "开启自动归档后等待期已满的任务未被归档");
 
         Assert.Equal([due.Id], api.ArchiveRequests.Select(request => request.Id).ToArray());
@@ -167,6 +172,8 @@ public sealed class AutoArchiveTests
         Assert.True((await repository.FindAsync(open.Id)).Value is { IsArchived: false });
 
         await ApplyPolicy(archive, enabled: false);
+        Assert.Equal(0, Field(archive, "_delayDays"));
+        Assert.Null(Field(archive, "_cancellation"));
         var later = TaskItem(true, completedAt: Now.AddDays(-30));
         Assert.True((await Insert(repository, later)).IsSuccess);
         await Task.Delay(300);
@@ -184,6 +191,9 @@ public sealed class AutoArchiveTests
             : new Dictionary<string, object?> { ["tasks.archive.autoEnabled"] = enabled.Value, ["tasks.archive.delayDays"] = delayDays }])!;
 
     private static Task StopPolicy(object archive) => (Task)SetDelayMethod.Invoke(archive, [0])!;
+
+    private static object? Field(object archive, string name) =>
+        AutoArchiveType.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(archive);
 
     private static async Task Until(Func<bool> condition, string message)
     {
