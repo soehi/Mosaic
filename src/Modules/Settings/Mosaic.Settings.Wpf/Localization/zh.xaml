@@ -267,7 +267,7 @@
     <sys:String x:Key="Settings.Setting.RunAtLogon">登录后启动 Mosaic</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon.Description">Windows 登录时使用当前工作区自动启动 Mosaic</sys:String>
     <sys:String x:Key="Settings.Setting.AuthServer">账号服务器地址</sys:String>
-    <sys:String x:Key="Settings.Setting.AuthServer.Description">用于登录与备份的自建服务器地址，留空表示不连接服务器</sys:String>
+    <sys:String x:Key="Settings.Setting.AuthServer.Description">用于登录与备份的自建服务器地址，默认 https://mosaic.bansonic.top，留空表示不连接服务器</sys:String>
     <sys:String x:Key="Settings.Setting.SyncEnabled">启用账号备份</sys:String>
     <sys:String x:Key="Settings.Setting.SyncEnabled.Description">登录账号后可手动上传和下载备份；关闭后账号页只显示本地数据</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings">备份用户设置</sys:String>

@@ -1,21 +1,25 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Data;
 
 namespace Mosaic.Shell.Wpf;
 
+// Navigation glyphs all come from Segoe MDL2 Assets so that every entry shares one visual
+// language, one baseline and one selected-state colour (the TextBlock inherits Button.Foreground).
 internal sealed class NavigationIconConverter : IMultiValueConverter
 {
+    internal const string DefaultGlyph = "\uE8A5"; // Document
+
     public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture)
     {
         var iconKey = values.ElementAtOrDefault(0) as string;
-        var label = values.ElementAtOrDefault(1) as string;
         return iconKey switch
         {
-            "check-square" => "✓",
-            "folder" => "▰",
-            "calendar" => "◷",
-            "settings" => string.Empty,
-            _ => string.IsNullOrWhiteSpace(label) ? "•" : StringInfo.GetNextTextElement(label)
+            "check-square" => "\uE9D5", // CheckList
+            "folder" => "\uE8B7", // Folder
+            "calendar" => "\uE787", // Calendar
+            "settings" => "\uE713", // Settings
+            "account" => "\uE77B", // Contact
+            _ => DefaultGlyph
         };
     }
 

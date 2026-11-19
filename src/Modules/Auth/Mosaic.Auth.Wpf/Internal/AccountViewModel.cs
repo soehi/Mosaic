@@ -127,7 +127,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _auth.StateChanged += OnAuthChanged;
         _sync.StateChanged += OnSyncChanged;
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
-        _serverInput = ServerText;
+        _serverInput = DefaultServerInput;
     }
 
     public event EventHandler? PasswordsCleared;
@@ -192,6 +192,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public bool ShowLoginCard => IsSignedOut && !ShowOfflineNote;
 
     public string ServerText => _auth.State.Server?.GetLeftPart(UriPartial.Authority) ?? "";
+
+    // A fresh install shows the shipped instance as the suggested address; the value is only
+    // typed into the box, saving it (or replacing it) stays the user's call.
+    private string DefaultServerInput => IsServerConfigured ? ServerText : AuthValidation.DefaultServerUrl;
 
     public string ServerDisplay => IsServerConfigured
         ? string.Format(CultureInfo.CurrentCulture, L("Auth.Server.Current", "当前服务器：{0}"), ServerText)
@@ -1182,7 +1186,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     private void OnLanguageChanged(object? sender, EventArgs e) => OnUi(() =>
     {
-        _serverInput = ServerText;
+        _serverInput = DefaultServerInput;
         OnPropertyChanged(string.Empty);
     });
 

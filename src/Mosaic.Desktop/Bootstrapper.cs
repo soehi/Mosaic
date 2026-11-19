@@ -118,7 +118,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
     }
     private void OnModuleStarted(IModuleActivation module)
     {
-        if (module is IUiModule ui) _uiRegistrations[module] = _contributions.Register(ui.Navigation, ui.Views);
+        if (module is IUiModule ui) _uiRegistrations[module] = _contributions.Register(ui.Navigation, ui.Views, ui.Status);
     }
     private void OnModuleStopping(IModuleActivation module)
     {

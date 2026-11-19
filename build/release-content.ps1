@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ProgramVersion,
     [string]$SourcePath = (Join-Path $PSScriptRoot 'release-content.json'),
     [string]$IndexPath = (Join-Path $PSScriptRoot 'published-release-index.json'),

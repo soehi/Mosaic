@@ -8,13 +8,17 @@
     <sys:String x:Key="Auth.SignedOut.Title">Sign in</sys:String>
     <sys:String x:Key="Auth.SignedOut.Description">Sign in to back up tasks and restore them on other devices, or keep using Mosaic fully offline.</sys:String>
     <sys:String x:Key="Auth.Server.Label">Server address</sys:String>
-    <sys:String x:Key="Auth.Server.Hint">HTTPS only, for example https://mosaic.example.com. Leave empty to stay disconnected.</sys:String>
+    <sys:String x:Key="Auth.Server.Hint">Defaults to https://mosaic.bansonic.top (our hosted server); use another HTTPS self-hosted server if you prefer, or leave it empty to stay disconnected.</sys:String>
     <sys:String x:Key="Auth.Server.None">Not connected to a server</sys:String>
     <sys:String x:Key="Auth.Server.Current">Server: {0}</sys:String>
     <sys:String x:Key="Auth.Server.Change">Connect another self-hosted server</sys:String>
     <sys:String x:Key="Auth.Server.Save">Save server</sys:String>
     <sys:String x:Key="Auth.Server.Cancel">Cancel</sys:String>
     <sys:String x:Key="Auth.Server.Saved">Server address saved.</sys:String>
+    <sys:String x:Key="Auth.Status.SignedOut">Not signed in</sys:String>
+    <sys:String x:Key="Auth.Status.Offline">Offline</sys:String>
+    <sys:String x:Key="Auth.Status.Tooltip">{0} · Open the account page</sys:String>
+    <sys:String x:Key="Auth.Status.Tooltip.SignedOut">Offline: not signed in · Open the account page</sys:String>
 
     <sys:String x:Key="Auth.Email">Email</sys:String>
     <sys:String x:Key="Auth.Password">Password</sys:String>

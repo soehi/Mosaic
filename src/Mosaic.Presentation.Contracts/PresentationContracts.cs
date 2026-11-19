@@ -27,10 +27,25 @@ public interface ICompanionViewSession : IAsyncDisposable
 }
 public interface INavigationGuard { Task<bool> CanLeaveAsync(); }
 public interface IPageController : INavigationGuard, IAsyncDisposable { Task InitializeAsync(); }
+
+// A module-owned entry for the window status bar. The shell renders it generically and never
+// looks at what it means; the owning module updates the observable text itself.
+public interface IStatusContribution : System.ComponentModel.INotifyPropertyChanged
+{
+    string Id { get; }
+    string Glyph { get; }
+    string Text { get; }
+    string? Detail { get; }
+    string? ToolTip { get; }
+    string? TargetViewId { get; }
+    int Order { get; }
+}
+
 public interface IUiModule
 {
     IReadOnlyList<NavigationItem> Navigation { get; }
     IReadOnlyList<ViewContribution> Views { get; }
+    IReadOnlyList<IStatusContribution> Status => [];
 }
 public interface IUiDispatcher
 {

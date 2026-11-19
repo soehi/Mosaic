@@ -12,7 +12,7 @@ internal sealed class AuthSettingsSource(AuthService service) : ISettingSource
 
     public IReadOnlyList<SettingDefinition> Definitions { get; } =
     [
-        new(ServerUrl, "auth-core", "账号服务器地址", "用于登录与备份的自建服务器地址，例如 https://mosaic.example.com；留空表示不连接服务器。",
+        new(ServerUrl, "auth-core", "账号服务器地址", "用于登录与备份的自建服务器地址，默认 https://mosaic.bansonic.top；留空表示不连接服务器。",
             SettingValueKind.String, "", null, null, null, SettingsGroup.StorageSystem, SettingCategory.Normal,
             SettingApplyMode.Immediate, SettingPersistence.UserSettings,
             DisplayNameKey: "Settings.Setting.AuthServer", DescriptionKey: "Settings.Setting.AuthServer.Description")

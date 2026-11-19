@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -409,13 +409,73 @@ public sealed class PresentationTests
         var navigationText = FindVisualChildren<TextBlock>(shell)
             .Select(text => text.Text)
             .ToHashSet(StringComparer.Ordinal);
-        Assert.Contains("✓", navigationText);
         Assert.Contains("任务", navigationText);
+        var glyphs = FindVisualChildren<TextBlock>(shell)
+            .Where(text => text.Name == "NavigationGlyph")
+            .ToArray();
+        Assert.All(glyphs, glyph => Assert.Equal("Segoe MDL2 Assets", glyph.FontFamily.Source));
+        Assert.All(glyphs, glyph => Assert.Equal(16, glyph.FontSize));
+        Assert.Contains(glyphs, glyph => glyph.Text == "\uE9D5");
+        Assert.Contains(glyphs, glyph => glyph.Text == "\uE8B7");
+
+        Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(shell.FindName("StatusBar")).Visibility);
 
         await shell.DisposeAsync();
         registration.Dispose();
         shell.Close();
     });
+    [Fact]
+    public Task Status_bar_shows_module_status_and_opens_its_view() => Sta.Run(async () =>
+    {
+        var registry = new ContributionRegistry();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var status = new StatusStub { Text = "小明", Detail = "demo@example.com", ToolTip = "小明，点击进入账户页" };
+        using var registration = registry.Register(module.Navigation, module.Views, [status]);
+        var shell = new ShellWindow(registry, new Dialogs());
+        shell.Resources.MergedDictionaries.Add(LoadTheme());
+        await shell.InitializeAsync();
+        shell.ShowInTaskbar = false;
+        shell.WindowStyle = WindowStyle.None;
+        shell.Opacity = 0;
+        shell.Show();
+        await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+
+        var bar = Assert.IsType<Border>(shell.FindName("StatusBar"));
+        Assert.Equal(Visibility.Visible, bar.Visibility);
+        Assert.Single(Assert.IsType<ItemsControl>(shell.FindName("StatusItemsControl")).Items);
+        var texts = FindVisualChildren<TextBlock>(shell).Select(text => text.Text).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("小明", texts);
+        Assert.Contains("demo@example.com", texts);
+
+        var navigate = Assert.IsAssignableFrom<IAsyncRelayCommand<string?>>(Get<object>(shell.DataContext, "NavigateToViewCommand"));
+        await navigate.ExecuteAsync(status.TargetViewId);
+        Assert.Equal("tasks.archived.navigation", Get<string?>(shell.DataContext, "CurrentNavigationId"));
+
+        status.Text = "小红";
+        await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        Assert.Contains("小红", FindVisualChildren<TextBlock>(shell).Select(text => text.Text));
+
+        await shell.DisposeAsync();
+        shell.Close();
+    });
+
+    private sealed class StatusStub : IStatusContribution
+    {
+        private string _text = "";
+        private string? _detail;
+        private string? _toolTip;
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        public string Id => "test.status";
+        public string Glyph => "\uE77B";
+        public string? TargetViewId => "tasks.archived.list";
+        public int Order => 0;
+        public string Text { get => _text; set { _text = value; Raise(); } }
+        public string? Detail { get => _detail; set { _detail = value; Raise(); } }
+        public string? ToolTip { get => _toolTip; set { _toolTip = value; Raise(); } }
+        private void Raise() => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(string.Empty));
+    }
     [Fact]
     public Task Shell_navigation_labels_and_page_title_follow_the_ui_language() => Sta.Run(async () =>
     {

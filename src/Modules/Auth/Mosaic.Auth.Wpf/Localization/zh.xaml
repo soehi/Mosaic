@@ -8,13 +8,17 @@
     <sys:String x:Key="Auth.SignedOut.Title">登录账户</sys:String>
     <sys:String x:Key="Auth.SignedOut.Description">登录后可备份任务并在其他设备上恢复；不登录也可以完全离线使用。</sys:String>
     <sys:String x:Key="Auth.Server.Label">服务器地址</sys:String>
-    <sys:String x:Key="Auth.Server.Hint">仅支持 HTTPS 地址，例如 https://mosaic.example.com。留空则本机不连接任何服务器。</sys:String>
+    <sys:String x:Key="Auth.Server.Hint">默认使用 https://mosaic.bansonic.top（我们部署的服务器），也可以改为其他 HTTPS 自建服务器；留空则本机不连接任何服务器。</sys:String>
     <sys:String x:Key="Auth.Server.None">尚未连接服务器</sys:String>
     <sys:String x:Key="Auth.Server.Current">当前服务器：{0}</sys:String>
     <sys:String x:Key="Auth.Server.Change">连接其他自建服务器</sys:String>
     <sys:String x:Key="Auth.Server.Save">保存服务器</sys:String>
     <sys:String x:Key="Auth.Server.Cancel">取消</sys:String>
     <sys:String x:Key="Auth.Server.Saved">服务器地址已保存。</sys:String>
+    <sys:String x:Key="Auth.Status.SignedOut">未登录</sys:String>
+    <sys:String x:Key="Auth.Status.Offline">离线</sys:String>
+    <sys:String x:Key="Auth.Status.Tooltip">{0}，点击进入账户页</sys:String>
+    <sys:String x:Key="Auth.Status.Tooltip.SignedOut">离线：未登录，点击进入账户页</sys:String>
 
     <sys:String x:Key="Auth.Email">邮箱</sys:String>
     <sys:String x:Key="Auth.Password">密码</sys:String>

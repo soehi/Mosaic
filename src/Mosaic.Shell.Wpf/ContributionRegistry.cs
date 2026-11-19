@@ -7,36 +7,52 @@ public sealed class ContributionRegistry
 {
     private readonly Dictionary<string, ViewContribution> _views = new(StringComparer.Ordinal);
     private readonly Dictionary<string, NavigationItem> _navigation = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IStatusContribution> _status = new(StringComparer.Ordinal);
     private readonly HashSet<Registration> _registrations = [];
     private readonly ObservableCollection<NavigationItem> _visibleNavigation = [];
+    private readonly ObservableCollection<IStatusContribution> _visibleStatus = [];
 
-    public ContributionRegistry() => Navigation = new ReadOnlyObservableCollection<NavigationItem>(_visibleNavigation);
+    public ContributionRegistry()
+    {
+        Navigation = new ReadOnlyObservableCollection<NavigationItem>(_visibleNavigation);
+        Status = new ReadOnlyObservableCollection<IStatusContribution>(_visibleStatus);
+    }
 
     public IReadOnlyList<NavigationItem> Navigation { get; }
+    public IReadOnlyList<IStatusContribution> Status { get; }
 
     internal event EventHandler? Changed;
 
-    public IDisposable Register(IReadOnlyList<NavigationItem> navigation, IReadOnlyList<ViewContribution> views)
+    public IDisposable Register(
+        IReadOnlyList<NavigationItem> navigation,
+        IReadOnlyList<ViewContribution> views,
+        IReadOnlyList<IStatusContribution>? status = null)
     {
         ArgumentNullException.ThrowIfNull(navigation);
         ArgumentNullException.ThrowIfNull(views);
 
         var allViews = new Dictionary<string, ViewContribution>(_views, StringComparer.Ordinal);
         var allNavigation = new Dictionary<string, NavigationItem>(_navigation, StringComparer.Ordinal);
+        var allStatus = new Dictionary<string, IStatusContribution>(_status, StringComparer.Ordinal);
         foreach (var view in views)
             if (string.IsNullOrWhiteSpace(view.Id) || view.Factory is null || !allViews.TryAdd(view.Id, view))
                 throw new InvalidOperationException("Duplicate or invalid view contribution.");
         foreach (var item in navigation)
             if (string.IsNullOrWhiteSpace(item.Id) || !allNavigation.TryAdd(item.Id, item) || !allViews.ContainsKey(item.ViewId))
                 throw new InvalidOperationException("Duplicate navigation or missing view contribution.");
+        foreach (var item in status ?? [])
+            if (item is null || string.IsNullOrWhiteSpace(item.Id) || !allStatus.TryAdd(item.Id, item))
+                throw new InvalidOperationException("Duplicate or invalid status contribution.");
 
         var registration = new Registration(
             views.Select(view => view.Id).ToArray(),
-            navigation.Select(item => item.Id).ToArray());
+            navigation.Select(item => item.Id).ToArray(),
+            status?.Select(item => item.Id).ToArray() ?? []);
         foreach (var view in views) _views.Add(view.Id, view);
         foreach (var item in navigation) _navigation.Add(item.Id, item);
+        foreach (var item in status ?? []) _status.Add(item.Id, item);
         _registrations.Add(registration);
-        RebuildNavigation();
+        Rebuild();
         return new RegistrationHandle(this, registration);
     }
 
@@ -47,7 +63,8 @@ public sealed class ContributionRegistry
         _registrations.Clear();
         _navigation.Clear();
         _views.Clear();
-        RebuildNavigation();
+        _status.Clear();
+        Rebuild();
     }
 
     private void Revoke(Registration registration)
@@ -55,21 +72,26 @@ public sealed class ContributionRegistry
         if (!_registrations.Remove(registration)) return;
         foreach (var id in registration.ViewIds) _views.Remove(id);
         foreach (var id in registration.NavigationIds) _navigation.Remove(id);
-        RebuildNavigation();
+        foreach (var id in registration.StatusIds) _status.Remove(id);
+        Rebuild();
     }
 
-    private void RebuildNavigation()
+    private void Rebuild()
     {
         _visibleNavigation.Clear();
         foreach (var item in _navigation.Values.OrderBy(item => item.Order).ThenBy(item => item.Id, StringComparer.Ordinal))
             _visibleNavigation.Add(item);
+        _visibleStatus.Clear();
+        foreach (var item in _status.Values.OrderBy(item => item.Order).ThenBy(item => item.Id, StringComparer.Ordinal))
+            _visibleStatus.Add(item);
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private sealed class Registration(string[] viewIds, string[] navigationIds)
+    private sealed class Registration(string[] viewIds, string[] navigationIds, string[] statusIds)
     {
         internal string[] ViewIds { get; } = viewIds;
         internal string[] NavigationIds { get; } = navigationIds;
+        internal string[] StatusIds { get; } = statusIds;
     }
 
     private sealed class RegistrationHandle(ContributionRegistry owner, Registration registration) : IDisposable

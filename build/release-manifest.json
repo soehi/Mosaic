@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.16.3",
+  "currentReleaseId": "mosaic-0.16.4",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -487,6 +487,21 @@
       ],
       "fixed": [],
       "contentSha256": "ED06CAC492A0BB6D58279F6612136CDF3B9C14D1AE28748C3680B28F5E64C68D"
+    },
+    {
+      "releaseId": "mosaic-0.16.4",
+      "version": "0.16.4",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.16.3",
+      "added": [
+        "窗口右下角新增状态栏，显示当前登录账号：登录时显示账号显示名与邮箱，未登录时显示「未登录 · 离线」；点击状态栏可直接打开账户页，状态栏随主题与紧凑侧栏自动调整，不占用主内容区。"
+      ],
+      "improved": [
+        "账户页服务器地址默认建议改为官方实例 https://mosaic.bansonic.top：全新安装打开账户页时输入框已预填该地址，可直接保存连接，也可以改回其他 HTTPS 自建服务器；默认值只是输入建议，不会自动联网，已保存过服务器地址的安装不受影响。",
+        "左侧导航图标统一为 Segoe MDL2 Assets 矢量字形（任务、已归档、设置、账户），大小与描边一致，明暗主题下对比度统一，选中态更清晰，替换掉原先风格不一的手绘图标。"
+      ],
+      "fixed": [],
+      "contentSha256": "30BEE9458037456D3755AE3E0A18DECE7DEBC7FB0C719D1D669331B5DD2E5559"
     }
   ]
 }

@@ -19,7 +19,9 @@ public sealed class AccountViewModelTests
     {
         public AuthState State { get; set; } = AuthState.SignedOut();
         public Guid DeviceId { get; } = Guid.Parse("22222222-2222-2222-2222-222222222222");
-        public event EventHandler? StateChanged { add { } remove { } }
+        private EventHandler? _stateChanged;
+        public event EventHandler? StateChanged { add => _stateChanged += value; remove => _stateChanged -= value; }
+        public void RaiseStateChanged() => _stateChanged?.Invoke(this, EventArgs.Empty);
         public int LoginCalls, RegisterCalls, SendCodeCalls, StartDeviceCalls, CancelDeviceCalls, LogoutCalls;
         public int ListSessionsCalls, DeleteAccountCalls;
         public string? LastEmail, LastCode, LastPassword, LastServerInput;
@@ -319,6 +321,64 @@ public sealed class AccountViewModelTests
         Assert.Equal(1, fixture.Auth.CancelDeviceCalls);
         Assert.Equal("", fixture.ViewModel.DeviceCode);
         Assert.False(fixture.ViewModel.IsDeviceMode);
+    });
+
+    [Fact]
+    public Task Server_box_suggests_the_shipped_instance_when_none_is_configured() => Run(async () =>
+    {
+        await using var fixture = await new Fixture().StartAsync();
+        fixture.Auth.State = AuthState.SignedOut();
+        var viewModel = new AccountViewModel(fixture.Auth, fixture.Sync, fixture.Settings, fixture.Dialogs,
+            new Dispatcher(), fixture.Diagnostics, fixture.Opened.Add, fixture.Copied.Add);
+        await using var scope = viewModel;
+
+        Assert.False(viewModel.IsServerConfigured);
+        Assert.Equal("", viewModel.ServerText);
+        Assert.Equal(AuthValidation.DefaultServerUrl, viewModel.ServerInput);
+        Assert.Equal("https://mosaic.bansonic.top", AuthValidation.DefaultServerUrl);
+
+        await viewModel.SaveServerCommand.ExecuteAsync(null);
+
+        Assert.Equal("https://mosaic.bansonic.top", fixture.Auth.LastServerInput);
+    });
+
+    [Fact]
+    public Task Server_box_keeps_a_configured_server_instead_of_the_default() => RunFixture(async fixture =>
+    {
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.True(fixture.ViewModel.IsServerConfigured);
+        Assert.Equal("https://sync.example.com", fixture.ViewModel.ServerInput);
+        Assert.NotEqual(AuthValidation.DefaultServerUrl, fixture.ViewModel.ServerInput);
+    });
+
+    [Fact]
+    public Task Status_item_reports_the_account_and_switches_between_offline_and_signed_in() => Run(() =>
+    {
+        var auth = new FakeAuth();
+        using var item = new AccountStatusItem(auth, new Dispatcher());
+
+        Assert.Equal("account.status", item.Id);
+        Assert.Equal("account.home", item.TargetViewId);
+        Assert.Equal("\uE77B", item.Glyph);
+        Assert.Equal("未登录", item.Text);
+        Assert.Equal("离线", item.Detail);
+
+        var userId = Guid.NewGuid();
+        auth.State = new AuthState(AuthStatus.SignedIn,
+            new AuthAccountDto(userId, "demo@example.com", "小明"),
+            new Uri("https://sync.example.com"));
+        auth.RaiseStateChanged();
+
+        Assert.Equal("小明", item.Text);
+        Assert.Equal("demo@example.com", item.Detail);
+
+        auth.State = new AuthState(AuthStatus.SignedIn,
+            new AuthAccountDto(userId, "demo@example.com", null),
+            new Uri("https://sync.example.com"));
+        Assert.Equal("demo@example.com", item.Text);
+        Assert.Null(item.Detail);
+        return Task.CompletedTask;
     });
 
     [Fact]

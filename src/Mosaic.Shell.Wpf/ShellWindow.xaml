@@ -144,13 +144,10 @@
                                     </Style>
                                 </Button.Style>
                                 <StackPanel Orientation="Horizontal">
-                                    <Path x:Name="SettingsGear" Width="16" Height="16" Margin="3,0"
-                                          Stretch="Uniform" Visibility="Collapsed"
-                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                          Data="M 9,0 L 15,0 16,4 19,6 23,5 26,10 23,13 23,17 26,20 23,25 19,24 16,26 15,30 9,30 8,26 5,24 1,25 -2,20 1,17 1,13 -2,10 1,5 5,6 8,4 Z M 12,9 A 6,6 0 1 0 12,21 A 6,6 0 1 0 12,9 Z"/>
                                     <TextBlock x:Name="NavigationGlyph" Width="22"
                                                VerticalAlignment="Center"
-                                               FontSize="15"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="16"
                                                TextAlignment="Center">
                                         <TextBlock.Text>
                                             <MultiBinding Converter="{StaticResource NavigationIcon}">
@@ -166,10 +163,6 @@
                                 </StackPanel>
                             </Button>
                             <DataTemplate.Triggers>
-                                <DataTrigger Binding="{Binding IconKey}" Value="settings">
-                                    <Setter TargetName="SettingsGear" Property="Visibility" Value="Visible"/>
-                                    <Setter TargetName="NavigationGlyph" Property="Visibility" Value="Collapsed"/>
-                                </DataTrigger>
                                 <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
                                              Value="True">
                                     <Setter TargetName="NavigationLabel"
@@ -214,6 +207,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="66"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Border x:Name="TopBar"
@@ -305,6 +299,84 @@
                     </ContentControl.Style>
                 </ContentControl>
             </Grid>
+
+            <Border x:Name="StatusBar"
+                    Grid.Row="2"
+                    Height="36"
+                    Padding="32,0"
+                    Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                    BorderThickness="0,1,0,0"
+                    AutomationProperties.AutomationId="StatusBar">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StatusItems.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <ItemsControl x:Name="StatusItemsControl"
+                              ItemsSource="{Binding StatusItems}"
+                              HorizontalAlignment="Right"
+                              VerticalAlignment="Center"
+                              AutomationProperties.AutomationId="StatusItems">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.NavigateToViewCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding TargetViewId}"
+                                    ToolTip="{Binding ToolTip}"
+                                    AutomationProperties.Name="{Binding ToolTip}"
+                                    Style="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                    MinHeight="28"
+                                    Padding="10,3"
+                                    Margin="6,0,0,0">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Glyph}"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="12"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                    <TextBlock Text="{Binding Text}"
+                                               Margin="7,0,0,0"
+                                               FontSize="12"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                    <TextBlock Text="{Binding Detail}"
+                                               FontSize="11"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Margin" Value="7,0,0,0"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Detail}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Detail}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="›"
+                                               Margin="8,0,0,0"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
         </Grid>
     </Grid>
 </Window>

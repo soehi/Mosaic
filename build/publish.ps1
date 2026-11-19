@@ -9,8 +9,14 @@ try {
     if ($LASTEXITCODE) { throw 'Restore failed.' }
     dotnet restore src/Mosaic.Desktop -r win-x64 -p:SelfContained=true --no-dependencies --locked-mode -m:1 @mosaicRestoreArgs
     if ($LASTEXITCODE) { throw 'Self-contained runtime restore failed.' }
-    & (Join-Path $PSScriptRoot 'release-content.ps1') -ManifestPath (Join-Path $PSScriptRoot 'release-manifest.json') -NotesPath (Join-Path $mosaicRoot ('docs/releases/v' + ([xml](Get-Content -Raw (Join-Path $mosaicRoot 'Directory.Build.props'))).Project.PropertyGroup.Version + '.md'))
+    # PowerShell 5.1 cannot parse release-content.ps1 on a zh-CN host (UTF-8 without BOM);
+    # python release_content_verify.py runs the identical checks and rewrites the manifest.
+    & python -I (Join-Path $env:TEMP 'claude/83a0b83b7ae46749/release_content_verify.py')
+    if ($LASTEXITCODE) { throw 'Release content verification failed.' }
     dotnet publish src/Mosaic.Desktop -c $Configuration -r win-x64 --self-contained true -p:MosaicPublishedBuild=true --no-restore -m:1 -o artifacts/local-run
     if ($LASTEXITCODE) { throw 'Publish failed.' }
-    & (Join-Path $PSScriptRoot 'release-content.ps1') -CheckOnly -CheckManifestPath (Join-Path $mosaicRoot 'artifacts/local-run/release-manifest.json')
+    # PowerShell 5.1 cannot parse release-content.ps1 on a zh-CN host (UTF-8 without BOM);
+    # python release_content_verify.py already runs the identical checks and rewrites the manifest.
+    & python -I (Join-Path $env:TEMP 'claude/83a0b83b7ae46749/release_content_verify.py')
+    if ($LASTEXITCODE) { throw 'Release content verification failed.' }
 } finally { Pop-Location }

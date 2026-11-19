@@ -23,25 +23,31 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private IDisposable? _localizationRegistration;
     private Mosaic.Settings.Contracts.ISettingsApi? _settings;
     private readonly ObservableCollection<NavigationItem> _navigationItems = [];
+    private readonly ObservableCollection<IStatusContribution> _statusItems = [];
     internal IReadOnlyDictionary<string, object?>? InitialValues { get; private set; }
     internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings)
     {
         _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs;
         NavigateCommand = new AsyncRelayCommand<NavigationItem>(NavigateAsync);
+        NavigateToViewCommand = new AsyncRelayCommand<string?>(NavigateToViewAsync);
         registry.Changed += OnContributionsChanged;
         _settings = settings;
         _localizationRegistration = Application.Current is null ? null : MosaicLocalizationManager.Register(
             "shell",
             language => ShellLocalization.Dictionary(language == MosaicLanguage.English));
         Navigation = new ReadOnlyObservableCollection<NavigationItem>(_navigationItems);
+        StatusItems = new ReadOnlyObservableCollection<IStatusContribution>(_statusItems);
         RebuildNavigationItems();
+        RebuildStatusItems();
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
     public IReadOnlyList<NavigationItem> Navigation { get; }
+    public IReadOnlyList<IStatusContribution> StatusItems { get; }
     public FrameworkElement? Content { get => _content; private set => SetProperty(ref _content, value); }
     public string PageTitle { get => _pageTitle; private set => SetProperty(ref _pageTitle, value); }
     public string? CurrentNavigationId { get => _currentNavigationId; private set => SetProperty(ref _currentNavigationId, value); }
     public IAsyncRelayCommand<NavigationItem> NavigateCommand { get; }
+    public IAsyncRelayCommand<string?> NavigateToViewCommand { get; }
     internal async Task InitializeAsync()
     {
         if (_settings is { } settings)
@@ -74,9 +80,16 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
                 "Shell.Error.PageLoad", "页面加载失败，请重新启动应用。"));
         }
     }
+    private async Task NavigateToViewAsync(string? viewId)
+    {
+        if (string.IsNullOrWhiteSpace(viewId)) return;
+        var item = Navigation.FirstOrDefault(candidate => string.Equals(candidate.ViewId, viewId, StringComparison.Ordinal));
+        if (item is not null) await NavigateAsync(item);
+    }
     private void OnContributionsChanged(object? sender, EventArgs e)
     {
         RebuildNavigationItems();
+        RebuildStatusItems();
         if (_navigation.CurrentViewId is { } currentViewId && _registry.Find(currentViewId) is null)
         {
             Content = null;
@@ -131,6 +144,13 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
                 item.ViewId,
                 item.Order,
                 item.LabelKey));
+    }
+
+    private void RebuildStatusItems()
+    {
+        _statusItems.Clear();
+        foreach (var item in _registry.Status)
+            _statusItems.Add(item);
     }
 
     private static string TranslateNavigationLabel(string? labelKey, string label) =>

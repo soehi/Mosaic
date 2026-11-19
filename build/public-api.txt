@@ -75,6 +75,7 @@ Mosaic.Presentation.Contracts.IFloatingContentSession
 Mosaic.Presentation.Contracts.IFloatingDetachSource
 Mosaic.Presentation.Contracts.INavigationGuard
 Mosaic.Presentation.Contracts.IPageController
+Mosaic.Presentation.Contracts.IStatusContribution
 Mosaic.Presentation.Contracts.IUiDispatcher
 Mosaic.Presentation.Contracts.IUiModule
 Mosaic.Presentation.Contracts.IUserDialogService

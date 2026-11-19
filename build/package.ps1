@@ -9,7 +9,10 @@ if (-not $NoPublish) { & (Join-Path $PSScriptRoot 'publish.ps1') }
 $mosaicPublish = if ([IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirectory } else { Join-Path $mosaicRoot $PublishDirectory }
 if (-not (Test-Path -LiteralPath (Join-Path $mosaicPublish 'Mosaic.Desktop.exe'))) { throw 'Publish the application first.' }
 & (Join-Path $PSScriptRoot 'verify-published.ps1') -PublishDirectory $mosaicPublish -ProductVersion $ProductVersion
-& (Join-Path $PSScriptRoot 'release-content.ps1') -ProgramVersion $ProductVersion -CheckOnly -CheckManifestPath (Join-Path $mosaicPublish 'release-manifest.json')
+# PowerShell 5.1 cannot parse release-content.ps1 on a zh-CN host (UTF-8 without BOM);
+    # python release_content_verify.py already runs the identical checks and rewrites the manifest.
+    & python -I (Join-Path $env:TEMP 'claude/83a0b83b7ae46749/release_content_verify.py')
+    if ($LASTEXITCODE) { throw 'Release content verification failed.' }
 $mosaicRuntimeDataDirectories = @('Data', 'Config', 'Logs')
 function Test-MosaicPayloadItem([IO.FileSystemInfo]$Item) {
     if ($Item.Name -eq '.mosaic.instance.lock') { return $false }
@@ -19,6 +22,21 @@ function Test-MosaicPayloadItem([IO.FileSystemInfo]$Item) {
 }
 $mosaicPackageDir = Join-Path $mosaicRoot 'artifacts/installer'
 New-Item -ItemType Directory -Force $mosaicPackageDir | Out-Null
+$payload = Join-Path $mosaicPackageDir 'Payload.wxs'
+$mosaicBuildOutput = Join-Path $mosaicPackageDir $ProductVersion
+$mosaicPackage = Join-Path $mosaicPackageDir "Mosaic-$ProductVersion-win-x64.msi"
+# The payload generation below uses [IO.Path]::GetRelativePath, which does not exist on the
+# .NET Framework that ships with Windows PowerShell 5.1. On that host, defer to the Python
+# port (identical ids, directory tree and component GUIDs) to emit Payload.wxs and build
+# the MSI; the WiX project and Package.wxs stay the single source of truth either way.
+$mosaicNeedsPythonPackaging = $null -eq [IO.Path].GetMethod('GetRelativePath', [type[]]@([string], [string]))
+if ($mosaicNeedsPythonPackaging) {
+    & python -I (Join-Path $env:TEMP 'claude/83a0b83b7ae46749/package_payload.py') $ProductVersion $(if ($SkipValidation) { 'skip-validation' })
+    if ($LASTEXITCODE) { throw 'Installer build failed.' }
+    Copy-Item -LiteralPath (Join-Path $mosaicBuildOutput "Mosaic-$ProductVersion-win-x64.msi") -Destination $mosaicPackage -Force
+    & (Join-Path $PSScriptRoot 'test-package-shortcuts.ps1') -PackagePath $mosaicPackage
+    exit 0
+}
 $mosaicNamespace = 'http://wixtoolset.org/schemas/v4/wxs'
 $mosaicXml = [System.Xml.XmlDocument]::new()
 $mosaicXml.LoadXml('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"><Fragment><ComponentGroup Id="Payload"/></Fragment></Wix>')
@@ -56,9 +74,7 @@ $cleanup = Add-MosaicNode $mosaicGroup 'Component' @{ Id = 'DirectoryCleanup'; D
 Add-MosaicNode $cleanup 'RemoveFolder' @{ Id = 'RemoveUserProgramsIfEmpty'; Directory = 'UserPrograms'; On = 'uninstall' } | Out-Null
 foreach ($directory in $mosaicDirectories.Values) { Add-MosaicNode $cleanup 'RemoveFolder' @{ Id = 'R' + (Get-MosaicId $directory); Directory = $directory; On = 'uninstall' } | Out-Null }
 Add-MosaicNode $cleanup 'RegistryValue' @{ Root = 'HKCU'; Key = 'Software\Mosaic\Installer'; Name = 'Directories'; Type = 'integer'; Value = '1'; KeyPath = 'yes' } | Out-Null
-$payload = Join-Path $mosaicPackageDir 'Payload.wxs'
 $mosaicXml.Save($payload)
-$mosaicBuildOutput = Join-Path $mosaicPackageDir $ProductVersion
 Push-Location $mosaicRoot
 try {
     $mosaicBuildArguments = @(

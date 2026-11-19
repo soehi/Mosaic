@@ -95,6 +95,10 @@ public static class AuthErrorCodes
 
 public static class AuthValidation
 {
+    // The instance this build ships with. The account page pre-fills the server box with it so a
+    // fresh install connects without typing; it is only a default, never an automatic connection,
+    // and the user may replace it with any other HTTPS self-hosted server.
+    public const string DefaultServerUrl = "https://mosaic.bansonic.top";
     public const int PasswordMinLength = 10;
     public const int PasswordMaxLength = 256;
     public const int EmailCodeLength = 6;

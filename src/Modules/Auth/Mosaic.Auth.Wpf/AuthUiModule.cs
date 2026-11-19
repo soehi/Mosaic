@@ -24,6 +24,7 @@ public sealed class AuthUiModule(AuthUiDependencies dependencies) : IModuleActiv
 {
     private bool _active;
     private IDisposable? _localizationRegistration;
+    private AccountStatusItem? _statusItem;
 
     public static ModuleManifest Definition { get; } = new(
         "auth-ui",
@@ -41,12 +42,15 @@ public sealed class AuthUiModule(AuthUiDependencies dependencies) : IModuleActiv
         ? [new("account.home", new AuthViewFactory(dependencies))]
         : [];
 
+    public IReadOnlyList<IStatusContribution> Status => _active && _statusItem is not null ? [_statusItem] : [];
+
     public Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _localizationRegistration ??= MosaicLocalizationManager.Register(
             "auth-ui",
             language => AuthLocalizationDictionaries.Dictionary(language == MosaicLanguage.English));
+        _statusItem ??= new AccountStatusItem(dependencies.Auth, dependencies.Dispatcher);
         _active = true;
         return Task.CompletedTask;
     }
@@ -54,6 +58,8 @@ public sealed class AuthUiModule(AuthUiDependencies dependencies) : IModuleActiv
     public Task StopAsync()
     {
         _active = false;
+        _statusItem?.Dispose();
+        _statusItem = null;
         return Task.CompletedTask;
     }
 
@@ -62,6 +68,8 @@ public sealed class AuthUiModule(AuthUiDependencies dependencies) : IModuleActiv
         _active = false;
         _localizationRegistration?.Dispose();
         _localizationRegistration = null;
+        _statusItem?.Dispose();
+        _statusItem = null;
         return ValueTask.CompletedTask;
     }
 }

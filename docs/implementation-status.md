@@ -1,6 +1,31 @@
 # Mosaic：实施与验证记录
 
+## 0.16.4：默认服务器建议官方实例、右下角账号状态栏、导航图标统一（2026-11-19）
+
+- 根因位置：
+  - 默认服务器地址：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`（0.16.3 版 :139）构造函数 `_serverInput = ServerText`，未配置服务器时 `ServerText`（:194）为空字符串，全新安装的账户页服务器输入框空白，用户无从得知官方实例地址。
+  - 账号显示：`src/Mosaic.Shell.Wpf/ShellWindow.xaml`（0.16.3 版）内容区仅导航行+内容行两行，无状态栏区域，登录状态只能打开账户页查看。
+  - 导航图标：`src/Mosaic.Shell.Wpf/NavigationConverters.cs`（0.16.3 版）把图标名映射到风格不一的字形（文本 `✓`、Unicode 杂项符号），`ShellWindow.xaml` 另嵌手绘 `Path` 齿轮，大小、描边、明暗主题对比度不统一。
+- 改动位置：
+  - 默认服务器地址：`src/Modules/Auth/Mosaic.Auth.Contracts/AuthContracts.cs`（`AuthValidation` 新增 `DefaultServerUrl = "https://mosaic.bansonic.top"`）；`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`（新增 `DefaultServerInput`（:198），构造函数（:130）与 `OnLanguageChanged`（:1189）改用之）；`src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml`/`en.xaml`（服务器面板提示）；`src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthSettingsSource.cs:15`、`src/Modules/Settings/Mosaic.Settings.Wpf/Localization/zh.xaml`/`en.xaml`（设置项描述）。`auth.serverUrl` 默认值仍为空，仅输入框预填建议。
+  - 右下角账号状态栏：`src/Mosaic.Presentation.Contracts/PresentationContracts.cs`（新增 `IStatusContribution` 契约与 `IUiModule.Status` 默认成员）与 `build/public-api.txt`；`src/Mosaic.Shell.Wpf/ContributionRegistry.cs`（`Register` 第三参数可选，`Rebuild`/`Revoke`/`Clear` 同步状态集合）；`src/Mosaic.Shell.Wpf/ShellViewModel.cs`（`StatusItems`、`NavigateToViewCommand`）；`src/Mosaic.Shell.Wpf/ShellWindow.xaml`（第三行 36px 状态栏，空时折叠）；`src/Mosaic.Shell.Wpf/ShellWindow.xaml.cs`（紧凑侧栏边距）；`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountStatusItem.cs`（新增，观察 `IAuthApi` 与本地化）；`src/Modules/Auth/Mosaic.Auth.Wpf/AuthUiModule.cs`（`Status` 属性、激活创建/停止释放）；`src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml`/`en.xaml`（状态文案）；`src/Mosaic.Desktop/Bootstrapper.cs`（传入 `ui.Status`）。Shell 泛化渲染、不引用 Auth 契约，保持「Shell 不写 if(auth)」。
+  - 导航图标：`src/Mosaic.Shell.Wpf/NavigationConverters.cs`（统一映射 Segoe MDL2 Assets 字形：CheckList/Folder/Calendar/Settings/Contact，回退 Document）；`src/Mosaic.Shell.Wpf/ShellWindow.xaml`（字形统一字体与字号 16、宽 22，删除手绘 Path 与对应 DataTrigger）。
+  - 测试：`tests/Mosaic.Wpf.Tests/AccountViewModelTests.cs`（`FakeAuth` 真实事件；新增默认预填、已配置保持、状态项三态共 3 个测试）；`tests/Mosaic.Wpf.Tests/PresentationTests.cs`（导航字形断言更新；新增状态栏泛化渲染与跳转测试、`StatusStub`）。
+  - 发布元数据：`Directory.Build.props`（0.16.4）、`build/installer/Mosaic.Installer.wixproj`（ProductVersion 0.16.4）、`docs/releases/v0.16.4.md`、`docs/releases/v0.16.4-files.md`、`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`（第 30 条，`previousReleaseId=mosaic-0.16.3`）、`README.md`。
+- 对已有安装的影响：无数据目录、配置文件、安装升级或模块装配改动，无需迁移逻辑与迁移验收项；`auth.serverUrl` 默认值仍为空（只预填输入框、不自动联网），已保存地址的安装行为不变；`IUiModule.Status` 为默认接口成员，其他模块无需改动；无状态贡献时状态栏折叠，既有窗口布局不变；导航契约字段不变，仅渲染层字形变化。
+- 验证：Release 全量测试 357 项全绿（exit 0，含 SmokeTests 42 项、Wpf.Tests 114 项：新增 4 个本版本测试，针对 `artifacts/local-run` 0.16.4 构建运行）；发布核验 `release_content_verify.py` PASS（30 条索引，指纹 `30BEE9458037456D3755AE3E0A18DECE7DEBC7FB0C719D1D669331B5DD2E5559`）、`verify-published` PASS、`test-package-shortcuts` PASS。
+- 安装包：`artifacts/installer/Mosaic-0.16.4-win-x64.msi`（52,093,300 字节，SHA-256 `984322D09AB1CD58904E080E249FB849CFD895986E5D95D186B733FA7C6191C5`）。
+
 ## 0.16.3：安装包自带配置修复——每次启动自动补齐缺失的模块能力绑定（2026-11-19）
+
+- 根因位置：`src/Mosaic.Desktop/AppConfiguration.cs` `Load`——读取 appsettings.json 的 `modules`/`providers` 后未与内置默认绑定合并就交给装配校验。模块升级新增能力时（如 0.16.0 新增 `tasks.transfer-repository@1`），既有安装的旧配置缺这条绑定，除非恰好写了补绑定迁移，否则 `src/Mosaic.Kernel/ModuleGraph.cs` `ModuleGraph.Resolve`（:20-21）启动时抛 `Provider binding is missing or incompatible: …`（0.16.2 的 `ApplyAuthSyncMigration` 只补了那一次的两条，机制上仍依赖「每次新增能力都记得写迁移」）。
+- 改动位置：
+  - `src/Mosaic.Desktop/AppConfiguration.cs`：`Load` 在首次 `ValidateCoreConfiguration` 前调用新增的 `RepairProviderBindings`；该方法按生效层（`settings.host.modules`/`settings.host.providers` 覆盖优先，否则顶层）读取模块与绑定，对每个已启用且在内置目录（`BuiltInModuleCatalog.Definitions`）中的模块，用其 manifest `Provides` 以 `TryAdd` 补齐缺失绑定——显式绑定保留、未知模块交给既有声明校验、禁用模块不产生孤儿绑定；有覆盖层写回 `settings.host.providers`，无覆盖写回顶层；无缺失不写盘，有补齐走既有 `WriteConfiguration`（含 `.pre-migration` 备份）。MSI Repair/重装不触碰配置目录，修复后首次启动即补齐，WiX 无需改动。
+  - `tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs`：新增 `Startup_repairs_capability_bindings_missing_from_an_upgraded_configuration`（top/both/modules/providers 4 场景：全部迁移已应用、缺 transfer 两条与 `sync.api@1`，断言自愈写回正确生效层、`.pre-migration` 等于原文、进程保持运行）；新增 `Healthy_configuration_keeps_its_bindings_and_file_untouched`（健康配置 Load 后文件逐字节不变、无备份文件）；新增 `Repair_preserves_explicit_bindings_and_skips_disabled_modules`（显式绑定保留、缺失补齐、禁用模块无孤儿绑定）；更新 `Configuration_presence_migration_is_validated_persisted_and_one_time` 的 `already-migrated-disabled` 场景为「只发生自愈补齐、迁移标记不变」。
+  - `Directory.Build.props`（0.16.3）、`build/installer/Mosaic.Installer.wixproj`（ProductVersion 0.16.3）、`docs/releases/v0.16.3.md`、`docs/releases/v0.16.3-files.md`、`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`（第 29 条，`previousReleaseId=mosaic-0.16.2`）、`README.md`。
+- 安装/修复验收项：模拟旧版配置（缺新增绑定）升级启动自动补齐并成功启动（4 场景 Smoke 覆盖，含覆盖层组合）；用户自定义绑定不被覆盖；禁用模块不产生孤儿绑定；MSI Repair/重装后首次启动同样补齐（安装器本就不写配置，启动即自愈）。新模块的启用仍由迁移负责，自愈不会静默启用任何模块。
+- 验证：Release 全量测试 354 项全绿（exit 0，含 SmokeTests 42 项：新增 3 个自愈测试 + 4 场景进程级验收 + presence 迁移场景更新，针对 `artifacts/local-run` 0.16.3 构建运行）；发布核验 `release_content_verify.py` PASS（29 条索引，指纹 `ED06CAC492A0BB6D58279F6612136CDF3B9C14D1AE28748C3680B28F5E64C68D`）、`verify-published` PASS。
+- 安装包：`artifacts/installer/Mosaic-0.16.3-win-x64.msi`（52,105,588 字节，SHA-256 `42E809211788CEE2F11AC339555FE2AE679A3C2E2BFD80B5B3586B80DFD39553`）。## 0.16.3：安装包自带配置修复——每次启动自动补齐缺失的模块能力绑定（2026-11-19）
 
 - 根因位置：`src/Mosaic.Desktop/AppConfiguration.cs` `Load`——读取 appsettings.json 的 `modules`/`providers` 后未与内置默认绑定合并就交给装配校验。模块升级新增能力时（如 0.16.0 新增 `tasks.transfer-repository@1`），既有安装的旧配置缺这条绑定，除非恰好写了补绑定迁移，否则 `src/Mosaic.Kernel/ModuleGraph.cs` `ModuleGraph.Resolve`（:20-21）启动时抛 `Provider binding is missing or incompatible: …`（0.16.2 的 `ApplyAuthSyncMigration` 只补了那一次的两条，机制上仍依赖「每次新增能力都记得写迁移」）。
 - 改动位置：

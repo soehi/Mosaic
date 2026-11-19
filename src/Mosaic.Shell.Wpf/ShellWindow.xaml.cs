@@ -128,6 +128,7 @@ public partial class ShellWindow : Window, IAsyncDisposable
             : (System.Windows.Media.Brush?)TryFindResource(Mosaic.Presentation.Wpf.MosaicTheme.BorderBrushKey) ?? System.Windows.Media.Brushes.Transparent;
         WorkspaceStatusCard.BorderThickness = compact ? new Thickness(0) : new Thickness(1);
         TopBar.Padding = compact ? new Thickness(20, 0, 20, 0) : new Thickness(32, 0, 32, 0);
+        StatusBar.Padding = compact ? new Thickness(20, 0, 20, 0) : new Thickness(32, 0, 32, 0);
         PageContent.Margin = _pageMargin;
     }
 
