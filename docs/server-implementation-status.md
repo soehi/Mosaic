@@ -132,6 +132,7 @@
 | 401 | `auth.reauth_required` | `POST /v1/auth/account/delete` 的密码不正确，或 `delete-account` 验证码无效/过期 |
 | 401 | `auth.session_revoked` | 令牌有效但会话已撤销（单会话撤销、`revoke-all`、登出全部设备、改密/重置、刷新令牌重用导致 family 撤销） |
 | 410 | `sync.cursor_invalid` | 拉取游标早于 `sync_floor` 水位；`details.requiresSnapshot=true`、`details.floor` 给出水位；格式非法则为 `400 sync.invalid`，同样带 `details.requiresSnapshot=true` |
+| 404 | `auth.session_not_found` | `POST /v1/auth/sessions/{id}/revoke` 的会话 ID 不属于当前用户或不存在（`id` 为 `/v1/auth/sessions` 返回的会话家族 ID） |
 
 补充说明：**删除账户是真删**——`users` 行删除后 `sessions`/`refresh_tokens` 等随外键级联清空，没有墓碑；因此删号后的旧令牌返回 `401 auth.required`，而不是 `auth.session_revoked`。客户端（桌面与手机）已按裁决把两者都映射为“重新登录”。
 
