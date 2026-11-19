@@ -553,3 +553,7 @@ pwsh -File build/test-install.ps1
 0.7.0安装包：Mosaic-0.7.0-win-x64.msi，51913664字节，SHA-256 93ACA6B893412C0FA881158D939868019AFD1C3E875B11E8382A871161267A75。
 
 0.8.0产物：唯一完整程序 artifacts/local-run/Mosaic.Desktop.exe；MSI Mosaic-0.8.0-win-x64.msi，51941484字节，SHA-256 44CEF919674BFE86A3A1B8BB84140CD7AFC50785079C888C841005911191F7E8；数据库回读ProductVersion=0.8.0。MSI使用SkipValidation构建。
+
+## 服务端（独立交付，0.1.0）
+
+账号、邮箱验证码注册/登录、Device Flow、备份与增量同步的服务端实施记录见 [server-implementation-status.md](server-implementation-status.md)。服务端位于 `server/`，使用独立解决方案与版本号，不进入桌面 MSI；根因与改动位置、验证/未验证项均在该文档。

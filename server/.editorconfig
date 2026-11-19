@@ -1,0 +1,5 @@
+root = false
+
+[tests/**/*.cs]
+# Tests create their own server hosts and HTTP clients; cancellation is bounded by HttpClient timeouts.
+dotnet_diagnostic.xUnit1051.severity = suggestion

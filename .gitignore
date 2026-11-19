@@ -1,6 +1,8 @@
 **/bin/
 **/obj/
 artifacts/
+server/data/
+**/master.key
 TestResults/
 .vs/
 *.user

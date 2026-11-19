@@ -1,0 +1,11 @@
+bin/
+obj/
+artifacts/
+data/
+tests/
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/master.key
+**/appsettings.Development.json
+.vs/
