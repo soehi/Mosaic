@@ -544,4 +544,62 @@ public sealed class AccountViewModelTests
         Assert.Equal("user@example.com", signedIn.Auth.LastEmail);
         Assert.False(signedIn.ViewModel.IsError);
     });
+
+    [Fact]
+    public Task A_fresh_install_opens_the_welcome_layout_until_the_first_choice_is_made() => RunFixture(async fixture =>
+    {
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.True(fixture.ViewModel.IsSignedOut);
+        Assert.True(fixture.ViewModel.ShowWelcomeLayout);
+    });
+
+    [Fact]
+    public Task Choosing_offline_records_the_choice_and_hides_the_welcome_layout() => RunFixture(async fixture =>
+    {
+        await fixture.ViewModel.InitializeAsync();
+        Assert.True(fixture.ViewModel.ShowWelcomeLayout);
+
+        fixture.ViewModel.UseOfflineCommand.Execute(null);
+        await Task.Delay(50);
+
+        Assert.False(fixture.ViewModel.ShowWelcomeLayout);
+        Assert.True(fixture.ViewModel.ShowOfflineNote);
+        Assert.Contains(fixture.Settings.Commits, draft => draft.TryGetValue("auth.accountChoiceMade", out var v) && v is true);
+        Assert.True(fixture.Settings.Values.TryGetValue("auth.accountChoiceMade", out var saved) && saved is true);
+    });
+
+    [Fact]
+    public Task An_install_that_already_chose_never_shows_the_welcome_layout() => RunFixture(async fixture =>
+    {
+        fixture.Settings.Values["auth.accountChoiceMade"] = true;
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.False(fixture.ViewModel.ShowWelcomeLayout);
+        Assert.True(fixture.ViewModel.ShowLoginCard);
+    });
+
+    [Fact]
+    public Task A_signed_in_install_never_shows_the_welcome_layout() => RunFixture(async _ =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        await signedIn.ViewModel.InitializeAsync();
+
+        Assert.True(signedIn.ViewModel.IsSignedIn);
+        Assert.False(signedIn.ViewModel.ShowWelcomeLayout);
+    });
+
+    [Fact]
+    public Task A_configured_server_alone_still_shows_the_welcome_until_the_user_acts() => RunFixture(async fixture =>
+    {
+        await fixture.ViewModel.SaveServerCommand.ExecuteAsync(null); // configures server, no choice flag yet
+        Assert.True(fixture.ViewModel.IsServerConfigured);
+
+        await fixture.ViewModel.InitializeAsync();
+
+        // Configuring a server is not a first-run choice by itself.
+        Assert.True(fixture.ViewModel.ShowWelcomeLayout);
+        await Task.Delay(50);
+        Assert.DoesNotContain(fixture.Settings.Commits, draft => draft.ContainsKey("auth.accountChoiceMade"));
+    });
 }

@@ -7,6 +7,9 @@ namespace Mosaic.Auth.Core.Internal;
 internal sealed class AuthSettingsSource(AuthService service) : ISettingSource
 {
     internal const string ServerUrl = "auth.serverUrl";
+    // True once the user has made a first-run account choice (sign in or go offline); fresh
+    // installs start with no value and are asked once, existing installs migrate to true.
+    internal const string AccountChoiceMade = "auth.accountChoiceMade";
 
     public string ModuleId => "auth-core";
 

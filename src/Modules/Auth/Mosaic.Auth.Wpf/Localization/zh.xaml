@@ -5,6 +5,25 @@
     <sys:String x:Key="Auth.Title">账户与备份</sys:String>
     <sys:String x:Key="Auth.Subtitle">登录后可把任务与可移植设置备份到服务器，并在其他设备上恢复。不登录也可以完全离线使用，本机数据不受影响。</sys:String>
 
+    <!-- Welcome (first-run) layout -->
+    <sys:String x:Key="Auth.Welcome.BrandName">Mosaic</sys:String>
+    <sys:String x:Key="Auth.Welcome.BrandTag">马赛克</sys:String>
+    <sys:String x:Key="Auth.Welcome.TitleLine1">通知有序，</sys:String>
+    <sys:String x:Key="Auth.Welcome.TitleLine2">待办有着落。</sys:String>
+    <sys:String x:Key="Auth.Welcome.Description">从聊天中提取待办与截止时间，让相关文件与通知保持关联。</sys:String>
+    <sys:String x:Key="Auth.Welcome.Feature1">接收通知</sys:String>
+    <sys:String x:Key="Auth.Welcome.Feature2">整理待办</sys:String>
+    <sys:String x:Key="Auth.Welcome.Feature3">归档文件</sys:String>
+    <sys:String x:Key="Auth.Welcome.WorkspaceEyebrow">你的工作空间</sys:String>
+    <sys:String x:Key="Auth.Welcome.SignInTitle">登录 Mosaic</sys:String>
+    <sys:String x:Key="Auth.Welcome.SignInHint">在浏览器确认账号，完成后会自动回到这里。</sys:String>
+    <sys:String x:Key="Auth.Welcome.SignIn">在浏览器中登录</sys:String>
+    <sys:String x:Key="Auth.Welcome.ConnectServer">连接其他自建服务器</sys:String>
+    <sys:String x:Key="Auth.Welcome.Offline">不连接服务器，离线使用</sys:String>
+    <sys:String x:Key="Auth.Welcome.Forgot">忘记密码</sys:String>
+    <sys:String x:Key="Auth.Welcome.Theme.Light">浅色主题</sys:String>
+    <sys:String x:Key="Auth.Welcome.Theme.Dark">深色主题</sys:String>
+
     <sys:String x:Key="Auth.SignedOut.Title">登录账户</sys:String>
     <sys:String x:Key="Auth.SignedOut.Description">登录后可备份任务并在其他设备上恢复；不登录也可以完全离线使用。</sys:String>
     <sys:String x:Key="Auth.Server.Label">服务器地址</sys:String>

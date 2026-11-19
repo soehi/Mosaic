@@ -60,7 +60,25 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
             }
         }
         if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
+
+        // First run: no server configured yet and the user has never made the account choice —
+        // open the account page so the welcome layout shows. Signed-in installs and those that
+        // already chose (or upgraded with a configured server) keep the default first page. The
+        // account module owns the auth.accountChoiceMade flag; the shell only reads it.
+        if (_settings is { } settings2 &&
+            _registry.Find("account.home") is not null &&
+            InitialValues is { } initial &&
+            !IsAccountChoiceMade(initial) &&
+            string.IsNullOrWhiteSpace(ReadString(initial, "auth.serverUrl")) &&
+            Navigation.FirstOrDefault(candidate => candidate.ViewId == "account.home") is { } accountItem)
+        {
+            await NavigateAsync(accountItem);
+        }
     }
+    internal static bool IsAccountChoiceMade(IReadOnlyDictionary<string, object?> values) =>
+        values.TryGetValue("auth.accountChoiceMade", out var raw) && raw is true;
+    internal static string? ReadString(IReadOnlyDictionary<string, object?> values, string id) =>
+        values.TryGetValue(id, out var raw) ? raw as string : null;
     private async Task NavigateAsync(NavigationItem? item)
     {
         if (item is null) return;
