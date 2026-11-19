@@ -1,5 +1,19 @@
 # Mosaic：实施与验证记录
 
+## 0.15.2：自动归档启停行为回归测试（2026-11-19）
+
+- 覆盖缺口位置（0.15.1 的测试未断言行为）：`tests/Mosaic.Tasks.Core.Tests/AutoArchiveTests.cs`（0.15.1 版）只断言 `TaskSettingsSource` 的默认值与 `ITaskRepository.QueryArchiveCandidatesAsync` 的候选查询（:87-127），从未调用 `TaskAutoArchive.ApplyAsync`。因此 `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskAutoArchive.cs:16-19` 的关闭分支（`autoEnabled` 不是 `true` 时传 0）与 `TaskAutoArchive.SetDelayAsync`（:21-41）的启动/取消循环路径都没有行为断言：如果关闭策略仍然启动归档循环，或开启后归档了非候选任务，现有测试不会发现。
+- 改动位置（仅测试与发布元数据，产品源码未改）：
+  - `tests/Mosaic.Tasks.Core.Tests/AutoArchiveTests.cs`：新增 `Disabled_auto_archive_never_archives_due_completed_tasks`（空设置字典与显式 `autoEnabled=false` 两次调用 `ApplyAsync`，断言 `ITasksApi.SetArchivedAsync` 零调用、超过等待期 60 天的已完成任务与未完成任务均保持未归档）；新增 `Enabled_auto_archive_archives_due_candidates_and_stops_when_disabled_again`（`autoEnabled=true`、`delayDays=7` 后只归档 8 天前完成的候选，6 天前完成与未完成任务不受影响；随后关闭策略，插入 30 天前完成的已完成任务并等待，断言仍只有一次归档调用、新任务未归档，覆盖 `SetDelayAsync` 的取消与循环退出）；新增辅助方法 `ApplyPolicy`、`StopPolicy`（反射调用内部 `ApplyAsync`、`SetDelayAsync`）与 `Until`（5 秒轮询，超时 `Assert.Fail`）。
+  - `Directory.Build.props`、`build/installer/Mosaic.Installer.wixproj`：版本 0.15.2。
+  - `build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`：追加 `mosaic-0.15.2`（`previousReleaseId=mosaic-0.15.1`，指纹 `3421D9EAAD6EF8417E29D74528342FBCEF545CA894C2AD1755E41E4A273FEA90`），索引第 24 条；0.14.0、0.15.0、0.15.1 的已发布条目与哈希未改动（与 HEAD 索引逐条比对，仅新增）。
+  - `README.md`、`docs/releases/v0.15.2.md`、`docs/releases/v0.15.2-files.md`：版本说明与交付清单。
+- 0.15.0 核验反馈的处理：对方提出的“归档页仍可切走筛选/新建”已在 0.15.1 修复并发布（`TasksViewModel` 构造期 `archivedOnly` 锁定 `_filter=3`、`FilterIndex` setter 忽略非 3 写入、`ApplySettings` 跳过 `tasks.defaultFilter`、`NewAsync` 首行返回、`TasksView.xaml` 隐藏新建按钮与筛选下拉）；0.15.1 为已发布版本，本次不修改其内容，仅对 0.15.0 记录中的测试缺口补强。
+- 兼容与迁移：产品行为、数据库结构、设置键与配置格式均未变化；0.15.1 安装直接升级，不需要迁移。
+- 验证：Release 构建 0 警告 0 错误；非桌面测试 204 项全绿——Architecture 4、DesktopPresence.Core 17、FloatingWindows 12、Kernel 5、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 1、Storage.Sqlite 12、Tasks.Contract 7、Tasks.Core 22（新增 2 项）、Wpf 82。本版本未改动产品源码，未重跑桌面 Smoke（其驱动真实指针会抢占用户鼠标，且 0.15.1 已记录该套件唯一的失败为环境干扰）。
+- 发布内容：`build/published-release-index.json` 24 条；发布产物 `artifacts/local-run` 通过 `verify-published.ps1`（`PASS: published payload is a release build with manifest mosaic-0.15.2`）。MSI：`Mosaic-0.15.2-win-x64.msi`，52478132 字节，SHA-256 `E670F56484C05F1EC6EC0B2E289FCDF2C63E8A73B4DAC1D1B9CD1FB95782D70A`，数据库回读 ProductVersion=0.15.2，`test-package-shortcuts.ps1` PASS；发布产物 ProductVersion 为 `0.15.2+ec8ee3f...`（工作树改动尚未提交时的构建）。
+- 未验证项：MSI 的实际安装/升级/卸载不在本机执行（本机存在正在运行的真实安装）；桌面 Smoke 未在本版本重跑。
+
 ## 0.15.1：归档页锁定筛选并隐藏新建与筛选入口（2026-11-19）
 
 - 根因位置：

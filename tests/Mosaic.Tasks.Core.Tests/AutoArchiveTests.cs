@@ -126,6 +126,75 @@ public sealed class AutoArchiveTests
         Assert.True(storedOpen.Value is { IsArchived: false });
     }
 
+    [Fact]
+    public async Task Disabled_auto_archive_never_archives_due_completed_tasks()
+    {
+        var repository = new MemoryTaskRepository();
+        var due = TaskItem(true, completedAt: Now.AddDays(-60));
+        var open = TaskItem(false, completedAt: Now.AddDays(-365));
+        Assert.True((await Insert(repository, due)).IsSuccess);
+        Assert.True((await Insert(repository, open)).IsSuccess);
+        var api = new PassThroughTasksApi(repository);
+        var archive = NewArchive(repository, api);
+
+        await ApplyPolicy(archive, enabled: null);
+        await ApplyPolicy(archive, enabled: false, delayDays: 7);
+        await Task.Delay(300);
+
+        Assert.Empty(api.ArchiveRequests);
+        Assert.True((await repository.FindAsync(due.Id)).Value is { IsArchived: false });
+        Assert.True((await repository.FindAsync(open.Id)).Value is { IsArchived: false });
+        await StopPolicy(archive);
+    }
+
+    [Fact]
+    public async Task Enabled_auto_archive_archives_due_candidates_and_stops_when_disabled_again()
+    {
+        var repository = new MemoryTaskRepository();
+        var due = TaskItem(true, completedAt: Now.AddDays(-8));
+        var fresh = TaskItem(true, completedAt: Now.AddDays(-6));
+        var open = TaskItem(false, completedAt: Now.AddDays(-365));
+        foreach (var task in new[] { due, fresh, open }) Assert.True((await Insert(repository, task)).IsSuccess);
+        var api = new PassThroughTasksApi(repository);
+        var archive = NewArchive(repository, api);
+
+        await ApplyPolicy(archive, enabled: true, delayDays: 7);
+        await Until(() => api.ArchiveRequests.Count > 0, "开启自动归档后等待期已满的任务未被归档");
+
+        Assert.Equal([due.Id], api.ArchiveRequests.Select(request => request.Id).ToArray());
+        Assert.True((await repository.FindAsync(due.Id)).Value is { IsArchived: true });
+        Assert.True((await repository.FindAsync(fresh.Id)).Value is { IsArchived: false });
+        Assert.True((await repository.FindAsync(open.Id)).Value is { IsArchived: false });
+
+        await ApplyPolicy(archive, enabled: false);
+        var later = TaskItem(true, completedAt: Now.AddDays(-30));
+        Assert.True((await Insert(repository, later)).IsSuccess);
+        await Task.Delay(300);
+
+        Assert.Single(api.ArchiveRequests);
+        Assert.True((await repository.FindAsync(later.Id)).Value is { IsArchived: false });
+    }
+
+    private static readonly MethodInfo ApplyMethod = AutoArchiveType.GetMethod("ApplyAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly MethodInfo SetDelayMethod = AutoArchiveType.GetMethod("SetDelayAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static Task ApplyPolicy(object archive, bool? enabled, int delayDays = 7) =>
+        (Task)ApplyMethod.Invoke(archive, [enabled is null
+            ? new Dictionary<string, object?>()
+            : new Dictionary<string, object?> { ["tasks.archive.autoEnabled"] = enabled.Value, ["tasks.archive.delayDays"] = delayDays }])!;
+
+    private static Task StopPolicy(object archive) => (Task)SetDelayMethod.Invoke(archive, [0])!;
+
+    private static async Task Until(Func<bool> condition, string message)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline) Assert.Fail(message);
+            await Task.Delay(20);
+        }
+    }
+
     private static object NewArchive(MemoryTaskRepository repository, ITasksApi api) =>
         Activator.CreateInstance(AutoArchiveType, repository, api, new Clock(), new Diagnostics())!;
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.15.1",
+  "currentReleaseId": "mosaic-0.15.2",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -400,6 +400,18 @@
         "修复已归档任务页的筛选可能被设置中的默认筛选覆盖的问题：归档页在构造期即锁定为“已归档”，设置晚到或再次应用都不会改变筛选，页面上也没有可切换到其他筛选的入口。"
       ],
       "contentSha256": "A05423517DE48F37E7D27E4C00AA65702673B719E367896A9329750506FC4698"
+    },
+    {
+      "releaseId": "mosaic-0.15.2",
+      "version": "0.15.2",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.15.1",
+      "added": [],
+      "improved": [
+        "补上自动归档开关的启停回归测试：关闭时即使存在超过等待期的已完成任务也不会被归档，开启后只归档等待期已满的已完成任务，关闭后立即停止归档。产品行为与 0.15.1 一致。"
+      ],
+      "fixed": [],
+      "contentSha256": "3421D9EAAD6EF8417E29D74528342FBCEF545CA894C2AD1755E41E4A273FEA90"
     }
   ]
 }
