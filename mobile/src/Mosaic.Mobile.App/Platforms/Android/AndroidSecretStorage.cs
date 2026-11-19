@@ -84,7 +84,8 @@ public sealed class AndroidSecretStorage : ISecretStorage
             cipher.Init(CipherMode.EncryptMode, GetOrCreateKey());
             cipher.UpdateAAD(Encoding.UTF8.GetBytes(key));
             var iv = cipher.GetIV() ?? throw new SessionStoreUnavailableException("missing IV");
-            var ciphertext = cipher.DoFinal(value);
+            var ciphertext = cipher.DoFinal(value)
+                ?? throw new SessionStoreUnavailableException("cipher produced no ciphertext");
 
             var payload = new byte[1 + iv.Length + ciphertext.Length];
             payload[0] = (byte)iv.Length;

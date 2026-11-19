@@ -77,7 +77,7 @@
 
 - `MauiProgram`：DI 组装（DB、存储、API、认证、同步、视图模型、页面）。
 - `MosaicApp`、`AppShell`、`StartupService`、`AppPreferences`：启动顺序（DB→偏好→会话→缓存设置→首个前台同步）、前后台暂停/恢复、非机密偏好持久化。
-- `Pages/*`：任务、账户、设置、登录、注册、忘记密码、授权桌面、手机 Device Flow；浅深主题/中英文绑定；控件带 `AutomationProperties.Name` 或可见文本。
+- `Pages/*`：任务、账户、设置、登录、注册、忘记密码、授权桌面、手机 Device Flow；浅深主题/中英文绑定；控件带 `SemanticProperties.Description` 或可见文本。
 - `Platforms/Android/AndroidSecretStorage`：AndroidKeyStore AES-GCM，密钥名作 AAD，密文在私有 SharedPreferences；备份规则与 data-extraction 规则排除该文件；manifest 默认禁明文，仅回环域名例外。
 - `Platforms/iOS/IosSecretStorage`：Keychain `AfterFirstUnlockThisDeviceOnly`。
 - `Platforms/Android/MainActivity|MainApplication|AndroidManifest`、`Platforms/iOS/AppDelegate|Program|Info.plist`。
@@ -110,7 +110,7 @@
 
 **未验证**：
 
-- MAUI App 头未编译：本机无 MAUI 工作负载、无 Android SDK、无 Xcode；XAML、平台 Keychain/Keystore 运行时、页面导航均未在真机/模拟器上运行。
+- Android Release 已编译通过（`android-arm64`，compileSdk/targetSdk 36，minSdk 26，versionCode 2 / versionName 0.1.1；4 个 XamlC 编译绑定建议警告、0 错误），产出 Debug 证书签名的 APK；未在真机/模拟器启动，iOS 未构建，平台 Keychain/Keystore 运行时与页面导航未验证。
 - 未对接真实 TLS 服务端；认证/设备流/同步/写入用本地 fake HTTP 验证（服务端端点已就绪）。
 - 真实 SMTP、推送、后台同步（规划为第二阶段）未实现。
 - 应用包名已确认：`app.mosaic.tasks`（`Mosaic.Mobile.App.csproj` 的 `ApplicationId` 与 iOS `CFBundleIdentifier` 一致）；上架渠道与合规材料（隐私政策、账号删除入口审核材料）仍待准备。

@@ -22,6 +22,14 @@ $publishArgs = @(
     "-p:AndroidPackageFormat=$Format"
 )
 
+if ($env:ANDROID_HOME) {
+    $publishArgs += "-p:AndroidSdkDirectory=$env:ANDROID_HOME"
+}
+
+if ($env:JAVA_HOME) {
+    $publishArgs += "-p:JavaSdkDirectory=$env:JAVA_HOME"
+}
+
 if ($env:MOSAIC_ANDROID_KEYSTORE) {
     if (-not $env:MOSAIC_ANDROID_KEYALIAS -or
         -not $env:MOSAIC_ANDROID_KEYPASS -or

@@ -4,7 +4,7 @@
              xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
              x:Class="Mosaic.Mobile.App.Pages.SettingsPage"
              x:DataType="presentation:SettingsViewModel"
-             Title="{Binding Strings[settings]}">
+             Title="{Binding TitleText}">
 
   <ScrollView>
     <VerticalStackLayout Padding="16" Spacing="14">

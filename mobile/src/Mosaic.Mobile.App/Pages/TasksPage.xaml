@@ -4,7 +4,7 @@
              xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
              x:Class="Mosaic.Mobile.App.Pages.TasksPage"
              x:DataType="presentation:TaskListViewModel"
-             Title="{Binding Strings[tasks]}">
+             Title="{Binding TitleText}">
 
   <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="16" RowSpacing="10">
 

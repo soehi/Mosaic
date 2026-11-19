@@ -85,6 +85,8 @@ public sealed partial class TaskListViewModel : ViewModelBase
 
     public bool ShowReadOnlyNotice => _auth.CacheReadOnly;
 
+    public string TitleText => T(StringKeys.Tasks);
+
     public string EmptyText => Filter switch
     {
         MobileTaskFilter.Open => T(StringKeys.NoOpenTasks),
@@ -182,6 +184,7 @@ public sealed partial class TaskListViewModel : ViewModelBase
 
     protected override void RefreshLocalized()
     {
+        OnPropertyChanged(nameof(TitleText));
         StatusText = SyncStatusText.Describe(Localizer, _sync.Status);
         LastSyncedText = SyncStatusText.LastSynced(Localizer, _sync.Status.LastSyncedAt);
 

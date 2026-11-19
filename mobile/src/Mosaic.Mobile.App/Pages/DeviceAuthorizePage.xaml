@@ -14,7 +14,7 @@
 
       <Entry Placeholder="{Binding CodeLabel}" Text="{Binding UserCode}"
              IsSpellCheckEnabled="False" IsTextPredictionEnabled="False"
-             MaxLength="9" AutomationProperties.Name="{Binding CodeLabel}" />
+             MaxLength="9" SemanticProperties.Description="{Binding CodeLabel}" />
       <Label Text="{Binding CodeFormatText}" Style="{StaticResource MutedLabel}" />
 
       <Button Text="{Binding CodeLabel}" Style="{StaticResource SecondaryButton}"

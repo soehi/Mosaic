@@ -5,7 +5,7 @@
              x:Class="Mosaic.Mobile.App.Pages.AccountPage"
              x:Name="AccountRoot"
              x:DataType="presentation:AccountViewModel"
-             Title="{Binding Strings[account]}">
+             Title="{Binding TitleText}">
 
   <ScrollView>
     <VerticalStackLayout Padding="16" Spacing="12">

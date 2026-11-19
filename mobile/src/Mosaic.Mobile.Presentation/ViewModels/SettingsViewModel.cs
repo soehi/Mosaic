@@ -98,6 +98,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public string ThemeLightText => T(StringKeys.ThemeLight);
 
+    public string TitleText => T(StringKeys.Settings);
+
     public string ThemeDarkText => T(StringKeys.ThemeDark);
 
     public string HighContrastText => T(StringKeys.HighContrastDowngraded);
@@ -148,6 +150,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     protected override void RefreshLocalized()
     {
+        OnPropertyChanged(nameof(TitleText));
         OnPropertyChanged(nameof(ThemeTitle));
         OnPropertyChanged(nameof(ThemeFollowText));
         OnPropertyChanged(nameof(ThemeLightText));
