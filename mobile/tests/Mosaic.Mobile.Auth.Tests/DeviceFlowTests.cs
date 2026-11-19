@@ -84,6 +84,54 @@ public sealed class DeviceFlowTests
     }
 
     [Fact]
+    public async Task Slow_down_uses_the_server_interval_as_a_floor()
+    {
+        var polls = 0;
+        var (session, _, _) = Create(_ =>
+        {
+            polls++;
+            return polls == 1
+                ? Responses.Json(HttpStatusCode.OK, """{"status":"slow_down","interval":20}""")
+                : Status("denied");
+        });
+
+        var result = await session.RunAsync();
+
+        Assert.Equal(DeviceFlowState.Denied, result.State);
+        Assert.True(session.Interval >= TimeSpan.FromSeconds(20));
+    }
+
+    [Fact]
+    public async Task Start_falls_back_when_complete_uri_is_missing()
+    {
+        var handler = new StubHandler(_ => Responses.Json(
+            HttpStatusCode.OK,
+            """{"deviceCode":"d1","userCode":"BCDFGHJK","verificationUri":"https://example.test/device","expiresIn":600,"interval":2}"""));
+        using var api = TestApi.Create(handler);
+
+        var result = await new DeviceFlowClient(api).StartAsync("Pixel", "android", "0.1.0");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("https://example.test/device", result.Value?.VerificationUriComplete);
+    }
+
+    [Fact]
+    public void Open_link_prefers_the_server_complete_uri()
+    {
+        var handler = new StubHandler(_ => Status("pending"));
+        using var api = TestApi.Create(handler);
+        var session = new DeviceFlowPollingSession(
+            new DeviceFlowClient(api),
+            Start with
+            {
+                VerificationUriComplete = "https://example.test/device?code=BCDFGHJK",
+            },
+            new TestTimeProvider());
+
+        Assert.Equal("https://example.test/device?code=BCDFGHJK", session.AuthorizationUri);
+    }
+
+    [Fact]
     public async Task Rate_limited_honours_retry_after_and_stays_pending()
     {
         var polls = 0;

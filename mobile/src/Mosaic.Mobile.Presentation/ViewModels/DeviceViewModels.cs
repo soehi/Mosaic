@@ -290,7 +290,7 @@ public sealed partial class DeviceSignInViewModel : ViewModelBase
         _polling = new DeviceFlowPollingSession(_client, start.Value);
         _polling.StateChanged += OnPollingStateChanged;
         UserCode = _polling.DisplayUserCode;
-        VerificationUri = _polling.VerificationUri;
+        VerificationUri = _polling.AuthorizationUri;
         HasCode = true;
 
         await RunPollingAsync().ConfigureAwait(true);

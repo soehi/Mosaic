@@ -270,6 +270,133 @@ public sealed class WireContractTests
     }
 
     [Fact]
+    public void Session_superset_with_expiresIn_and_account_normalizes()
+    {
+        const string json = """
+            {
+              "accessToken": "a",
+              "refreshToken": "r",
+              "expiresIn": 900,
+              "refreshTokenExpiresAt": "2026-12-19T12:00:00Z",
+              "account": { "userId": "user-9", "email": "mobile@example.com", "displayName": "Phone" }
+            }
+            """;
+        var now = DateTimeOffset.Parse("2026-11-19T12:00:00Z");
+
+        var session = WireJson.Deserialize<SessionDto>(json)!.Normalize(now);
+
+        Assert.Equal(now.AddSeconds(900), session.AccessTokenExpiresAt);
+        Assert.Equal("user-9", session.User?.Id);
+        Assert.Equal("mobile@example.com", session.EffectiveUser?.Email);
+    }
+
+    [Fact]
+    public void Me_response_accepts_account_root_and_nested_user()
+    {
+        var nested = WireJson.Deserialize<MeResponseDto>(
+            """{"userId":"u1","email":"e@x.y","displayName":"E","user":{"id":"u1","email":"e@x.y"}}""");
+        var rootOnly = WireJson.Deserialize<MeResponseDto>(
+            """{"userId":"u2","email":"f@x.y","displayName":"F"}""");
+
+        Assert.Equal("u1", nested?.EffectiveUser?.Id);
+        Assert.Equal("f@x.y", rootOnly?.EffectiveUser?.Email);
+    }
+
+    [Fact]
+    public void Device_poll_slow_down_carries_the_interval()
+    {
+        var poll = WireJson.Deserialize<DevicePollResponseDto>(
+            """{"status":"slow_down","interval":20}""");
+
+        Assert.Equal("slow_down", poll?.Status);
+        Assert.Equal(20, poll?.Interval);
+    }
+
+    [Fact]
+    public void Device_info_carries_app_version_and_approval_time()
+    {
+        var info = WireJson.Deserialize<DeviceInfoDto>(
+            """{"deviceLabel":"Pixel","platform":"android","appVersion":"0.1.0","state":"approved","expiresAt":"2026-11-19T12:10:00Z","approvedAt":"2026-11-19T12:01:00Z"}""");
+
+        Assert.Equal("0.1.0", info?.AppVersion);
+        Assert.Equal(DateTimeOffset.Parse("2026-11-19T12:01:00Z"), info?.ApprovedAt);
+    }
+
+    [Fact]
+    public void Single_change_write_omits_payload_for_tombstones()
+    {
+        var json = WireJson.Serialize(new ChangePushRequestDto
+        {
+            DeviceId = "device-1",
+            Kind = "task",
+            Key = "k1",
+            Deleted = true,
+            BaseServerRevision = 3,
+            ClientRevision = 4,
+            IdempotencyKey = "idem-1",
+        });
+
+        Assert.Contains("\"deviceId\":\"device-1\"", json);
+        Assert.Contains("\"deleted\":true", json);
+        Assert.Contains("\"baseServerRevision\":3", json);
+        Assert.DoesNotContain("\"payload\"", json);
+    }
+
+    [Fact]
+    public void Sync_push_response_and_conflict_details_parse()
+    {
+        var response = WireJson.Deserialize<SyncPushResponseDto>(
+            """
+            {
+              "change": {
+                "cursor": "opaque-9",
+                "serverRevision": 5,
+                "kind": "task",
+                "key": "k1",
+                "deleted": false,
+                "payload": { "title": "ours" },
+                "deviceId": "device-1",
+                "createdAt": "2026-11-19T12:00:00Z"
+              },
+              "replayed": true
+            }
+            """);
+        var error = WireErrorDto.TryParse(
+            """
+            {
+              "code": "sync.conflict",
+              "details": {
+                "current": {
+                  "kind": "task",
+                  "key": "k1",
+                  "serverRevision": 8,
+                  "deleted": false,
+                  "payload": { "title": "theirs" }
+                }
+              }
+            }
+            """);
+
+        Assert.True(response?.Replayed);
+        Assert.Equal("opaque-9", response?.Change?.Cursor);
+        Assert.Equal(5, response?.Change?.ServerRevision);
+        Assert.Equal(WireErrorCodes.SyncConflict, error?.Code);
+
+        var current = error!.DetailsAs<SyncConflictDetailsDto>()?.Current;
+        Assert.NotNull(current);
+        Assert.Equal(8, current.ServerRevision);
+        Assert.Equal("theirs", current.Payload?.GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void Revoke_all_request_serializes_keep_current()
+    {
+        Assert.Contains(
+            "\"keepCurrent\":true",
+            WireJson.Serialize(new RevokeAllSessionsRequestDto(true)));
+    }
+
+    [Fact]
     public void Backup_snapshot_parses_items_and_optional_revision()
     {
         const string json = """

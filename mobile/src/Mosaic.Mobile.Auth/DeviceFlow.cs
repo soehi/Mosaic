@@ -13,22 +13,33 @@ public sealed class DeviceFlowClient
     }
 
     /// <summary>Phone-initiated flow: creates a code the phone itself polls.</summary>
-    public Task<ApiResult<DeviceStartResponseDto>> StartAsync(
+    public async Task<ApiResult<DeviceStartResponseDto>> StartAsync(
         string deviceLabel,
         string platform,
         string? appVersion,
-        CancellationToken cancellationToken = default) =>
-        _api.PostAsync<DeviceStartResponseDto>(
-            "v1/device/start",
-            new DeviceStartRequestDto
-            {
-                DeviceLabel = deviceLabel,
-                Platform = platform,
-                AppVersion = appVersion,
-            },
-            authenticated: false,
-            retryTransient: false,
-            cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _api.PostAsync<DeviceStartResponseDto>(
+                "v1/device/start",
+                new DeviceStartRequestDto
+                {
+                    DeviceLabel = deviceLabel,
+                    Platform = platform,
+                    AppVersion = appVersion,
+                },
+                authenticated: false,
+                retryTransient: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        // Older builds omit verificationUriComplete; fall back to the plain URI
+        // rather than constructing a ?code= query the server did not hand out.
+        return result.IsSuccess
+               && result.Value is { } start
+               && string.IsNullOrWhiteSpace(start.VerificationUriComplete)
+            ? result with { Value = start with { VerificationUriComplete = start.VerificationUri } }
+            : result;
+    }
 
     public Task<ApiResult<DevicePollResponseDto>> PollAsync(
         string deviceCode,
@@ -101,8 +112,7 @@ public sealed class DeviceFlowPollingSession
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(start);
         if (string.IsNullOrWhiteSpace(start.DeviceCode)
-            || string.IsNullOrWhiteSpace(start.UserCode)
-            || string.IsNullOrWhiteSpace(start.VerificationUri))
+            || string.IsNullOrWhiteSpace(start.UserCode))
         {
             throw new ArgumentException("device start response is incomplete", nameof(start));
         }
@@ -112,7 +122,7 @@ public sealed class DeviceFlowPollingSession
         _delay = delay ?? ((duration, ct) => Task.Delay(duration, ct));
         DeviceCode = start.DeviceCode;
         UserCode = start.UserCode;
-        VerificationUri = start.VerificationUri;
+        VerificationUri = start.VerificationUri ?? string.Empty;
         VerificationUriComplete = start.VerificationUriComplete;
         _interval = TimeSpan.FromSeconds(Math.Clamp(start.Interval, 1, 60));
         ExpiresAt = _time.GetUtcNow().Add(TimeSpan.FromSeconds(Math.Max(start.ExpiresIn, 60)));
@@ -127,6 +137,15 @@ public sealed class DeviceFlowPollingSession
     public string VerificationUri { get; }
 
     public string? VerificationUriComplete { get; }
+
+    /// <summary>
+    /// What the user should open. Server 0.1.1 hands out a complete URI that
+    /// already carries the code; the plain URI is only a fallback.
+    /// </summary>
+    public string AuthorizationUri =>
+        !string.IsNullOrWhiteSpace(VerificationUriComplete)
+            ? VerificationUriComplete
+            : VerificationUri;
 
     /// <summary>Display form, e.g. <c>BAAD-C832</c>.</summary>
     public string DisplayUserCode => AuthInputRules.FormatCodeForDisplay(UserCode);
@@ -226,8 +245,8 @@ public sealed class DeviceFlowPollingSession
                 var poll = await _client.PollAsync(DeviceCode, linked.Token).ConfigureAwait(false);
                 if (poll.StatusCode == 429 || poll.ErrorCode == WireErrorCodes.DeviceRateLimited)
                 {
-                    SlowDown(poll.RetryAfter);
-                    AddDiagnostic(poll.ErrorCode ?? "device.rate_limited");
+                    SlowDown(poll.RetryAfter, poll.Value?.Interval);
+                    AddDiagnostic(poll.ErrorCode ?? WireErrorCodes.DeviceRateLimited);
                     continue;
                 }
 
@@ -242,7 +261,9 @@ public sealed class DeviceFlowPollingSession
                 var status = poll.Value?.Status;
                 if (string.Equals(status, DeviceFlowStatus.SlowDown, StringComparison.OrdinalIgnoreCase))
                 {
-                    SlowDown(null);
+                    // 200 + status=slow_down carries the server's requested
+                    // interval; never poll faster than that.
+                    SlowDown(null, poll.Value?.Interval);
                     continue;
                 }
 
@@ -309,11 +330,18 @@ public sealed class DeviceFlowPollingSession
         return new DeviceFlowResult(state, null, null);
     }
 
-    private void SlowDown(TimeSpan? retryAfter)
+    private void SlowDown(TimeSpan? retryAfter, long? serverInterval)
     {
         lock (_gate)
         {
+            // RFC 8628: increase by 5 seconds; the server's advertised interval
+            // is a floor, never a reason to poll faster.
             var next = _interval + TimeSpan.FromSeconds(5);
+            if (serverInterval is > 0)
+            {
+                next = TimeSpan.FromSeconds(Math.Max(next.TotalSeconds, serverInterval.Value));
+            }
+
             if (retryAfter is { } wait && wait > next)
             {
                 next = wait;

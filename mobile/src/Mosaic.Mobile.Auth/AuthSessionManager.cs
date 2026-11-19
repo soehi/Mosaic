@@ -85,7 +85,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         {
             lock (_gate)
             {
-                return _session?.User?.Email ?? _stored?.AccountEmail;
+                return _session?.EffectiveUser?.Email ?? _stored?.AccountEmail;
             }
         }
     }
@@ -96,7 +96,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         {
             lock (_gate)
             {
-                return _session?.User?.Id ?? _stored?.UserId;
+                return _session?.EffectiveUser?.Id ?? _stored?.UserId;
             }
         }
     }
@@ -511,11 +511,17 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         return AuthResult.Ok();
     }
 
-    public async Task<AuthResult> RevokeAllSessionsAsync(CancellationToken cancellationToken = default)
+    /// <param name="keepCurrent">
+    /// When true the server keeps this device's session; the local session then
+    /// stays usable. The default revokes every session, including this one.
+    /// </param>
+    public async Task<AuthResult> RevokeAllSessionsAsync(
+        bool keepCurrent = false,
+        CancellationToken cancellationToken = default)
     {
         var result = await _api.PostAsync(
                 "v1/auth/sessions/revoke-all",
-                body: null,
+                body: keepCurrent ? new RevokeAllSessionsRequestDto(true) : null,
                 authenticated: true,
                 retryTransient: false,
                 cancellationToken)
@@ -526,7 +532,11 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             return AuthResult.Fail(result.StatusCode, result.Error, result.RetryAfter);
         }
 
-        await ExpireAsync("sessions_revoked_all", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
+        if (!keepCurrent)
+        {
+            await ExpireAsync("sessions_revoked_all", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
+        }
+
         return AuthResult.Ok();
     }
 
@@ -570,6 +580,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         SessionDto session,
         CancellationToken cancellationToken = default)
     {
+        session = session.Normalize(_time.GetUtcNow());
         var deviceId = await TryResolveDeviceIdAsync(cancellationToken).ConfigureAwait(false);
         if (deviceId.Error is not null)
         {
@@ -586,7 +597,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         // (tokens came over TLS from the poll) but records the deferred check.
         var me = await _api.GetAsync<MeResponseDto>("v1/auth/me", authenticated: true, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        if (me.IsSuccess && me.Value?.User is { } user)
+        if (me.IsSuccess && me.Value?.EffectiveUser is { } user)
         {
             lock (_gate)
             {
@@ -686,7 +697,8 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
 
         if (result.IsSuccess)
         {
-            if (!TryGetTokens(result.Value, out var accessToken, out var newRefresh))
+            var refreshed = result.Value?.Normalize(_time.GetUtcNow());
+            if (!TryGetTokens(refreshed, out var accessToken, out var newRefresh))
             {
                 return RefreshOutcome.Failed(new AuthError(AuthErrorKind.Protocol, LocalTransportCodes.Protocol));
             }
@@ -694,14 +706,14 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             var updated = stored with
             {
                 RefreshToken = newRefresh!,
-                RefreshTokenExpiresAt = result.Value!.RefreshTokenExpiresAt,
-                AccountEmail = result.Value.User?.Email ?? stored.AccountEmail,
-                UserId = result.Value.User?.Id ?? stored.UserId,
+                RefreshTokenExpiresAt = refreshed!.RefreshTokenExpiresAt,
+                AccountEmail = refreshed.EffectiveUser?.Email ?? stored.AccountEmail,
+                UserId = refreshed.EffectiveUser?.Id ?? stored.UserId,
             };
 
             lock (_gate)
             {
-                _session = result.Value;
+                _session = refreshed;
                 _stored = updated;
                 _cacheReadOnly = false;
             }
@@ -756,6 +768,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         string deviceId,
         CancellationToken cancellationToken)
     {
+        session = session.Normalize(_time.GetUtcNow());
         if (!TryGetTokens(session, out _, out var refreshToken))
         {
             return AuthResult<SessionDto>.Fail(new AuthError(AuthErrorKind.Protocol, LocalTransportCodes.Protocol));
@@ -765,8 +778,8 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         {
             ServerUrl = _serverUrl,
             DeviceId = deviceId,
-            AccountEmail = session.User?.Email,
-            UserId = session.User?.Id,
+            AccountEmail = session.EffectiveUser?.Email,
+            UserId = session.EffectiveUser?.Id,
             RefreshToken = refreshToken!,
             RefreshTokenExpiresAt = session.RefreshTokenExpiresAt,
             SavedAtUtc = _time.GetUtcNow(),

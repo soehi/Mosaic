@@ -42,6 +42,71 @@ public sealed class AuthSessionManagerTests
         Assert.Equal(SessionStoreStatus.Loaded, load.Status);
     }
 
+    [Theory]
+    [InlineData("auth.invalid_code", AuthErrorKind.CodeInvalid)]
+    [InlineData("auth.code_invalid", AuthErrorKind.CodeInvalid)]
+    [InlineData("auth.weak_password", AuthErrorKind.PasswordPolicy)]
+    [InlineData("auth.password_policy", AuthErrorKind.PasswordPolicy)]
+    [InlineData("auth.required", AuthErrorKind.SessionRevoked)]
+    [InlineData("auth.session_expired", AuthErrorKind.SessionRevoked)]
+    [InlineData("auth.reauth_required", AuthErrorKind.ReauthRequired)]
+    public void Canonical_codes_and_aliases_classify_the_same(string code, AuthErrorKind expected)
+    {
+        Assert.Equal(expected, AuthError.Classify(400, code));
+    }
+
+    [Fact]
+    public async Task Sign_in_accepts_expiresIn_and_account_without_user()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(_ => Responses.Json(
+            HttpStatusCode.OK,
+            """
+            {
+              "accessToken": "access-2",
+              "refreshToken": "refresh-2",
+              "expiresIn": 900,
+              "account": { "userId": "u2", "email": "phone@example.com", "displayName": "Phone" }
+            }
+            """));
+
+        using var api = TestApi.Create(handler);
+        using var manager = new AuthSessionManager(api, new TokenStore(new InMemorySecretStorage(), time), time);
+        await manager.InitializeAsync("https://example.test");
+
+        var result = await manager.SignInAsync("phone@example.com", "password1234", "Pixel");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("access-2", manager.AccessToken);
+        Assert.Equal("u2", manager.UserId);
+        Assert.Equal("phone@example.com", manager.AccountEmail);
+        Assert.Equal("phone@example.com", result.Value?.User?.Email);
+        Assert.Equal(time.GetUtcNow().AddSeconds(900), result.Value?.AccessTokenExpiresAt);
+    }
+
+    [Fact]
+    public async Task Revoke_all_with_keep_current_stays_signed_in()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request => Is(request, "/v1/auth/login")
+            ? Responses.Json(
+                HttpStatusCode.OK,
+                Responses.Session(accessExpires: time.GetUtcNow().AddHours(1)))
+            : Responses.NoContent());
+
+        using var api = TestApi.Create(handler);
+        using var manager = new AuthSessionManager(api, new TokenStore(new InMemorySecretStorage(), time), time);
+        await manager.InitializeAsync("https://example.test");
+        Assert.True((await manager.SignInAsync("user@example.com", "password1234", "Pixel")).Succeeded);
+
+        var result = await manager.RevokeAllSessionsAsync(keepCurrent: true);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(AuthState.SignedIn, manager.State);
+        var sent = handler.Requests.Single(request => Is(request, "/v1/auth/sessions/revoke-all"));
+        Assert.Contains("\"keepCurrent\":true", sent.Body, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Sign_in_401_maps_to_invalid_credentials()
     {

@@ -30,6 +30,10 @@ public sealed record DevicePollResponseDto
 {
     public string? Status { get; init; }
 
+    /// <summary>Advertised cadence; present on every poll and on <c>slow_down</c>.</summary>
+    public long? Interval { get; init; }
+
+    /// <summary>Session is at the response root when approved.</summary>
     public SessionDto? Session { get; init; }
 }
 
@@ -42,9 +46,13 @@ public sealed record DeviceInfoDto
 
     public string? Platform { get; init; }
 
+    public string? AppVersion { get; init; }
+
     public string? State { get; init; }
 
     public DateTimeOffset? ExpiresAt { get; init; }
+
+    public DateTimeOffset? ApprovedAt { get; init; }
 }
 
 public static class DeviceFlowStatus

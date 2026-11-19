@@ -78,6 +78,9 @@ public sealed record ResetPasswordRequestDto
 
 public sealed record SimpleStatusDto(string? Status);
 
+/// <summary>Optional body for <c>sessions/revoke-all</c>; no body means every session.</summary>
+public sealed record RevokeAllSessionsRequestDto(bool KeepCurrent);
+
 /// <summary>Account-delete payload: exactly one of password / fresh email code.</summary>
 public sealed record DeleteAccountRequestDto
 {

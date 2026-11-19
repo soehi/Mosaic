@@ -20,12 +20,10 @@ public enum ChangeOperation
 /// <summary>
 /// One incremental change.
 ///
-/// The shared protocol freezes <c>operation</c> (<c>upsert|delete</c>) and
-/// <c>updatedAtUtc</c>. The current server build emits <c>deleted</c> (bool),
-/// <c>createdAt</c> and a per-row <c>cursor</c> instead. Both shapes are read
-/// here; the frozen fields stay authoritative when present. The drift is
-/// reported in docs/mobile-implementation-status.md — the mobile side does not
-/// change either protocol definition.
+/// Server 0.1.1 emits <c>cursor</c>, <c>serverRevision</c>, <c>deleted</c>
+/// (bool) and <c>createdAt</c>; that shape is authoritative. <c>operation</c>
+/// and <c>updatedAtUtc</c> are still read from older builds and from the
+/// pre-0.1.1 frozen samples, but only when the canonical fields are absent.
 /// </summary>
 public sealed record ChangeDto
 {
@@ -35,19 +33,19 @@ public sealed record ChangeDto
 
     public string? Key { get; init; }
 
-    /// <summary>Frozen field: <c>upsert</c> or <c>delete</c>.</summary>
+    /// <summary>Legacy field (<c>upsert</c>|<c>delete</c>); canonical is <see cref="Deleted"/>.</summary>
     public string? Operation { get; init; }
 
-    /// <summary>Server alias for <see cref="Operation"/>: true means tombstone.</summary>
+    /// <summary>Canonical tombstone flag.</summary>
     public bool? Deleted { get; init; }
 
-    /// <summary>Task payload or <c>{"value":...}</c>; null for tombstones.</summary>
+    /// <summary>Task payload or <c>{"value":...}</c>; omitted for tombstones.</summary>
     public JsonElement? Payload { get; init; }
 
-    /// <summary>Frozen field.</summary>
+    /// <summary>Legacy timestamp; canonical is <see cref="CreatedAt"/>.</summary>
     public DateTimeOffset? UpdatedAtUtc { get; init; }
 
-    /// <summary>Server alias for <see cref="UpdatedAtUtc"/>.</summary>
+    /// <summary>Canonical change timestamp.</summary>
     public DateTimeOffset? CreatedAt { get; init; }
 
     public string? DeviceId { get; init; }
@@ -68,6 +66,19 @@ public sealed record ChangeDto
     {
         get
         {
+            // Canonical field wins when present, even if a legacy field disagrees.
+            if (Deleted is { } deleted)
+            {
+                if (deleted)
+                {
+                    return ChangeOperation.Delete;
+                }
+
+                return Payload is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined }
+                    ? ChangeOperation.Upsert
+                    : ChangeOperation.Unknown;
+            }
+
             if (string.Equals(Operation, "delete", StringComparison.OrdinalIgnoreCase))
             {
                 return ChangeOperation.Delete;
@@ -83,11 +94,6 @@ public sealed record ChangeDto
             if (!string.IsNullOrEmpty(Operation))
             {
                 return ChangeOperation.Unknown;
-            }
-
-            if (Deleted == true)
-            {
-                return ChangeOperation.Delete;
             }
 
             return Payload is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined }
@@ -109,30 +115,54 @@ public sealed record SyncChangesResponseDto
     public bool HasMore { get; init; }
 }
 
-// --- Phase 2 write shapes (kept so the local outbox schema matches the wire) ---
+// --- Write shapes (server 0.1.1: one change per POST, no batch) ---
 
-public sealed record ChangePushDto
+/// <summary>Body of <c>POST /v1/sync/changes</c>; one change per request.</summary>
+public sealed record ChangePushRequestDto
 {
+    public string? DeviceId { get; init; }
+
     public string? Kind { get; init; }
 
     public string? Key { get; init; }
 
-    public string? Operation { get; init; }
-
+    /// <summary>Task payload or <c>{"value":...}</c>; omitted for tombstones.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonElement? Payload { get; init; }
 
-    public long? BaseServerRevision { get; init; }
+    public bool Deleted { get; init; }
 
-    public long? ClientRevision { get; init; }
+    /// <summary>Server revision the write was based on; 0 for a new item.</summary>
+    public long BaseServerRevision { get; init; }
+
+    public long ClientRevision { get; init; }
 
     public string? IdempotencyKey { get; init; }
 }
 
-public sealed record SyncPushRequestDto(string? DeviceId, List<ChangePushDto> Changes);
-
+/// <summary><c>{change,replayed}</c>; <c>replayed</c> means the idempotency key was seen before.</summary>
 public sealed record SyncPushResponseDto
 {
     public ChangeDto? Change { get; init; }
 
     public bool Replayed { get; init; }
+}
+
+/// <summary>Conflict payload <c>details.current</c>: the server's winning record.</summary>
+public sealed record SyncConflictCurrentDto
+{
+    public string? Kind { get; init; }
+
+    public string? Key { get; init; }
+
+    public long ServerRevision { get; init; }
+
+    public bool Deleted { get; init; }
+
+    public JsonElement? Payload { get; init; }
+}
+
+public sealed record SyncConflictDetailsDto
+{
+    public SyncConflictCurrentDto? Current { get; init; }
 }

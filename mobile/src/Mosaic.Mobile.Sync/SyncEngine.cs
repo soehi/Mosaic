@@ -161,7 +161,7 @@ public sealed class SyncEngine
                         return new SyncReport(false, pages, changes, rebuilt, false, SyncErrorMapper.FromApi(result.StatusCode, result.Error), null);
                     }
 
-                    if (result.StatusCode == 410 || result.ErrorCode == WireErrorCodes.SyncCursorInvalid)
+                    if (IsCursorInvalid(result))
                     {
                         if (sawCursorInvalid)
                         {
@@ -243,6 +243,21 @@ public sealed class SyncEngine
                 null);
         }
     }
+
+    /// <summary>
+    /// Server 0.1.1 signals an unusable cursor two ways: 410
+    /// <c>sync.cursor_invalid</c> (expired/unknown cursor) and 400
+    /// <c>sync.invalid</c> with <c>details.requiresSnapshot=true</c> (malformed
+    /// cursor). A plain 400 <c>sync.invalid</c> without that flag is a request
+    /// error and must not wipe the local projection.
+    /// </summary>
+    private static bool IsCursorInvalid(ApiResult<SyncChangesResponseDto> result) =>
+        result.ErrorCode == WireErrorCodes.SyncCursorInvalid
+        || (result.StatusCode == 400
+            && result.ErrorCode == WireErrorCodes.SyncInvalid
+            && result.Error?.RequiresSnapshot == true)
+        || (result.StatusCode == 410
+            && result.ErrorCode is null or WireErrorCodes.SyncInvalid or WireErrorCodes.SyncCursorInvalid);
 
     private void SetStatus(SyncStatusType status, int changeCount, string? code)
     {

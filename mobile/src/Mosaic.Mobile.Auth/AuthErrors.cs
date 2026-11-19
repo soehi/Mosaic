@@ -59,28 +59,27 @@ public sealed record AuthError(
         {
             case WireErrorCodes.AuthInvalidCredentials:
                 return isRefresh ? AuthErrorKind.SessionRevoked : AuthErrorKind.InvalidCredentials;
-            case WireErrorCodes.AuthInvalidCodeAlias:
-            case WireErrorCodes.AuthCodeInvalid:
+            case WireErrorCodes.AuthInvalidCode:
+            case WireErrorCodes.AuthCodeInvalidAlias:
                 return AuthErrorKind.CodeInvalid;
             case WireErrorCodes.AuthCodeExpired:
                 return AuthErrorKind.CodeExpired;
-            case WireErrorCodes.AuthCodeLockedAlias:
             case WireErrorCodes.AuthCodeAttemptsExceeded:
+            case WireErrorCodes.AuthCodeLockedAlias:
                 return AuthErrorKind.CodeAttemptsExceeded;
             case WireErrorCodes.AuthRateLimited:
             case WireErrorCodes.DeviceRateLimited:
                 return AuthErrorKind.RateLimited;
             case WireErrorCodes.AuthSessionRevoked:
-            case WireErrorCodes.AuthSessionExpiredAlias:
-            case WireErrorCodes.AuthRequiredAlias:
-            case WireErrorCodes.AuthInvalidRefreshAlias:
+            case WireErrorCodes.AuthSessionExpired:
+            case WireErrorCodes.AuthRequired:
+            case WireErrorCodes.AuthInvalidRefresh:
                 return AuthErrorKind.SessionRevoked;
             case WireErrorCodes.AuthRefreshReused:
                 return AuthErrorKind.RefreshReused;
-            case WireErrorCodes.AuthPasswordPolicy:
-            case WireErrorCodes.AuthWeakPasswordAlias:
+            case WireErrorCodes.AuthWeakPassword:
+            case WireErrorCodes.AuthPasswordPolicyAlias:
                 return AuthErrorKind.PasswordPolicy;
-            case WireErrorCodes.AuthEmailInvalid:
             case WireErrorCodes.AuthInvalidEmailAlias:
                 return AuthErrorKind.EmailInvalid;
             case WireErrorCodes.AuthReauthRequired:
@@ -89,8 +88,6 @@ public sealed record AuthError(
                 return AuthErrorKind.RegistrationClosed;
             case WireErrorCodes.DeviceInvalidCode:
                 return AuthErrorKind.DeviceCodeInvalid;
-            case WireErrorCodes.DeviceAlreadyHandled:
-                return AuthErrorKind.DeviceAlreadyHandled;
             case LocalTransportCodes.Network:
             case LocalTransportCodes.Timeout:
                 return AuthErrorKind.Network;
@@ -98,8 +95,8 @@ public sealed record AuthError(
                 return AuthErrorKind.Protocol;
             case WireErrorCodes.ServerUnavailable:
                 return AuthErrorKind.ServerUnavailable;
-            case "email.not_configured":
-            case "email.delivery_failed":
+            case WireErrorCodes.EmailNotConfigured:
+            case WireErrorCodes.EmailDeliveryFailed:
                 return AuthErrorKind.EmailDeliveryFailed;
         }
 

@@ -41,4 +41,27 @@ public sealed record WireErrorDto
         Details is { ValueKind: JsonValueKind.Object } details
         && details.TryGetProperty("requiresSnapshot", out var flag)
         && flag.ValueKind is JsonValueKind.True;
+
+    /// <summary>
+    /// Reads a typed <c>details</c> payload (for example <c>details.current</c>
+    /// on a sync conflict). Returns null for a missing or unreadable payload.
+    /// </summary>
+    public T? DetailsAs<T>()
+        where T : class
+    {
+        if (Details is not { } details
+            || details.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        try
+        {
+            return details.Deserialize<T>(WireJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }

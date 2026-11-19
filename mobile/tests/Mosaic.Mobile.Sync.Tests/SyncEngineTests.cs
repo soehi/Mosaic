@@ -202,6 +202,72 @@ public sealed class SyncEngineTests
     }
 
     [Fact]
+    public async Task Malformed_cursor_with_requires_snapshot_rebuilds()
+    {
+        var changesCalls = 0;
+        var snapshot = new
+        {
+            snapshotId = "snap-2",
+            createdAt = Now,
+            sizeBytes = 10,
+            itemCount = 0,
+            items = Array.Empty<object>(),
+        };
+
+        using var fixture = Create(request =>
+        {
+            var uri = request.Uri;
+            if (uri.Contains("/v1/sync/changes", StringComparison.Ordinal))
+            {
+                changesCalls++;
+                return changesCalls == 1
+                    ? Responses.Json(
+                        HttpStatusCode.BadRequest,
+                        """{"code":"sync.invalid","details":{"requiresSnapshot":true}}""")
+                    : Responses.Changes(Page([], "c5", hasMore: false));
+            }
+
+            return uri.Contains("/v1/backups/", StringComparison.Ordinal)
+                ? Responses.Json(HttpStatusCode.OK, WireJson.Serialize(snapshot))
+                : Responses.Error(HttpStatusCode.NotFound, "server.not_found");
+        });
+
+        var report = await fixture.Engine.SyncOnceAsync();
+
+        Assert.True(report.Succeeded);
+        Assert.True(report.RebuiltFromSnapshot);
+        Assert.Equal("c5", (await fixture.Database.Store.GetStateAsync()).Cursor);
+    }
+
+    [Fact]
+    public async Task Sync_invalid_without_the_snapshot_flag_keeps_local_data()
+    {
+        using var fixture = Create(_ => Responses.Error(HttpStatusCode.BadRequest, "sync.invalid"));
+        await fixture.Database.Store.ApplyPageAsync(new SyncPage(
+            [
+                new SyncedTask
+                {
+                    Id = Guid.Parse(Ids.One),
+                    Title = "Cached",
+                    CreatedAtUtc = Now.AddHours(-1),
+                    UpdatedAtUtc = Now,
+                    Revision = 1,
+                },
+            ],
+            [],
+            [],
+            "c-before",
+            Now));
+
+        var report = await fixture.Engine.SyncOnceAsync();
+
+        Assert.False(report.Succeeded);
+        Assert.Equal(SyncErrorKind.Protocol, report.Error?.Kind);
+        Assert.NotNull(await fixture.Database.Store.GetTaskAsync(Guid.Parse(Ids.One)));
+        Assert.Equal("c-before", (await fixture.Database.Store.GetStateAsync()).Cursor);
+    }
+
+    [Fact]
     public async Task A_second_cursor_invalid_stops_without_looping()
     {
         using var fixture = Create(request =>
