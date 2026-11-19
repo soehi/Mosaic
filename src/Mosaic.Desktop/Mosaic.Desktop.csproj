@@ -26,4 +26,14 @@
 </ItemGroup>
 <PropertyGroup><MosaicPublishedBuild Condition="'$(MosaicPublishedBuild)' == ''">false</MosaicPublishedBuild></PropertyGroup>
 <ItemGroup><AssemblyMetadata Include="MosaicPublishedBuild" Value="$(MosaicPublishedBuild)" /><None Include="../../build/release-manifest.json" Link="release-manifest.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../build/release-manifest.json')" /></ItemGroup>
-<ItemGroup><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Sqlite/Mosaic.FloatingWindows.Sqlite.csproj" /><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/Mosaic.FloatingWindows.Wpf.csproj" /></ItemGroup><ItemGroup><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Persistence.Contracts/Mosaic.FloatingWindows.Persistence.Contracts.csproj" /></ItemGroup></Project>
+<ItemGroup><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Sqlite/Mosaic.FloatingWindows.Sqlite.csproj" /><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/Mosaic.FloatingWindows.Wpf.csproj" /></ItemGroup><ItemGroup><ProjectReference Include="../Modules/FloatingWindows/Mosaic.FloatingWindows.Persistence.Contracts/Mosaic.FloatingWindows.Persistence.Contracts.csproj" /></ItemGroup>
+<ItemGroup>
+<ProjectReference Include="../Modules/Auth/Mosaic.Auth.Contracts/Mosaic.Auth.Contracts.csproj" />
+<ProjectReference Include="../Modules/Auth/Mosaic.Auth.Core/Mosaic.Auth.Core.csproj" />
+<ProjectReference Include="../Modules/Auth/Mosaic.Auth.Http/Mosaic.Auth.Http.csproj" />
+<ProjectReference Include="../Modules/Auth/Mosaic.Auth.Windows/Mosaic.Auth.Windows.csproj" />
+<ProjectReference Include="../Modules/Auth/Mosaic.Auth.Wpf/Mosaic.Auth.Wpf.csproj" />
+<ProjectReference Include="../Modules/Sync/Mosaic.Sync.Contracts/Mosaic.Sync.Contracts.csproj" />
+<ProjectReference Include="../Modules/Sync/Mosaic.Sync.Core/Mosaic.Sync.Core.csproj" />
+<ProjectReference Include="../Modules/Sync/Mosaic.Sync.Http/Mosaic.Sync.Http.csproj" />
+</ItemGroup></Project>

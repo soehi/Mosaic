@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup>
+<ItemGroup>
+<ProjectReference Include="..\..\..\Mosaic.Contracts\Mosaic.Contracts.csproj" />
+<ProjectReference Include="..\Mosaic.Auth.Contracts\Mosaic.Auth.Contracts.csproj" />
+</ItemGroup>
+</Project>

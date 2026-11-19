@@ -11,7 +11,8 @@ public sealed record TasksDependencies(
     IIdGenerator Ids,
     IModuleExecutionGate Gate,
     IDiagnosticSink Diagnostics,
-    Mosaic.Settings.Contracts.ISettingsCore? Settings = null);
+    Mosaic.Settings.Contracts.ISettingsCore? Settings = null,
+    ITaskTransferRepository? TransferRepository = null);
 
 public sealed class TasksModule : IModuleActivation
 {
@@ -30,16 +31,20 @@ public sealed class TasksModule : IModuleActivation
         _archive = new(dependencies.Repository, api, dependencies.Clock, dependencies.Diagnostics);
         Api = api;
         CreateOnceApi = api;
+        Transfer = dependencies.TransferRepository is { } transfer
+            ? new GuardedTaskTransferApi(new TaskTransferService(api, transfer, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
+            : null;
     }
     public static ModuleManifest Definition { get; } = new(
         "tasks-core",
-        [new("tasks.api", 1), new("tasks.create-once", 1), new("tasks.changes",1)],
+        [new("tasks.api", 1), new("tasks.create-once", 1), new("tasks.changes",1), new("tasks.transfer", 1)],
         [new("tasks.repository", 1), new("settings.api", 1)],
         "Owns task rules and the guarded public task API.");
     public ModuleManifest Manifest => Definition;
     public ITasksApi Api { get; }
     public ITaskChangeSource Changes=>_changes;
     public ITaskCreateOnceApi CreateOnceApi { get; }
+    public ITaskTransferApi? Transfer { get; }
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

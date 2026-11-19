@@ -16,7 +16,8 @@ internal sealed record AppConfiguration(
     private const string PresenceMigration = "desktop-presence-v1";
     private const string ReleaseSummaryMigration = "release-summary-v1";
     private const string FloatingMigration="floating-windows-v1";
-    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration,FloatingMigration];
+    private const string AuthSyncMigration = "auth-sync-v1";
+    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration,FloatingMigration,AuthSyncMigration];
 
     internal static AppConfiguration Load(AppPaths paths)
     {
@@ -48,6 +49,9 @@ internal sealed record AppConfiguration(
 
         if (!appliedMigrations.Contains(FloatingMigration,StringComparer.Ordinal))
             configuration=ApplyFloatingMigration(configuration);
+
+        if (!appliedMigrations.Contains(AuthSyncMigration, StringComparer.Ordinal))
+            configuration = ApplyAuthSyncMigration(configuration);
 
         if (configuration != original)
         {
@@ -198,6 +202,40 @@ internal sealed record AppConfiguration(
         return configuration with {Modules=overrideModules?configuration.Modules:modules.ToArray(),Providers=overrideModules||overrideProviders?configuration.Providers:providers,Settings=settings,AppliedMigrations=MarkMigration(configuration,FloatingMigration)};
     }
 
+    // Adds the optional account/backup modules to existing installations. Nothing activates the
+    // network by itself: without a configured server the account page stays signed out and offline.
+    private static AppConfiguration ApplyAuthSyncMigration(AppConfiguration configuration)
+    {
+        var settings = configuration.Settings is null
+            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            : new Dictionary<string, JsonElement>(configuration.Settings, StringComparer.Ordinal);
+        var overrideModules = settings.ContainsKey("host.modules");
+        var overrideProviders = settings.ContainsKey("host.providers");
+        var modules = (ReadModuleOverride(configuration) ?? configuration.Modules).ToList();
+        var providers = new Dictionary<string, string>(ReadProviderOverride(configuration) ?? configuration.Providers, StringComparer.Ordinal);
+        if (modules.Contains("settings-core", StringComparer.Ordinal) && modules.Contains("tasks-core", StringComparer.Ordinal))
+        {
+            foreach (var id in new[] { "auth-http", "auth-windows", "auth-core", "sync-http", "sync-core" })
+                if (!modules.Contains(id, StringComparer.Ordinal)) modules.Add(id);
+            if (modules.Contains("settings-ui", StringComparer.Ordinal) && !modules.Contains("auth-ui", StringComparer.Ordinal))
+                modules.Add("auth-ui");
+            providers.TryAdd("auth.transport@1", "auth-http");
+            providers.TryAdd("auth.secrets@1", "auth-windows");
+            providers.TryAdd("auth.api@1", "auth-core");
+            providers.TryAdd("sync.transport@1", "sync-http");
+            providers.TryAdd("sync.api@1", "sync-core");
+        }
+        if (overrideModules) settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
+        if (overrideModules || overrideProviders) settings["host.providers"] = JsonSerializer.SerializeToElement(providers);
+        return configuration with
+        {
+            Modules = overrideModules ? configuration.Modules : modules.ToArray(),
+            Providers = overrideModules || overrideProviders ? configuration.Providers : providers,
+            Settings = settings,
+            AppliedMigrations = MarkMigration(configuration, AuthSyncMigration)
+        };
+    }
+
     private static string[] MarkMigration(AppConfiguration configuration, string migration) =>
         (configuration.AppliedMigrations ?? [])
             .Append(migration)
@@ -295,6 +333,8 @@ internal sealed record AppPaths(string Root)
     internal string ConfigDirectory => Path.Combine(Root, "Config");
     internal string ConfigPath => Path.Combine(ConfigDirectory, "appsettings.json");
     internal string Logs => Path.Combine(Root, "Logs");
+    // DPAPI-protected credentials for optional sign-in. Never read by settings or backups.
+    internal string AuthSecrets => Path.Combine(Root, "Auth", "credentials.dat");
     internal string Database(StorageConfiguration storage) =>
         Path.Combine(
             storage.Location == "local-app-data" ? Path.Combine(Root, "Data") : Path.TrimEndingDirectorySeparator(storage.Location),

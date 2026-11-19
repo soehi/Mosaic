@@ -16,4 +16,10 @@
 <PackageReference Include="Microsoft.NET.Test.Sdk" />
 <Using Include="Xunit" />
 </ItemGroup>
-<ItemGroup><ProjectReference Include="../../src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/Mosaic.FloatingWindows.Wpf.csproj" /></ItemGroup></Project>
+<ItemGroup><ProjectReference Include="../../src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/Mosaic.FloatingWindows.Wpf.csproj" /></ItemGroup>
+<ItemGroup>
+<ProjectReference Include="..\..\src\Modules\Auth\Mosaic.Auth.Contracts\Mosaic.Auth.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Auth\Mosaic.Auth.Wpf\Mosaic.Auth.Wpf.csproj" />
+<ProjectReference Include="..\..\src\Modules\Auth\Mosaic.Auth.Windows\Mosaic.Auth.Windows.csproj" />
+<ProjectReference Include="..\..\src\Modules\Sync\Mosaic.Sync.Contracts\Mosaic.Sync.Contracts.csproj" />
+</ItemGroup></Project>

@@ -97,7 +97,7 @@ internal sealed class SqliteTaskRepository(IDatabaseSession database) : ITaskRep
             : OperationResult<IReadOnlyList<TaskCreationReceiptDto>>.Failure(result.Error!);
     }
     private static OperationResult WriteResult(OperationResult<int> result) => !result.IsSuccess ? OperationResult.Failure(result.Error!) : result.Value == 1 ? OperationResult.Success() : OperationResult.Failure(new(ErrorCodes.Conflict, "任务已更改或删除，请重新加载。"));
-    private static Dictionary<string, object?> Values(TaskItemDto t) => new()
+    internal static Dictionary<string, object?> Values(TaskItemDto t) => new()
     {
         ["$id"] = t.Id.ToString("D"),
         ["$title"] = t.Title,

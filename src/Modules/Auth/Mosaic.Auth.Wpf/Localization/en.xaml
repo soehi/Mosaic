@@ -1,0 +1,116 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Auth.Navigation">Account</sys:String>
+    <sys:String x:Key="Auth.Title">Account and backups</sys:String>
+    <sys:String x:Key="Auth.Subtitle">Sign in to back up tasks and portable settings to your server and restore them on other devices. Signing in is optional; Mosaic works fully offline and local data is unaffected.</sys:String>
+
+    <sys:String x:Key="Auth.SignedOut.Title">Sign in</sys:String>
+    <sys:String x:Key="Auth.SignedOut.Description">Sign in to back up tasks and restore them on other devices, or keep using Mosaic fully offline.</sys:String>
+    <sys:String x:Key="Auth.Server.Label">Server address</sys:String>
+    <sys:String x:Key="Auth.Server.Hint">HTTPS only, for example https://mosaic.example.com. Leave empty to stay disconnected.</sys:String>
+    <sys:String x:Key="Auth.Server.None">Not connected to a server</sys:String>
+    <sys:String x:Key="Auth.Server.Current">Server: {0}</sys:String>
+    <sys:String x:Key="Auth.Server.Change">Connect another self-hosted server</sys:String>
+    <sys:String x:Key="Auth.Server.Save">Save server</sys:String>
+    <sys:String x:Key="Auth.Server.Cancel">Cancel</sys:String>
+    <sys:String x:Key="Auth.Server.Saved">Server address saved.</sys:String>
+
+    <sys:String x:Key="Auth.Email">Email</sys:String>
+    <sys:String x:Key="Auth.Password">Password</sys:String>
+    <sys:String x:Key="Auth.PasswordConfirm">Confirm password</sys:String>
+    <sys:String x:Key="Auth.NewPassword">New password</sys:String>
+    <sys:String x:Key="Auth.Code">Email code</sys:String>
+    <sys:String x:Key="Auth.Code.Send">Send code</sys:String>
+    <sys:String x:Key="Auth.Code.Resend">Resend ({0}s)</sys:String>
+    <sys:String x:Key="Auth.Code.Sent">Code sent. Check your inbox.</sys:String>
+
+    <sys:String x:Key="Auth.Login">Sign in</sys:String>
+    <sys:String x:Key="Auth.Login.Success">Signed in.</sys:String>
+    <sys:String x:Key="Auth.Login.Browser">Sign in with a browser</sys:String>
+    <sys:String x:Key="Auth.Login.Offline">Stay offline without a server</sys:String>
+    <sys:String x:Key="Auth.Login.Forgot">Forgot password</sys:String>
+
+    <sys:String x:Key="Auth.Register">Create an account</sys:String>
+    <sys:String x:Key="Auth.Register.Title">Create an account</sys:String>
+    <sys:String x:Key="Auth.Register.Description">Register with an email code; you are signed in when it completes.</sys:String>
+    <sys:String x:Key="Auth.Register.Submit">Register and sign in</sys:String>
+    <sys:String x:Key="Auth.Register.Success">Account created and signed in.</sys:String>
+    <sys:String x:Key="Auth.Back">Back to sign in</sys:String>
+
+    <sys:String x:Key="Auth.Forgot.Title">Reset your password</sys:String>
+    <sys:String x:Key="Auth.Forgot.Description">Enter your email and we will send a 6-digit code to reset the password.</sys:String>
+    <sys:String x:Key="Auth.Forgot.Submit">Send reset code</sys:String>
+    <sys:String x:Key="Auth.Reset.Title">Set a new password</sys:String>
+    <sys:String x:Key="Auth.Reset.Description">Enter the code you received and choose a new password.</sys:String>
+    <sys:String x:Key="Auth.Reset.Submit">Reset password</sys:String>
+    <sys:String x:Key="Auth.Reset.Success">Password reset. Sign in with the new password.</sys:String>
+
+    <sys:String x:Key="Auth.Device.Title">Sign in with a browser</sys:String>
+    <sys:String x:Key="Auth.Device.Description">Open the address below in a browser or on your phone and enter the code to confirm.</sys:String>
+    <sys:String x:Key="Auth.Device.CodeLabel">Authorization code</sys:String>
+    <sys:String x:Key="Auth.Device.Waiting">Waiting for browser confirmation…</sys:String>
+    <sys:String x:Key="Auth.Device.Expires">Code expires in {0} seconds</sys:String>
+    <sys:String x:Key="Auth.Device.Approved">Confirmed in the browser. Signed in.</sys:String>
+    <sys:String x:Key="Auth.Device.Denied">The sign-in was denied in the browser.</sys:String>
+    <sys:String x:Key="Auth.Device.Expired">The code expired. Start again to get a new one.</sys:String>
+    <sys:String x:Key="Auth.Device.Copy">Copy code</sys:String>
+    <sys:String x:Key="Auth.Device.Copied">Code copied.</sys:String>
+    <sys:String x:Key="Auth.Device.CopyFailed">Could not copy the code. Enter it manually.</sys:String>
+    <sys:String x:Key="Auth.Device.Open">Open browser</sys:String>
+    <sys:String x:Key="Auth.Device.OpenFailed">Could not open the browser. Open the address above manually.</sys:String>
+    <sys:String x:Key="Auth.Device.Cancel">Cancel</sys:String>
+
+    <sys:String x:Key="Auth.Offline.Title">Working offline</sys:String>
+    <sys:String x:Key="Auth.Offline.Description">All data stays on this device. Connect a server whenever you need a backup.</sys:String>
+    <sys:String x:Key="Auth.Offline.Connect">Connect a server</sys:String>
+
+    <sys:String x:Key="Auth.Account.Logout">Sign out</sys:String>
+    <sys:String x:Key="Auth.Logout.Confirm">Signing out clears the credentials stored on this device. Your tasks stay on this machine.</sys:String>
+    <sys:String x:Key="Auth.Logout.Done">Signed out.</sys:String>
+
+    <sys:String x:Key="Auth.Sync.Title">Account backup</sys:String>
+    <sys:String x:Key="Auth.Sync.Enabled">Enable account backup</sys:String>
+    <sys:String x:Key="Auth.Sync.Enabled.Description">When off, no backup is uploaded or downloaded; tasks and settings stay local.</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeSettings">Back up portable settings</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeSettings.Description">Theme, language and text preferences only. Window placement, presence, storage paths and credentials are never synced.</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeOnUpload">Include settings in this upload</sys:String>
+    <sys:String x:Key="Auth.Sync.Upload">Upload backup</sys:String>
+    <sys:String x:Key="Auth.Sync.Download">Restore from backup</sys:String>
+    <sys:String x:Key="Auth.Sync.Refresh">Refresh server backup</sys:String>
+    <sys:String x:Key="Auth.Sync.None">No backup on the server yet.</sys:String>
+    <sys:String x:Key="Auth.Sync.Latest">Latest backup: {0} · {1} items · {2}</sys:String>
+    <sys:String x:Key="Auth.Sync.LastRestore">Last restore: {0} tasks, {1} settings</sys:String>
+    <sys:String x:Key="Auth.Sync.Uploaded">Backup uploaded: {0} tasks, {1} settings.</sys:String>
+    <sys:String x:Key="Auth.Sync.Restored">Restored from backup: {0} tasks, {1} settings.</sys:String>
+    <sys:String x:Key="Auth.Sync.Confirm.Title">Replace local tasks</sys:String>
+    <sys:String x:Key="Auth.Sync.Confirm.Message">Downloading the server backup replaces every task on this device and may overwrite portable settings. This cannot be undone. Continue?</sys:String>
+
+    <sys:String x:Key="Auth.Validation.Email">Enter a valid email address.</sys:String>
+    <sys:String x:Key="Auth.Validation.Password">Passwords must be 10–256 characters.</sys:String>
+    <sys:String x:Key="Auth.Validation.Code">Enter the 6-digit code.</sys:String>
+    <sys:String x:Key="Auth.Validation.Confirm">The passwords do not match.</sys:String>
+
+    <sys:String x:Key="Auth.Error.Unknown">The action did not complete. Try again shortly.</sys:String>
+    <sys:String x:Key="Auth.Error.ServerRequired">Enter a server address first.</sys:String>
+    <sys:String x:Key="Auth.Error.ServerUntrusted">The server address must use HTTPS.</sys:String>
+    <sys:String x:Key="Auth.Error.Network">Cannot reach the server. Check the network and address.</sys:String>
+    <sys:String x:Key="Auth.Error.InvalidCredentials">Email or password is incorrect.</sys:String>
+    <sys:String x:Key="Auth.Error.EmailTaken">That email is already registered.</sys:String>
+    <sys:String x:Key="Auth.Error.CodeInvalid">The code is incorrect.</sys:String>
+    <sys:String x:Key="Auth.Error.CodeExpired">The code expired. Request a new one.</sys:String>
+    <sys:String x:Key="Auth.Error.RateLimited">Too many requests. Try again later.</sys:String>
+    <sys:String x:Key="Auth.Error.RegistrationClosed">Registration is closed on this server.</sys:String>
+    <sys:String x:Key="Auth.Error.PasswordTooWeak">Password is too weak. Use at least 10 characters.</sys:String>
+    <sys:String x:Key="Auth.Error.TokenExpired">Your session expired. Sign in again.</sys:String>
+    <sys:String x:Key="Auth.Error.TokenInvalid">Your session is invalid. Sign in again.</sys:String>
+    <sys:String x:Key="Auth.Error.DeviceCodeInvalid">The device code is invalid or expired.</sys:String>
+    <sys:String x:Key="Auth.Error.DeviceFlowNotStarted">No device authorization is waiting for confirmation.</sys:String>
+    <sys:String x:Key="Auth.Error.SecretsUnavailable">The local credential store is unavailable.</sys:String>
+    <sys:String x:Key="Auth.Error.SyncDisabled">Account backup is turned off in settings.</sys:String>
+    <sys:String x:Key="Auth.Error.NotSignedIn">Not signed in to a server.</sys:String>
+    <sys:String x:Key="Auth.Error.SnapshotInvalid">The server returned an invalid backup.</sys:String>
+    <sys:String x:Key="Auth.Error.Unavailable">The module is unavailable right now.</sys:String>
+    <sys:String x:Key="Auth.Error.Canceled">The operation was canceled.</sys:String>
+    <sys:String x:Key="Auth.Error.Validation">Some inputs are invalid. Check them and retry.</sys:String>
+</ResourceDictionary>

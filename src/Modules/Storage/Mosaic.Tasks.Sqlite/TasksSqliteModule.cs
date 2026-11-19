@@ -9,13 +9,15 @@ public sealed class TasksSqliteModule(IDatabaseSession database) : IModuleActiva
 {
     private bool _active;
     private readonly ITaskRepository _repository = new SqliteTaskRepository(database);
+    private readonly ITaskTransferRepository _transfer = new SqliteTaskTransferRepository(database);
     public static ModuleManifest Definition { get; } = new(
         "tasks-sqlite",
-        [new("tasks.repository", 1)],
+        [new("tasks.repository", 1), new("tasks.transfer-repository", 1)],
         [new("sqlite.session", 1)],
         "Owns task persistence mapping, SQL and database migrations.");
     public ModuleManifest Manifest => Definition;
     public ITaskRepository Repository => _active ? _repository : throw new InvalidOperationException("Task repository is not active.");
+    public ITaskTransferRepository TransferRepository => _active ? _transfer : throw new InvalidOperationException("Task repository is not active.");
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         var migrations = new List<MigrationDefinition>();

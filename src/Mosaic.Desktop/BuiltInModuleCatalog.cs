@@ -1,3 +1,7 @@
+using Mosaic.Auth.Core;
+using Mosaic.Auth.Http;
+using Mosaic.Auth.Windows;
+using Mosaic.Auth.Wpf;
 using Mosaic.Contracts;
 using Mosaic.FloatingWindows.Sqlite;
 using Mosaic.FloatingWindows.Wpf;
@@ -9,6 +13,8 @@ using Mosaic.Settings.Contracts;
 using Mosaic.Settings.Sqlite;
 using Mosaic.Settings.Wpf;
 using Mosaic.Storage.Sqlite;
+using Mosaic.Sync.Core;
+using Mosaic.Sync.Http;
 using Mosaic.Tasks.Core;
 using Mosaic.Tasks.Sqlite;
 using Mosaic.Tasks.Wpf;
@@ -48,6 +54,11 @@ internal sealed class ModuleRuntimeContext(
     internal FloatingWindowsModule? Floating {get;set;}
     internal IFloatingContentFactory? FloatingFactory {get;set;}
     internal IFloatingDetachSource? DetachSource {get;set;}
+    internal HttpAuthModule? AuthTransport { get; set; }
+    internal AuthWindowsModule? AuthSecrets { get; set; }
+    internal AuthModule? Auth { get; set; }
+    internal HttpSyncModule? SyncTransport { get; set; }
+    internal SyncModule? Sync { get; set; }
 }
 
 internal static class BuiltInModuleCatalog
@@ -82,7 +93,8 @@ internal static class BuiltInModuleCatalog
                 context.Ids,
                 new Mosaic.Kernel.ModuleExecutionGate(),
                 context.Diagnostics,
-                context.Settings?.Api));
+                context.Settings?.Api,
+                context.Repository?.TransferRepository));
             return context.Tasks;
         }),
         [TasksUiModule.Definition.Id] = new(TasksUiModule.Definition, context =>
@@ -149,6 +161,53 @@ internal static class BuiltInModuleCatalog
         {
             return new SettingsUiModule(new(
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings API was not assembled before settings UI."),
+                context.Dispatcher,
+                context.Dialogs,
+                context.Diagnostics));
+        }),
+        [HttpAuthModule.Definition.Id] = new(HttpAuthModule.Definition, context =>
+        {
+            context.AuthTransport = new(context.Clock);
+            return context.AuthTransport;
+        }),
+        [AuthWindowsModule.Definition.Id] = new(AuthWindowsModule.Definition, context =>
+        {
+            context.AuthSecrets = new(context.Paths.AuthSecrets);
+            return context.AuthSecrets;
+        }),
+        [AuthModule.Definition.Id] = new(AuthModule.Definition, context =>
+        {
+            context.Auth = new(new(
+                context.AuthTransport?.Transport ?? throw new InvalidOperationException("Account transport was not assembled before account core."),
+                context.AuthSecrets?.Secrets ?? throw new InvalidOperationException("Account secret store was not assembled before account core."),
+                context.Settings?.Api ?? throw new InvalidOperationException("Settings core was not assembled before account core."),
+                context.Clock,
+                new Mosaic.Kernel.ModuleExecutionGate(),
+                context.Diagnostics));
+            return context.Auth;
+        }),
+        [HttpSyncModule.Definition.Id] = new(HttpSyncModule.Definition, context =>
+        {
+            context.SyncTransport = new(context.Clock);
+            return context.SyncTransport;
+        }),
+        [SyncModule.Definition.Id] = new(SyncModule.Definition, context =>
+        {
+            context.Sync = new(new(
+                context.Auth?.Api ?? throw new InvalidOperationException("Account API was not assembled before backup core."),
+                context.SyncTransport?.Transport ?? throw new InvalidOperationException("Backup transport was not assembled before backup core."),
+                context.Tasks?.Transfer ?? throw new InvalidOperationException("Task transfer was not assembled before backup core."),
+                context.Settings?.Api ?? throw new InvalidOperationException("Settings core was not assembled before backup core."),
+                new Mosaic.Kernel.ModuleExecutionGate(),
+                context.Diagnostics));
+            return context.Sync;
+        }),
+        [AuthUiModule.Definition.Id] = new(AuthUiModule.Definition, context =>
+        {
+            return new AuthUiModule(new(
+                context.Auth?.Api ?? throw new InvalidOperationException("Account API was not assembled before account UI."),
+                context.Sync?.Api ?? throw new InvalidOperationException("Backup API was not assembled before account UI."),
+                context.Settings?.Api ?? throw new InvalidOperationException("Settings API was not assembled before account UI."),
                 context.Dispatcher,
                 context.Dialogs,
                 context.Diagnostics));

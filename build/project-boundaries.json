@@ -89,7 +89,15 @@
     "Mosaic.ReleaseSummary",
     "Mosaic.FloatingWindows.Sqlite",
     "Mosaic.FloatingWindows.Wpf",
-    "Mosaic.FloatingWindows.Persistence.Contracts"
+    "Mosaic.FloatingWindows.Persistence.Contracts",
+    "Mosaic.Auth.Contracts",
+    "Mosaic.Auth.Core",
+    "Mosaic.Auth.Http",
+    "Mosaic.Auth.Windows",
+    "Mosaic.Auth.Wpf",
+    "Mosaic.Sync.Contracts",
+    "Mosaic.Sync.Core",
+    "Mosaic.Sync.Http"
   ],
   "Mosaic.DesktopPresence.Contracts": [
     "Mosaic.Contracts"
@@ -137,5 +145,43 @@
     "Mosaic.Presentation.Contracts",
     "Mosaic.Presentation.Wpf",
     "Mosaic.Settings.Contracts"
+  ],
+  "Mosaic.Auth.Contracts": [
+    "Mosaic.Contracts"
+  ],
+  "Mosaic.Auth.Core": [
+    "Mosaic.Contracts",
+    "Mosaic.Auth.Contracts",
+    "Mosaic.Settings.Contracts"
+  ],
+  "Mosaic.Auth.Http": [
+    "Mosaic.Contracts",
+    "Mosaic.Auth.Contracts"
+  ],
+  "Mosaic.Auth.Windows": [
+    "Mosaic.Contracts",
+    "Mosaic.Auth.Contracts"
+  ],
+  "Mosaic.Auth.Wpf": [
+    "Mosaic.Contracts",
+    "Mosaic.Auth.Contracts",
+    "Mosaic.Sync.Contracts",
+    "Mosaic.Settings.Contracts",
+    "Mosaic.Presentation.Contracts",
+    "Mosaic.Presentation.Wpf"
+  ],
+  "Mosaic.Sync.Contracts": [
+    "Mosaic.Contracts"
+  ],
+  "Mosaic.Sync.Core": [
+    "Mosaic.Contracts",
+    "Mosaic.Auth.Contracts",
+    "Mosaic.Sync.Contracts",
+    "Mosaic.Tasks.Contracts",
+    "Mosaic.Settings.Contracts"
+  ],
+  "Mosaic.Sync.Http": [
+    "Mosaic.Contracts",
+    "Mosaic.Sync.Contracts"
   ]
 }

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <ProjectReference Include="..\..\..\Mosaic.Contracts\Mosaic.Contracts.csproj" />
+    <ProjectReference Include="..\Mosaic.Auth.Contracts\Mosaic.Auth.Contracts.csproj" />
+    <ProjectReference Include="..\..\Sync\Mosaic.Sync.Contracts\Mosaic.Sync.Contracts.csproj" />
+    <ProjectReference Include="..\..\Settings\Mosaic.Settings.Contracts\Mosaic.Settings.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Mosaic.Presentation.Contracts\Mosaic.Presentation.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Mosaic.Presentation.Wpf\Mosaic.Presentation.Wpf.csproj" />
+    <InternalsVisibleTo Include="Mosaic.Wpf.Tests" />
+  </ItemGroup>
+</Project>

@@ -266,4 +266,10 @@
     <sys:String x:Key="Settings.Setting.ArchiveDelay.Description">Days to wait after completion or restore before archiving</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon">Run Mosaic at sign-in</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon.Description">Start Mosaic with this workspace after Windows sign-in</sys:String>
+    <sys:String x:Key="Settings.Setting.AuthServer">Account server address</sys:String>
+    <sys:String x:Key="Settings.Setting.AuthServer.Description">Self-hosted server used for sign-in and backups; leave empty to stay disconnected</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncEnabled">Enable account backups</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncEnabled.Description">Upload and download backups manually after signing in; when off, the account page only shows local data</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncIncludeSettings">Back up user settings</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncIncludeSettings.Description">Include task rules, task texts, appearance theme and interface language; when off, backups contain only tasks</sys:String>
 </ResourceDictionary>
