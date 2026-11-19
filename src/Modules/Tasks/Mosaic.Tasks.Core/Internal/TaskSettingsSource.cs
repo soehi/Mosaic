@@ -8,7 +8,7 @@ internal sealed class TaskSettingsSource(TaskRules rules, TaskAutoArchive archiv
 
     public IReadOnlyList<SettingDefinition> Definitions { get; } = Localize(
     [
-        new("tasks.archive.autoEnabled", "tasks-core", "自动归档", "自动归档到期的已完成任务", SettingValueKind.Boolean, false, null, null, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.None),
+        new("tasks.archive.autoEnabled", "tasks-core", "自动归档", "仅自动归档等待期已满且未恢复的已完成任务；未完成任务永远不会被自动归档；关闭时不自动归档任何任务", SettingValueKind.Boolean, false, null, null, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.None),
         new("tasks.archive.delayDays", "tasks-core", "归档等待天数", "从完成或恢复到自动归档的天数", SettingValueKind.Integer, 7, 1, 365, null, SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.None),
         new("tasks.sortOrder", "tasks-core", "任务排序", "任务列表默认排序方式", SettingValueKind.Enum, "CreatedDesc", null, null, ["CreatedDesc", "CreatedAsc", "TitleAsc", "TitleDesc"], SettingsGroup.Tasks, SettingCategory.Normal, SettingApplyMode.Immediate, SettingPersistence.UserSettings, PreviewMode: SettingPreviewMode.Reversible),
         new("tasks.title.maxCharacters", "tasks-core", "标题上限", "任务标题允许的最大字符数", SettingValueKind.Integer, 200, 1, 1000, null, SettingsGroup.Tasks, SettingCategory.Advanced, SettingApplyMode.Restart, SettingPersistence.UserSettings, "收紧后旧任务仍可读，编辑超限需截断"),

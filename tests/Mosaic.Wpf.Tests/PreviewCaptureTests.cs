@@ -87,7 +87,7 @@ public sealed class PreviewCaptureTests
         var dialogs = new Dialogs();
         var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
         await module.ActivateAsync();
-        var page = Assert.Single(module.Views).Factory.Create();
+        var page = Assert.Single(module.Views, view => view.Id == "tasks.list").Factory.Create();
         await page.Controller.InitializeAsync();
         if (selectTask)
         {

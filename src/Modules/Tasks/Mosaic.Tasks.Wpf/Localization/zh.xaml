@@ -113,6 +113,8 @@
     <sys:String x:Key="Tasks.Archived.DiscardDraft">任务已归档。要放弃草稿并关闭浮窗吗？选择否可返回并复制草稿。</sys:String>
     <sys:String x:Key="Tasks.Archive.Success">任务已归档。</sys:String>
     <sys:String x:Key="Tasks.Unarchive.Success">任务已恢复到活跃列表。</sys:String>
+    <sys:String x:Key="Tasks.Archived.Navigation">已归档任务</sys:String>
+    <sys:String x:Key="Tasks.ListTitle.Archived">已归档任务</sys:String>
     <sys:String x:Key="Tasks.Empty.Archived">没有归档任务</sys:String>
     <sys:String x:Key="Tasks.Empty.Archived.Description">归档的任务会显示在这里。</sys:String>
     <sys:String x:Key="Tasks.Count.Archived">{0} 项已归档</sys:String>

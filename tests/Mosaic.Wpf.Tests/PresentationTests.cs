@@ -15,6 +15,7 @@ using Mosaic.Settings.Wpf;
 using Mosaic.Shell.Wpf;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf;
+using Mosaic.Tasks.Wpf.Views;
 
 namespace Mosaic.Wpf.Tests;
 
@@ -43,7 +44,8 @@ public sealed class PresentationTests
         public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default) => Query(query);
         public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) => Task.FromResult(SaveError is null ? OperationResult<TaskItemDto>.Success(Item with { Title = request.Title, Revision = request.ExpectedRevision + 1 }) : OperationResult<TaskItemDto>.Failure(SaveError));
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult<TaskItemDto>.Success(Item with { IsCompleted = request.IsCompleted }));
-        public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal Func<SetTaskArchivedRequest, Task<OperationResult<TaskItemDto>>>? Archive;
+        public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => Archive?.Invoke(request) ?? throw new NotSupportedException();
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
@@ -55,11 +57,12 @@ public sealed class PresentationTests
     }
     private sealed class SettingsCore : ISettingsCore
     {
+        internal Dictionary<string, object?> Values { get; } = new(StringComparer.Ordinal);
         public List<ISettingSource> Sources { get; } = [];
         public Task<OperationResult<IReadOnlyList<SettingDefinition>>> ListDefinitionsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<SettingDefinition>>.Success([]));
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> GetValuesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(StringComparer.Ordinal)));
+            Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(Values));
         public Task<OperationResult<IReadOnlyDictionary<string, OperationError>>> ProposeChangesAsync(
             IReadOnlyDictionary<string, object?> changes, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, OperationError>>.Success(new Dictionary<string, OperationError>()));
@@ -124,7 +127,7 @@ public sealed class PresentationTests
     {
         var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, diagnostics ?? new Diagnostics()));
         Assert.Empty(module.Views); await module.ActivateAsync();
-        return Assert.Single(module.Views).Factory.Create();
+        return Assert.Single(module.Views, view => view.Id == "tasks.list").Factory.Create();
     }
     [Fact]
     public Task Leaving_during_save_waits_and_duplicate_submission_is_disabled() => Sta.Run(async () =>
@@ -374,9 +377,21 @@ public sealed class PresentationTests
         var registry = new ContributionRegistry();
         var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
         await module.ActivateAsync();
-        var navigation = Assert.Single(module.Navigation);
-        Assert.Equal("任务", navigation.Label);
-        Assert.Equal("check-square", navigation.IconKey);
+        Assert.Equal(2, module.Navigation.Count);
+        var navigation = module.Navigation;
+        Assert.Equal("任务", navigation[0].Label);
+        Assert.Equal("check-square", navigation[0].IconKey);
+        Assert.Equal("tasks.navigation", navigation[0].Id);
+        Assert.Equal("tasks.list", navigation[0].ViewId);
+        Assert.Equal(100, navigation[0].Order);
+        Assert.Equal("Tasks.Navigation", navigation[0].LabelKey);
+        Assert.Equal("已归档任务", navigation[1].Label);
+        Assert.Equal("folder", navigation[1].IconKey);
+        Assert.Equal("tasks.archived.navigation", navigation[1].Id);
+        Assert.Equal("tasks.archived.list", navigation[1].ViewId);
+        Assert.Equal(110, navigation[1].Order);
+        Assert.Equal("Tasks.Archived.Navigation", navigation[1].LabelKey);
+        Assert.NotEqual(navigation[0].ViewId, navigation[1].ViewId);
 
         var registration = registry.Register(module.Navigation, module.Views);
         var shell = new ShellWindow(registry, new Dialogs());
@@ -388,8 +403,8 @@ public sealed class PresentationTests
         shell.Show();
         await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         Assert.Equal("任务", Get<string>(shell.DataContext, "PageTitle"));
-        Assert.Equal(navigation.Id, Get<string?>(shell.DataContext, "CurrentNavigationId"));
-        Assert.Single(Assert.IsType<ItemsControl>(shell.FindName("NavigationItems")).Items);
+        Assert.Equal(navigation[0].Id, Get<string?>(shell.DataContext, "CurrentNavigationId"));
+        Assert.Equal(2, Assert.IsType<ItemsControl>(shell.FindName("NavigationItems")).Items.Count);
         var navigationText = FindVisualChildren<TextBlock>(shell)
             .Select(text => text.Text)
             .ToHashSet(StringComparer.Ordinal);
@@ -414,12 +429,15 @@ public sealed class PresentationTests
             await shell.InitializeAsync();
             Assert.Equal("任务", Get<string>(shell.DataContext, "PageTitle"));
             var navigation = (IReadOnlyList<NavigationItem>)Get<object>(shell.DataContext, "Navigation");
-            Assert.Equal("任务", Assert.Single(navigation).Label);
+            Assert.Equal(2, navigation.Count);
+            Assert.Equal("任务", navigation[0].Label);
+            Assert.Equal("已归档任务", navigation[1].Label);
 
             MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
 
             Assert.Equal("Tasks", Get<string>(shell.DataContext, "PageTitle"));
-            Assert.Equal("Tasks", Assert.Single(navigation).Label);
+            Assert.Equal("Tasks", navigation[0].Label);
+            Assert.Equal("Archived tasks", navigation[1].Label);
         }
         finally
         {
@@ -471,6 +489,129 @@ public sealed class PresentationTests
         {
             MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
             await page.Controller.DisposeAsync();
+        }
+    });
+    [Fact]
+    public Task Archived_navigation_opens_an_independent_archived_page() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var archivedTask = new TaskItemDto(Guid.NewGuid(), "已归档", "旧笔记", true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 7) { ArchivedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) };
+        var api = new Api();
+        api.Query = query => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(
+            query.ArchiveScope == TaskArchiveScope.Archived ? [archivedTask] : (IReadOnlyList<TaskItemDto>)[]));
+        var registry = new ContributionRegistry();
+        var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        using var registration = registry.Register(module.Navigation, module.Views);
+        var shell = new ShellWindow(registry, new Dialogs());
+        shell.Resources.MergedDictionaries.Add(LoadTheme());
+        try
+        {
+            await shell.InitializeAsync();
+            var archivedNavigation = Assert.Single(registry.Navigation, item => item.Id == "tasks.archived.navigation");
+            await Get<IAsyncRelayCommand>(shell.DataContext, "NavigateCommand").ExecuteAsync(archivedNavigation);
+            await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+
+            Assert.Equal("已归档任务", Get<string>(shell.DataContext, "PageTitle"));
+            Assert.Equal("tasks.archived.navigation", Get<string?>(shell.DataContext, "CurrentNavigationId"));
+            var content = Assert.IsAssignableFrom<FrameworkElement>(Get<object>(shell.DataContext, "Content"));
+            var model = content.DataContext;
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+            Assert.Equal("已归档任务", Get<string>(model, "ListTitle"));
+            Assert.Equal("1 项已归档", Get<string>(model, "CountLabel"));
+
+            var page = Assert.IsType<TasksView>(content);
+            Arrange(page, 900, 650);
+            var title = FindVisualChildren<TextBlock>(page)
+                .Single(text => text.Text is "已归档任务" or "任务清单");
+            Assert.Equal("已归档任务", title.Text);
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await shell.DisposeAsync();
+            shell.Close();
+        }
+    });
+    [Fact]
+    public Task Archived_page_restores_a_task_and_keeps_the_page_on_the_archived_list() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var archivedTask = new TaskItemDto(Guid.NewGuid(), "已归档", "", true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 7) { ArchivedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) };
+        var api = new Api { Item = archivedTask };
+        var restored = 0;
+        var restoredRequests = new List<SetTaskArchivedRequest>();
+        api.Query = query => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(
+            query.ArchiveScope == TaskArchiveScope.Archived && restored == 0 ? [archivedTask] : (IReadOnlyList<TaskItemDto>)[]));
+        api.Archive = request =>
+        {
+            restoredRequests.Add(request);
+            if (!request.IsArchived) restored++;
+            return Task.FromResult(OperationResult<TaskItemDto>.Success(archivedTask with
+            {
+                ArchivedAtUtc = request.IsArchived ? archivedTask.ArchivedAtUtc ?? DateTimeOffset.UtcNow : null,
+                RestoredAtUtc = request.IsArchived ? archivedTask.RestoredAtUtc : DateTimeOffset.UtcNow,
+                Revision = archivedTask.Revision + 1
+            }));
+        };
+        var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var contribution = Assert.Single(module.Views, view => view.Id == "tasks.archived.list");
+        var page = contribution.Factory.Create();
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var model = page.View.DataContext;
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+            Assert.Equal("已归档任务", Get<string>(model, "ListTitle"));
+            Assert.Equal("1 项已归档", Get<string>(model, "CountLabel"));
+
+            var select = Assert.IsAssignableFrom<IAsyncRelayCommand<TaskItemDto>>(model.GetType().GetProperty("SelectCommand")!.GetValue(model));
+            await select.ExecuteAsync(archivedTask);
+            Assert.True(Get<bool>(model, "IsEditorOpen"));
+
+            var archive = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("ArchiveCommand")!.GetValue(model));
+            await archive.ExecuteAsync(null);
+            var request = Assert.Single(restoredRequests);
+            Assert.Equal(archivedTask.Id, request.Id);
+            Assert.False(request.IsArchived);
+            Assert.Equal(archivedTask.Revision, request.ExpectedRevision);
+            Assert.Equal("任务已恢复到活跃列表。", Get<string>(model, "Message"));
+            Assert.True(Get<bool>(model, "HasMessage"));
+            Assert.False(Get<bool>(model, "IsEditorOpen"));
+            Assert.Equal("没有归档任务", Get<string>(model, "EmptyTitle"));
+            Assert.True(Get<bool>(model, "IsListEmpty"));
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await page.Controller.DisposeAsync();
+        }
+    });
+    [Fact]
+    public Task Archived_page_keeps_its_archived_filter_and_active_page_follows_the_default_filter() => Sta.Run(async () =>
+    {
+        var api = new Api();
+        var settings = new SettingsCore();
+        settings.Values["tasks.defaultFilter"] = "Open";
+        var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics(), settings));
+        await module.ActivateAsync();
+        var archivedContribution = Assert.Single(module.Views, view => view.Id == "tasks.archived.list");
+        var archivedPage = archivedContribution.Factory.Create();
+        var activeContribution = Assert.Single(module.Views, view => view.Id == "tasks.list");
+        var activePage = activeContribution.Factory.Create();
+        try
+        {
+            await archivedPage.Controller.InitializeAsync();
+            await activePage.Controller.InitializeAsync();
+            Assert.Equal(3, Get<int>(archivedPage.View.DataContext, "FilterIndex"));
+            Assert.Equal(1, Get<int>(activePage.View.DataContext, "FilterIndex"));
+        }
+        finally
+        {
+            await activePage.Controller.DisposeAsync();
+            await archivedPage.Controller.DisposeAsync();
         }
     });
     [Fact]
@@ -634,7 +775,7 @@ public sealed class PresentationTests
         await module.ActivateAsync();
         var registration = registry.Register(module.Navigation, module.Views);
         Assert.Throws<InvalidOperationException>(() => { registry.Register(module.Navigation, module.Views); });
-        Assert.Single(registry.Navigation);
+        Assert.Equal(2, registry.Navigation.Count);
         Assert.Throws<InvalidOperationException>(() => { new ContributionRegistry().Register(module.Navigation, []); });
         await Get<IAsyncRelayCommand>(shell.DataContext, "NavigateCommand").ExecuteAsync(registry.Navigation[0]);
         Assert.NotNull(Get<FrameworkElement?>(shell.DataContext, "Content"));

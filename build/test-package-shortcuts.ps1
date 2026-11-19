@@ -49,19 +49,25 @@ $owned = @($features | Where-Object { $_.Component -eq $desktop[0].Component -an
 if ($owned.Count -ne 1) { throw 'Desktop shortcut component is not owned by the Application feature.' }
 
 function Read-RegistryRemovals {
-    $view = $database.OpenView("SELECT Registry,`Key`,Name,Component_ FROM Registry")
+    $view = $database.OpenView('SELECT RemoveRegistry,Root,`Key`,Name,Component_ FROM RemoveRegistry')
     try {
         $view.Execute()
         while ($record = $view.Fetch()) {
-            [pscustomobject]@{ Registry = $record.StringData(1); Key = $record.StringData(2); Name = $record.StringData(3); Component = $record.StringData(4) }
+            [pscustomobject]@{
+                RemoveRegistry = $record.StringData(1)
+                Root = $record.IntegerData(2)
+                Key = $record.StringData(3)
+                Name = $record.StringData(4)
+                Component = $record.StringData(5)
+            }
         }
     }
     finally {
         $view.Close()
     }
 }
-$removals = @(Read-RegistryRemovals | Where-Object { $_.Registry -eq -1 })
+$removals = @(Read-RegistryRemovals | Where-Object { $_.Root -eq 1 })
 $runRemoval = @($removals | Where-Object { $_.Key -eq 'Software\Microsoft\Windows\CurrentVersion\Run' -and $_.Name -eq 'Mosaic' -and $_.Component -eq 'StartupCleanup' })
 $ownershipRemoval = @($removals | Where-Object { $_.Key -eq 'Software\Mosaic\Startup' -and $_.Name -eq 'DataRoot' -and $_.Component -eq 'StartupCleanup' })
-if ($runRemoval.Count -ne 1 -or $ownershipRemoval.Count -ne 1) { throw 'StartupCleanup component must remove the Mosaic run key and workspace ownership on uninstall.' }
+if ($runRemoval.Count -ne 1 -or $ownershipRemoval.Count -ne 1) { throw "StartupCleanup component must remove the Mosaic run key and workspace ownership on uninstall (found $($runRemoval.Count) run, $($ownershipRemoval.Count) ownership)." }
 Write-Output 'PASS: MSI contains the Application-owned DesktopFolder Mosaic shortcut, INSTALLFOLDER working directory, and StartupCleanup registry removals.'

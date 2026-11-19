@@ -1,5 +1,25 @@
 # Mosaic：实施与验证记录
 
+## 0.15.0：已归档任务导航与未完成不自动归档（2026-11-19）
+
+- 根因位置：
+  - 需求一（左侧没有独立的已归档入口）：`src/Modules/Tasks/Mosaic.Tasks.Wpf/TasksUiModule.cs`（改动前 :32-35）的 `Navigation` 只贡献一项 `tasks.navigation`（ViewId `tasks.list`），`Views` 只贡献一个 `tasks.list`，归档只能从主任务页的第四项筛选进入；同时 `src/Mosaic.Shell.Wpf/NavigationService.cs:9-29` 对相同 `ViewId` 直接返回（`if (CurrentViewId == viewId) return true;`），若两个导航项共用 `tasks.list`，第二次导航不会重建页面，归档页会沿用主列表实例与筛选，无法做到两页独立。
+  - 需求二（未完成任务的自动归档边界缺少显式锁定）：`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskAutoArchive.cs` 的候选查询已限定 `completed = 1`，`TaskSettingsSource` 的 `tasks.archive.autoEnabled` 默认 `false`、`tasks.archive.delayDays` 默认 7，行为本身正确；但设置描述只写“自动归档到期的已完成任务”，没有说明未完成任务不受影响，且没有测试显式锁定“未完成超期也不归档”。
+- 改动位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/TasksUiModule.cs`：`Navigation` 增加 `tasks.archived.navigation`（LabelKey `Tasks.Archived.Navigation`，图标键 `folder`，ViewId `tasks.archived.list`，Order 110）；`Views` 增加 `tasks.archived.list`，使用 `TaskViewFactory(dependencies, _settingsTarget, 3)`。图标键沿用 `src/Mosaic.Shell.Wpf/NavigationConverters.cs:15` 已支持的 `folder`，Shell 不依赖 Tasks 模块。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskViewFactory.cs:6-15`：构造函数增加可选 `int? initialFilter`，`Create()` 构造 `TasksViewModel` 后设置 `FilterIndex`，归档页初始即“已归档”，且不改写用户保存的默认筛选。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs:193-195`：新增 `ListTitle`（`FilterIndex == 3` → `Tasks.ListTitle.Archived`，否则 `Tasks.ListTitle`）；`SetFilter`（:630）与 `RefreshLocalizedText`（:916）同步通知，切换筛选与中英文时标题一致刷新。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml:83`：标题由 `DynamicResource Tasks.ListTitle` 改为 `Binding ListTitle`，归档页显示“已归档任务”。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Localization/zh.xaml:117-118`、`en.xaml` 对应位置：新增 `Tasks.Archived.Navigation`、`Tasks.ListTitle.Archived`。
+  - `src/Modules/Settings/Mosaic.Settings.Wpf/Localization/zh.xaml:265`、`en.xaml` 对应位置：`Settings.Setting.AutoArchive.Description` 改为“仅自动归档等待期已满且未恢复的已完成任务；未完成任务永远不会被自动归档；关闭时不自动归档任何任务”。
+  - `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskSettingsSource.cs:11`：设置定义内联描述同步为同一文案，避免无本地化资源时的回退文本与界面不一致。
+  - 测试：`tests/Mosaic.Tasks.Core.Tests/AutoArchiveTests.cs`（新增，6 项，反射访问 internal 类型）锁定“未完成无论多旧都不是候选”“已完成仅等待期已满才归档”“已归档不重复归档”“恢复后从 `RestoredAtUtc` 重计”“默认关闭且说明含未完成策略”“归档轮次只写候选查询返回的任务”；`tests/Mosaic.Wpf.Tests/PresentationTests.cs` 更新导航/Shell/语言切换/重复注册断言为两项，新增 `Archived_navigation_opens_an_independent_archived_page`、`Archived_page_restores_a_task_and_keeps_the_page_on_the_archived_list`、`Archived_page_keeps_its_archived_filter_and_active_page_follows_the_default_filter`；`tests/Mosaic.Wpf.Tests/ResponsiveLayoutTests.cs` 侧栏 rail 断言按 ToolTip 定位“任务”按钮并容纳两个导航标签；`tests/Mosaic.Wpf.Tests/PreviewCaptureTests.cs` 设置页截图按唯一 `settings.home` 视图取页。
+  - 发布：`Directory.Build.props:12`、`build/installer/Mosaic.Installer.wixproj:4` 升为 0.15.0；`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json` 追加 `mosaic-0.15.0`（指纹 `053E513BEF2A5D9178FEB96DF3DEDEAD7FB18715315DC8D853EF3CF2F19AF9FD`，索引 22 条，既有条目与 0.14.0 已发布哈希未改动）；`README.md`、`docs/releases/v0.15.0.md`、`docs/releases/v0.15.0-files.md` 同步。
+- 迁移与兼容：无数据库结构变化、无新增设置项、无配置迁移。归档页复用既有 `SetArchivedAsync`（CAS 版本校验）与 `Tasks.Unarchive.Success` 提示；两页各自创建 `TasksViewModel`，草稿、冲突提示、删除确认互不影响。旧安装升级后导航多出一项，任务数据与设置保持原样。
+- 附带修复（安装包校验脚本查错表）：`build/test-package-shortcuts.ps1:51-66` 原先在 `Registry` 表中过滤 `Registry = -1` 查找卸载清理项，且 SQL 写在双引号里导致 `` `Key` `` 的反引号被 PowerShell 当作转义符。根因是 WiX 的 `RemoveRegistryValue` 写入的是 `RemoveRegistry` 表而非 `Registry` 表，因此该校验自 0.13.0 起对任何 MSI 都会抛 `COMException: OpenView,Sql`，无法真正验证卸载清理。改为查询 `RemoveRegistry` 的 `RemoveRegistry,Root,Key,Name,Component_` 并匹配 `Root = 1`（HKCU），0.14.0 与 0.15.0 安装包均返回 PASS。
+- 产物：`artifacts/local-run` 为 0.15.0 自包含目录（`Mosaic.Desktop.exe` FileVersion 0.15.0.0），`verify-published.ps1` 返回 PASS，发布目录内 `release-manifest.json` 与 `build/release-content.json` 完全一致；MSI `artifacts/installer/Mosaic-0.15.0-win-x64.msi`，52,474,036 字节，SHA-256 `DB2398067BABEE1E56F0D23ED575510717A99BF1541088E1EBFEC0D484C8DA26`，校验文件 `artifacts/SHA256SUMS-0.15.0.txt`。数据库回读确认 `ProductVersion=0.15.0`、沿用 `UpgradeCode {4D2B073C-72D5-4C3A-B845-65FC2C52D23C}`、`Upgrade` 表含 0.15.0 以下升级与以上降级阻断、桌面与开始菜单快捷方式均指向 `[INSTALLFOLDER]Mosaic.Desktop.exe` 且工作目录 `INSTALLFOLDER`、`Application` Feature 层级 1、459 个文件条目。
+- 验证：Release 构建 0 警告 0 错误；全部 12 个测试程序集 233 项通过（Architecture 4、Desktop Smoke 32、DesktopPresence.Core 17、FloatingWindows 12、Kernel 5、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 1、Storage.Sqlite 12、Tasks.Contract 7、Tasks.Core 20、Wpf 81）。发布内容指纹、历史关系、索引不可变性与更新简要长度以兼容脚本独立复算通过。未验证项：本机已存在用户正在使用的 0.14.0 真实安装（`%LOCALAPPDATA%\Programs\Mosaic`，进程运行中），本轮未执行真实安装/升级/卸载以免打断用户数据与运行中的应用，安装包仅做数据库回读与快捷方式校验，升级路径以既有 `Upgrade`/`Downgrade` 行与 `build/test-install.ps1` 流程留待独立验收；真实指针下的归档页交互与 150% DPI、高对比度、中英文组合截图未逐项落地。
+
 ## 0.14.0：浮窗空白区拖动与速览入口显示时机（2026-11-19）
 
 - 根因位置：

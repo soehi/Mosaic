@@ -155,13 +155,13 @@ public sealed class ResponsiveLayoutTests
         shell.UpdateLayout();
 
         var navigationButtons = FindVisualChildren<Button>(Assert.IsType<ItemsControl>(shell.FindName("NavigationItems"))).ToArray();
-        var navigationButton = Assert.Single(navigationButtons);
+        var navigationButton = Assert.Single(navigationButtons, button => Equals(button.ToolTip, "任务"));
         Assert.Equal("任务", navigationButton.ToolTip);
         Assert.Equal("任务", System.Windows.Automation.AutomationProperties.GetName(navigationButton));
-        var navigationLabel = Assert.Single(
-            FindVisualChildren<TextBlock>(shell),
-            text => text.Name == "NavigationLabel" && text.Text == "任务");
-        Assert.Equal(Visibility.Collapsed, navigationLabel.Visibility);
+        var navigationLabels = FindVisualChildren<TextBlock>(shell)
+            .Where(text => text.Name == "NavigationLabel" && text.Text is "任务" or "已归档任务").ToArray();
+        Assert.Equal(2, navigationLabels.Length);
+        Assert.All(navigationLabels, text => Assert.Equal(Visibility.Collapsed, text.Visibility));
 
         ResizeShell(shell, 839, 620);
         Assert.True(shell.IsSidebarCompact);
@@ -353,7 +353,7 @@ public sealed class ResponsiveLayoutTests
     {
         var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
         await module.ActivateAsync();
-        return Assert.Single(module.Views).Factory.Create();
+        return Assert.Single(module.Views, view => view.Id == "tasks.list").Factory.Create();
     }
 
     private static void ResizeShell(ShellWindow shell, double width, double height)

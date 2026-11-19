@@ -261,7 +261,7 @@
     <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled">Create update summary task</sys:String>
     <sys:String x:Key="Settings.Setting.UpdateSummaryEnabled.Description">Create one update summary task for a new release on the next startup</sys:String>
     <sys:String x:Key="Settings.Setting.AutoArchive">Auto archive</sys:String>
-    <sys:String x:Key="Settings.Setting.AutoArchive.Description">Automatically archive completed tasks after the waiting period</sys:String>
+    <sys:String x:Key="Settings.Setting.AutoArchive.Description">Only archives completed tasks whose waiting period has passed; open tasks are never archived automatically; when off, nothing is archived automatically</sys:String>
     <sys:String x:Key="Settings.Setting.ArchiveDelay">Auto archive waiting days</sys:String>
     <sys:String x:Key="Settings.Setting.ArchiveDelay.Description">Days to wait after completion or restore before archiving</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon">Run Mosaic at sign-in</sys:String>

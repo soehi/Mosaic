@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.14.0",
+  "currentReleaseId": "mosaic-0.15.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -370,6 +370,22 @@
         "重新创建主窗口时不再沿用上一个窗口应用过的布局设置快照，避免侧栏宽度等布局值从旧实例带到新实例。"
       ],
       "contentSha256": "8CCA2A8E2817608D701370625B0BA43778DA2003CE7D5A7E77ADB3FFD9FE8087"
+    },
+    {
+      "releaseId": "mosaic-0.15.0",
+      "version": "0.15.0",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.14.0",
+      "added": [
+        "左侧导航新增“已归档任务”入口，使用独立页面查看已归档任务，并可把任务恢复到任务区。",
+        "设置中的自动归档说明明确：只自动归档已完成且等待期已满的任务，未完成任务永远不会被自动归档。"
+      ],
+      "improved": [
+        "归档任务页有独立的标题、空态与计数，与主任务列表互不影响；恢复任务后停留在当前页并显示成功提示。",
+        "主任务列表标题随筛选切换为“任务清单”或“已归档任务”；侧栏折叠为图标时导航图标与提示保持可用。"
+      ],
+      "fixed": [],
+      "contentSha256": "053E513BEF2A5D9178FEB96DF3DEDEAD7FB18715315DC8D853EF3CF2F19AF9FD"
     }
   ]
 }

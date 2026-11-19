@@ -190,6 +190,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     };
     public string EmptyTitle => FilterIndex switch { 3 => TaskLocalization.Localize("Tasks.Empty.Archived", "没有归档任务"), 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
     public string EmptyDescription => FilterIndex switch { 3 => TaskLocalization.Localize("Tasks.Empty.Archived.Description", "归档的任务会显示在这里。"), 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
+    public string ListTitle => FilterIndex == 3
+        ? TaskLocalization.Localize("Tasks.ListTitle.Archived", "已归档任务")
+        : TaskLocalization.Localize("Tasks.ListTitle", "任务清单");
     public string ListError
     {
         get => _listError;
@@ -624,6 +627,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         OnPropertyChanged(nameof(CountLabel));
         OnPropertyChanged(nameof(EmptyTitle));
         OnPropertyChanged(nameof(EmptyDescription));
+        OnPropertyChanged(nameof(ListTitle));
         if (load) LoadCommand.Execute(null);
     }
 
@@ -908,7 +912,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             nameof(TaskButtonMinWidth),
             nameof(TaskButtonMinHeight),
             nameof(EmptyTitle),
-            nameof(EmptyDescription)
+            nameof(EmptyDescription),
+            nameof(ListTitle)
         })
             OnPropertyChanged(name);
 

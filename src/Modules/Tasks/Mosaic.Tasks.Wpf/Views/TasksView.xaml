@@ -80,7 +80,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="{DynamicResource Tasks.ListTitle}"
+                        <TextBlock Text="{Binding ListTitle}"
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
                         <TextBlock Text="{Binding CountLabel}"
