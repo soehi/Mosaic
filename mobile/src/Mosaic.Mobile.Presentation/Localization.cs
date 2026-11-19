@@ -345,6 +345,9 @@ public sealed class LocalizationService : INotifyPropertyChanged
     /// <summary>Bindable self-reference: <c>{Binding Strings[app.name]}</c>.</summary>
     public LocalizationService Strings => this;
 
+    /// <summary>Indexer used by <c>Strings[key]</c> bindings; refreshed via <c>Item[]</c>.</summary>
+    public string this[string key] => T(key);
+
     public AppLanguagePreference Preference => _preference;
 
     public void Apply(AppLanguagePreference preference, string? systemLanguageTag)

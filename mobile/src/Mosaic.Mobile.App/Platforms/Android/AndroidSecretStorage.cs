@@ -69,7 +69,7 @@ public sealed class AndroidSecretStorage : ISecretStorage
         {
             throw;
         }
-        catch (Exception exception) when (exception is Java.Lang.Exception or FormatException)
+        catch (Exception exception)
         {
             throw new SessionStoreUnavailableException("keystore read failed", exception);
         }
@@ -104,7 +104,7 @@ public sealed class AndroidSecretStorage : ISecretStorage
         {
             throw;
         }
-        catch (Exception exception) when (exception is Java.Lang.Exception)
+        catch (Exception exception)
         {
             throw new SessionStoreUnavailableException("keystore write failed", exception);
         }
@@ -120,9 +120,9 @@ public sealed class AndroidSecretStorage : ISecretStorage
         var keyStore = KeyStore.GetInstance("AndroidKeyStore")
             ?? throw new SessionStoreUnavailableException("keystore unavailable");
         keyStore.Load(null);
-        if (keyStore.GetKey(KeyAlias, null) is ISecretKey existing)
+        if (keyStore.ContainsAlias(KeyAlias))
         {
-            return existing;
+            return ReadSecretKey(keyStore);
         }
 
         var generator = KeyGenerator.GetInstance(KeyProperties.KeyAlgorithmAes, "AndroidKeyStore")
@@ -138,7 +138,21 @@ public sealed class AndroidSecretStorage : ISecretStorage
         generator.Init(spec);
         generator.GenerateKey();
 
-        return keyStore.GetKey(KeyAlias, null) as ISecretKey
-            ?? throw new SessionStoreUnavailableException("keystore key creation failed");
+        return ReadSecretKey(keyStore);
+    }
+
+    /// <summary>
+    /// <c>KeyStore.GetKey</c> is bound to return <c>IKey</c>, which does not
+    /// expose <c>ISecretKey</c>, so a direct cast always fails. The entry API
+    /// returns the typed <c>SecretKeyEntry</c> instead.
+    /// </summary>
+    private static ISecretKey ReadSecretKey(KeyStore keyStore)
+    {
+        if (keyStore.GetEntry(KeyAlias, null) is KeyStore.SecretKeyEntry { SecretKey: { } key })
+        {
+            return key;
+        }
+
+        throw new SessionStoreUnavailableException("keystore key creation failed");
     }
 }

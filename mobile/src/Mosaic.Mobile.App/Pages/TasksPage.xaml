@@ -33,26 +33,26 @@
     </ScrollView>
 
     <Grid Grid.Row="2">
-      <RefreshView Command="{Binding RefreshCommand}" IsRefreshing="{Binding IsBusy}">
-        <CollectionView ItemsSource="{Binding Tasks}" SelectionMode="None">
-          <CollectionView.ItemTemplate>
-            <DataTemplate x:DataType="presentation:TaskListItemViewModel">
-              <Border Style="{StaticResource Card}" Margin="0,0,0,8">
-                <VerticalStackLayout Spacing="4">
-                  <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="16" LineBreakMode="TailTruncation" />
-                  <Label Text="{Binding Notes}" MaxLines="2" LineBreakMode="TailTruncation"
-                         Style="{StaticResource MutedLabel}"
-                         IsVisible="{Binding Notes, Converter={StaticResource NotEmpty}}" />
-                  <HorizontalStackLayout Spacing="12">
-                    <Label Text="{Binding StatusText}" Style="{StaticResource MutedLabel}" />
-                    <Label Text="{Binding UpdatedText}" Style="{StaticResource MutedLabel}" />
-                  </HorizontalStackLayout>
-                </VerticalStackLayout>
-              </Border>
-            </DataTemplate>
-          </CollectionView.ItemTemplate>
-        </CollectionView>
-      </RefreshView>
+      <!-- RefreshView's indicator never hides on Android here, so pull-to-refresh
+           is replaced by the explicit Sync now button in the last row. -->
+      <CollectionView ItemsSource="{Binding Tasks}" SelectionMode="None">
+        <CollectionView.ItemTemplate>
+          <DataTemplate x:DataType="presentation:TaskListItemViewModel">
+            <Border Style="{StaticResource Card}" Margin="0,0,0,8">
+              <VerticalStackLayout Spacing="4">
+                <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="16" LineBreakMode="TailTruncation" />
+                <Label Text="{Binding Notes}" MaxLines="2" LineBreakMode="TailTruncation"
+                       Style="{StaticResource MutedLabel}"
+                       IsVisible="{Binding Notes, Converter={StaticResource NotEmpty}}" />
+                <HorizontalStackLayout Spacing="12">
+                  <Label Text="{Binding StatusText}" Style="{StaticResource MutedLabel}" />
+                  <Label Text="{Binding UpdatedText}" Style="{StaticResource MutedLabel}" />
+                </HorizontalStackLayout>
+              </VerticalStackLayout>
+            </Border>
+          </DataTemplate>
+        </CollectionView.ItemTemplate>
+      </CollectionView>
 
       <Label Text="{Binding EmptyText}"
              IsVisible="{Binding IsEmpty}"

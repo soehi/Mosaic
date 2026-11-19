@@ -110,7 +110,9 @@
 
 **未验证**：
 
-- Android Release 已编译通过（`android-arm64`，compileSdk/targetSdk 36，minSdk 26，versionCode 2 / versionName 0.1.1；4 个 XamlC 编译绑定建议警告、0 错误），产出 Debug 证书签名的 APK；未在真机/模拟器启动，iOS 未构建，平台 Keychain/Keystore 运行时与页面导航未验证。
+- Android Release 已编译通过（`android-arm64`，compileSdk/targetSdk 36，minSdk 26，versionCode 2 / versionName 0.1.1；4 个 XamlC 编译绑定建议警告、0 错误）。
+- 已在真机（OPPO PKG110）完成端到端验证：安装启动、三页导航、中英切换、深浅主题、真实注册与登录、Keystore 会话持久化（强停重启仍在）、真实增量同步拉取服务端任务。验证中发现并修复 7 个运行时缺陷（DI 注册、AppShell 构造时序、本地化索引器、Tab 标题绑定、深色页面底色、RefreshView 指示器、Keystore 取键）。
+- 未验证：iOS 未构建；Device Flow 未在真机走通；写路径仅在服务端侧验证。
 - 未对接真实 TLS 服务端；认证/设备流/同步/写入用本地 fake HTTP 验证（服务端端点已就绪）。
 - 真实 SMTP、推送、后台同步（规划为第二阶段）未实现。
 - 应用包名已确认：`app.mosaic.tasks`（`Mosaic.Mobile.App.csproj` 的 `ApplicationId` 与 iOS `CFBundleIdentifier` 一致）；上架渠道与合规材料（隐私政策、账号删除入口审核材料）仍待准备。

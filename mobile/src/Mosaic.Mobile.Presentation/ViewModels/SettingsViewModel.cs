@@ -20,6 +20,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly ISyncStore _store;
     private readonly Func<bool> _systemDark;
     private readonly Func<string> _systemLanguage;
+    private int _cachedTaskCount;
 
     public SettingsViewModel(
         AuthSessionManager auth,
@@ -140,7 +141,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ServerText = string.IsNullOrWhiteSpace(_auth.ServerUrl) ? "—" : _auth.ServerUrl;
         AccountText = _auth.AccountEmail ?? T(StringKeys.AccountSignedOut);
         LastSyncedText = SyncStatusText.LastSynced(Localizer, _sync.Status.LastSyncedAt);
-        CachedTasksText = F(StringKeys.CachedTasks, await _store.CountTasksAsync().ConfigureAwait(true));
+        _cachedTaskCount = await _store.CountTasksAsync().ConfigureAwait(true);
+        CachedTasksText = F(StringKeys.CachedTasks, _cachedTaskCount);
         HighContrastNoticeVisible = _settings.HighContrastDowngraded;
         ThemeChoice = _settings.Theme;
         LanguageChoice = _settings.Language;
@@ -172,6 +174,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(CancelText));
         OnPropertyChanged(nameof(LocalHintText));
         AccountText = _auth.AccountEmail ?? T(StringKeys.AccountSignedOut);
+        LastSyncedText = SyncStatusText.LastSynced(Localizer, _sync.Status.LastSyncedAt);
+        CachedTasksText = F(StringKeys.CachedTasks, _cachedTaskCount);
     }
 
     [RelayCommand]

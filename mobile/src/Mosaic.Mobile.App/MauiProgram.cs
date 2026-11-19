@@ -62,6 +62,7 @@ public static class MauiProgram
             MobileDeviceInfo.Platform,
             DeviceInfo.VersionString);
         services.AddSingleton(_ => new MosaicApiClient(MosaicApiClient.CreateHttpClient(clientInfo)));
+        services.AddSingleton<IMosaicApi>(sp => sp.GetRequiredService<MosaicApiClient>());
         services.AddSingleton(sp => new AuthSessionManager(
             sp.GetRequiredService<MosaicApiClient>(),
             sp.GetRequiredService<TokenStore>()));

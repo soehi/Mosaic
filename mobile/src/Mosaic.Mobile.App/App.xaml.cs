@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Mosaic.Mobile.App.Services;
 using Mosaic.Mobile.Presentation;
 
@@ -7,17 +8,20 @@ public partial class MosaicApp : Application
 {
     private readonly StartupService _startup;
     private readonly AppThemeService _themeService;
-    private readonly AppShell _shell;
+    private readonly IServiceProvider _services;
 
     public MosaicApp(
         StartupService startup,
         AppThemeService themeService,
-        AppShell shell)
+        IServiceProvider services)
     {
+        // Resolve pages only after InitializeComponent has merged App.xaml
+        // resources; constructing AppShell as a constructor dependency makes
+        // MAUI load pages before StaticResource dictionaries exist.
         InitializeComponent();
         _startup = startup;
         _themeService = themeService;
-        _shell = shell;
+        _services = services;
 
         ApplyTheme(themeService.IsDark);
         themeService.Changed += (_, _) => ApplyTheme(_themeService.IsDark);
@@ -25,7 +29,8 @@ public partial class MosaicApp : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        var window = new Window(_shell);
+        var shell = _services.GetRequiredService<AppShell>();
+        var window = new Window(shell);
         _ = _startup.InitializeAsync();
         return window;
     }

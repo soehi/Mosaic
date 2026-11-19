@@ -5,13 +5,13 @@
        FlyoutBehavior="Disabled">
 
   <TabBar>
-    <Tab Title="{Binding Strings[tasks]}">
+    <Tab Title="{Binding TasksTitle}">
       <ShellContent x:Name="TasksTab" Route="tasks" />
     </Tab>
-    <Tab Title="{Binding Strings[account]}">
+    <Tab Title="{Binding AccountTitle}">
       <ShellContent x:Name="AccountTab" Route="account" />
     </Tab>
-    <Tab Title="{Binding Strings[settings]}">
+    <Tab Title="{Binding SettingsTitle}">
       <ShellContent x:Name="SettingsTab" Route="settings" />
     </Tab>
   </TabBar>
