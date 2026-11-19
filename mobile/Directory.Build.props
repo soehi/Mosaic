@@ -1,0 +1,21 @@
+<Project>
+  <!--
+    Mobile tree owns its build settings. This file stops the repository-root
+    Directory.Build.props from applying net10.0 / desktop versioning to MAUI
+    projects, while keeping the same language and warning standards.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>14</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+    <Deterministic>true</Deterministic>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <Version>0.1.0</Version>
+    <Authors>Mosaic</Authors>
+    <Product>Mosaic Mobile</Product>
+  </PropertyGroup>
+</Project>

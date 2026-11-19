@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
+             x:Class="Mosaic.Mobile.App.Pages.DeviceSignInPage"
+             x:DataType="presentation:DeviceSignInViewModel"
+             Title="{Binding TitleText}">
+
+  <ScrollView>
+    <VerticalStackLayout Padding="16" Spacing="12">
+
+      <Label Text="{Binding TitleText}" Style="{StaticResource TitleLabel}" />
+      <Label Text="{Binding HintText}" Style="{StaticResource MutedLabel}" />
+
+      <Button Text="{Binding StartText}" Command="{Binding StartCommand}" />
+
+      <Border Style="{StaticResource Card}" IsVisible="{Binding HasCode}">
+        <VerticalStackLayout Spacing="8">
+          <Label Text="{Binding UserCode}" FontSize="30" FontAttributes="Bold"
+                 HorizontalTextAlignment="Center" />
+          <Label Text="{Binding StatusText}" Style="{StaticResource MutedLabel}"
+                 HorizontalTextAlignment="Center" />
+          <Button Text="{Binding OpenLinkText}" Style="{StaticResource SecondaryButton}"
+                  Command="{Binding OpenLinkCommand}" />
+          <Button Text="{Binding StopText}" Style="{StaticResource SecondaryButton}"
+                  Command="{Binding StopCommand}" IsVisible="{Binding IsPolling}" />
+        </VerticalStackLayout>
+      </Border>
+
+      <Label Text="{Binding ErrorText}"
+             IsVisible="{Binding ErrorText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource ErrorLabel}" />
+    </VerticalStackLayout>
+  </ScrollView>
+</ContentPage>

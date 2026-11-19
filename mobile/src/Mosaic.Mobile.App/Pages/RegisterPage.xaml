@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
+             x:Class="Mosaic.Mobile.App.Pages.RegisterPage"
+             x:DataType="presentation:RegisterViewModel"
+             Title="{Binding TitleText}">
+
+  <ScrollView>
+    <VerticalStackLayout Padding="16" Spacing="12">
+
+      <Label Text="{Binding TitleText}" Style="{StaticResource TitleLabel}" />
+      <Label Text="{Binding HintText}" Style="{StaticResource MutedLabel}" />
+
+      <Entry Placeholder="{Binding EmailLabel}" Text="{Binding Email}" Keyboard="Email"
+             AutomationProperties.Name="{Binding EmailLabel}" />
+
+      <Entry Placeholder="{Binding CodeLabel}" Text="{Binding Code}" Keyboard="Numeric"
+             AutomationProperties.Name="{Binding CodeLabel}" />
+      <Button Text="{Binding SendCodeText}" Style="{StaticResource SecondaryButton}"
+              Command="{Binding SendCodeCommand}" IsEnabled="{Binding CanSendCode}" />
+
+      <Entry Placeholder="{Binding PasswordLabel}" Text="{Binding Password}" IsPassword="True"
+             AutomationProperties.Name="{Binding PasswordLabel}" />
+      <Entry Placeholder="{Binding ConfirmLabel}" Text="{Binding ConfirmPassword}" IsPassword="True"
+             AutomationProperties.Name="{Binding ConfirmLabel}" />
+      <Label Text="{Binding PasswordHintText}" Style="{StaticResource MutedLabel}" />
+
+      <Button Text="{Binding RegisterText}" Command="{Binding RegisterCommand}" />
+      <Button Text="{Binding BackText}" Style="{StaticResource SecondaryButton}"
+              Command="{Binding BackCommand}" />
+
+      <Label Text="{Binding ErrorText}"
+             IsVisible="{Binding ErrorText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource ErrorLabel}" />
+      <Label Text="{Binding NoticeText}"
+             IsVisible="{Binding NoticeText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource MutedLabel}" />
+    </VerticalStackLayout>
+  </ScrollView>
+</ContentPage>

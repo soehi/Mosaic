@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
+             x:Class="Mosaic.Mobile.App.Pages.TasksPage"
+             x:DataType="presentation:TaskListViewModel"
+             Title="{Binding Strings[tasks]}">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="16" RowSpacing="10">
+
+    <VerticalStackLayout Grid.Row="0" Spacing="4">
+      <Label Text="{Binding StatusText}" Style="{StaticResource SectionLabel}" />
+      <Label Text="{Binding LastSyncedText}" Style="{StaticResource MutedLabel}" />
+      <Label Text="{Binding ReadOnlyNoticeText}"
+             IsVisible="{Binding ShowReadOnlyNotice}"
+             Style="{StaticResource MutedLabel}" />
+      <Label Text="{Binding NoticeText}"
+             IsVisible="{Binding NoticeText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource MutedLabel}" />
+    </VerticalStackLayout>
+
+    <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+      <HorizontalStackLayout Spacing="8">
+        <Button Text="{Binding FilterAllText}" Style="{StaticResource SecondaryButton}"
+                Command="{Binding SetFilterCommand}" CommandParameter="All" />
+        <Button Text="{Binding FilterOpenText}" Style="{StaticResource SecondaryButton}"
+                Command="{Binding SetFilterCommand}" CommandParameter="Open" />
+        <Button Text="{Binding FilterCompletedText}" Style="{StaticResource SecondaryButton}"
+                Command="{Binding SetFilterCommand}" CommandParameter="Completed" />
+        <Button Text="{Binding FilterArchivedText}" Style="{StaticResource SecondaryButton}"
+                Command="{Binding SetFilterCommand}" CommandParameter="Archived" />
+      </HorizontalStackLayout>
+    </ScrollView>
+
+    <Grid Grid.Row="2">
+      <RefreshView Command="{Binding RefreshCommand}" IsRefreshing="{Binding IsBusy}">
+        <CollectionView ItemsSource="{Binding Tasks}" SelectionMode="None">
+          <CollectionView.ItemTemplate>
+            <DataTemplate x:DataType="presentation:TaskListItemViewModel">
+              <Border Style="{StaticResource Card}" Margin="0,0,0,8">
+                <VerticalStackLayout Spacing="4">
+                  <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="16" LineBreakMode="TailTruncation" />
+                  <Label Text="{Binding Notes}" MaxLines="2" LineBreakMode="TailTruncation"
+                         Style="{StaticResource MutedLabel}"
+                         IsVisible="{Binding Notes, Converter={StaticResource NotEmpty}}" />
+                  <HorizontalStackLayout Spacing="12">
+                    <Label Text="{Binding StatusText}" Style="{StaticResource MutedLabel}" />
+                    <Label Text="{Binding UpdatedText}" Style="{StaticResource MutedLabel}" />
+                  </HorizontalStackLayout>
+                </VerticalStackLayout>
+              </Border>
+            </DataTemplate>
+          </CollectionView.ItemTemplate>
+        </CollectionView>
+      </RefreshView>
+
+      <Label Text="{Binding EmptyText}"
+             IsVisible="{Binding IsEmpty}"
+             HorizontalTextAlignment="Center"
+             VerticalTextAlignment="Center"
+             Margin="24"
+             Style="{StaticResource MutedLabel}" />
+    </Grid>
+
+    <Button Grid.Row="3"
+            Text="{Binding SyncNowText}"
+            Command="{Binding RefreshCommand}"
+            SemanticProperties.Description="{Binding SyncNowText}" />
+  </Grid>
+</ContentPage>

@@ -1,0 +1,7 @@
+# Test-only analyzer adjustments.
+# xUnit1051 asks every optional CancellationToken call site to pass
+# TestContext.Current.CancellationToken. The mobile tests exercise deterministic
+# in-memory state machines with their own CancellationToken.None calls; test
+# cancellation is already wired through xUnit's own timeouts.
+[*.cs]
+dotnet_diagnostic.xUnit1051.severity = none

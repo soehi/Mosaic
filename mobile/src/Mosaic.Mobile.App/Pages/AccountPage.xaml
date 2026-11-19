@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
+             x:Class="Mosaic.Mobile.App.Pages.AccountPage"
+             x:Name="AccountRoot"
+             x:DataType="presentation:AccountViewModel"
+             Title="{Binding Strings[account]}">
+
+  <ScrollView>
+    <VerticalStackLayout Padding="16" Spacing="12">
+
+      <Label Text="{Binding TitleText}" Style="{StaticResource TitleLabel}" />
+      <Label Text="{Binding StateText}" Style="{StaticResource MutedLabel}" />
+
+      <Button Text="{Binding SignInText}"
+              IsVisible="{Binding ShowSignIn}"
+              Command="{Binding BeginSignInCommand}" />
+
+      <VerticalStackLayout IsVisible="{Binding ShowSessions}" Spacing="12">
+
+        <Label Text="{Binding SessionsTitle}" Style="{StaticResource SectionLabel}" />
+        <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sessions}" Spacing="8">
+          <BindableLayout.ItemTemplate>
+            <DataTemplate x:DataType="presentation:SessionRowViewModel">
+              <Border Style="{StaticResource Card}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="{Binding Label}" FontAttributes="Bold" />
+                    <Label Text="{Binding Platform}" Style="{StaticResource MutedLabel}" />
+                    <Label Text="{Binding CreatedText}" Style="{StaticResource MutedLabel}" />
+                  </VerticalStackLayout>
+                  <Button Grid.Column="1"
+                          Text="{Binding RevokeText}"
+                          Style="{StaticResource SecondaryButton}"
+                          Command="{Binding BindingContext.RevokeCommand, Source={x:Reference AccountRoot}}"
+                          CommandParameter="{Binding .}" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </BindableLayout.ItemTemplate>
+        </VerticalStackLayout>
+
+        <Button Text="{Binding RevokeAllText}"
+                Style="{StaticResource SecondaryButton}"
+                Command="{Binding BeginRevokeAllCommand}" />
+
+        <Border Style="{StaticResource Card}" IsVisible="{Binding RevokeAllConfirmVisible}">
+          <VerticalStackLayout Spacing="8">
+            <Label Text="{Binding RevokeAllConfirmText}" />
+            <HorizontalStackLayout Spacing="8">
+              <Button Text="{Binding ConfirmText}" Command="{Binding ConfirmRevokeAllCommand}" />
+              <Button Text="{Binding CancelText}" Style="{StaticResource SecondaryButton}"
+                      Command="{Binding CancelRevokeAllCommand}" />
+            </HorizontalStackLayout>
+          </VerticalStackLayout>
+        </Border>
+
+        <Button Text="{Binding AuthorizeDesktopText}"
+                Style="{StaticResource SecondaryButton}"
+                Clicked="OnAuthorizeDesktopClicked" />
+
+        <Button Text="{Binding SignOutText}" Command="{Binding SignOutCommand}" />
+
+        <Border Style="{StaticResource Card}" IsVisible="{Binding LocalOnlyPromptVisible}">
+          <VerticalStackLayout Spacing="8">
+            <Label Text="{Binding LocalOnlyWarningText}" Style="{StaticResource MutedLabel}" />
+            <HorizontalStackLayout Spacing="8">
+              <Button Text="{Binding LocalOnlyText}" Style="{StaticResource DangerButton}"
+                      Command="{Binding ConfirmLocalSignOutCommand}" />
+              <Button Text="{Binding CancelText}" Style="{StaticResource SecondaryButton}"
+                      Command="{Binding CancelLocalSignOutCommand}" />
+            </HorizontalStackLayout>
+          </VerticalStackLayout>
+        </Border>
+
+        <Label Text="{Binding DeleteAccountText}" Style="{StaticResource SectionLabel}" />
+        <Label Text="{Binding DeleteAccountHintText}" Style="{StaticResource MutedLabel}" />
+        <Entry Placeholder="{Binding PasswordLabel}" Text="{Binding DeletePassword}" IsPassword="True" />
+        <Entry Placeholder="{Binding CodeLabel}" Text="{Binding DeleteCode}" Keyboard="Numeric" />
+        <Button Text="{Binding SendCodeText}" Style="{StaticResource SecondaryButton}"
+                Command="{Binding SendDeleteCodeCommand}" />
+        <Button Text="{Binding DeleteAccountText}" Style="{StaticResource DangerButton}"
+                Command="{Binding BeginDeleteAccountCommand}" />
+
+        <Border Style="{StaticResource Card}" IsVisible="{Binding DeleteConfirmVisible}">
+          <VerticalStackLayout Spacing="8">
+            <Label Text="{Binding DeleteAccountConfirmText}" />
+            <Label Text="{Binding PasswordOrCodeText}" Style="{StaticResource MutedLabel}" />
+            <HorizontalStackLayout Spacing="8">
+              <Button Text="{Binding ConfirmText}" Style="{StaticResource DangerButton}"
+                      Command="{Binding ConfirmDeleteAccountCommand}" />
+              <Button Text="{Binding CancelText}" Style="{StaticResource SecondaryButton}"
+                      Command="{Binding CancelDeleteAccountCommand}" />
+            </HorizontalStackLayout>
+          </VerticalStackLayout>
+        </Border>
+      </VerticalStackLayout>
+
+      <Label Text="{Binding ErrorText}"
+             IsVisible="{Binding ErrorText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource ErrorLabel}" />
+      <Label Text="{Binding NoticeText}"
+             IsVisible="{Binding NoticeText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource MutedLabel}" />
+    </VerticalStackLayout>
+  </ScrollView>
+</ContentPage>

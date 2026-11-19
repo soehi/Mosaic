@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:presentation="clr-namespace:Mosaic.Mobile.Presentation;assembly=Mosaic.Mobile.Presentation"
+             x:Class="Mosaic.Mobile.App.Pages.DeviceAuthorizePage"
+             x:DataType="presentation:DeviceAuthorizeViewModel"
+             Title="{Binding TitleText}">
+
+  <ScrollView>
+    <VerticalStackLayout Padding="16" Spacing="12">
+
+      <Label Text="{Binding TitleText}" Style="{StaticResource TitleLabel}" />
+      <Label Text="{Binding HintText}" Style="{StaticResource MutedLabel}" />
+
+      <Entry Placeholder="{Binding CodeLabel}" Text="{Binding UserCode}"
+             IsSpellCheckEnabled="False" IsTextPredictionEnabled="False"
+             MaxLength="9" AutomationProperties.Name="{Binding CodeLabel}" />
+      <Label Text="{Binding CodeFormatText}" Style="{StaticResource MutedLabel}" />
+
+      <Button Text="{Binding CodeLabel}" Style="{StaticResource SecondaryButton}"
+              Command="{Binding InspectCommand}" />
+
+      <Border Style="{StaticResource Card}" IsVisible="{Binding InfoVisible}">
+        <VerticalStackLayout Spacing="6">
+          <Label Text="{Binding InfoLabel}" Style="{StaticResource SectionLabel}" />
+          <Label Text="{Binding Description}" />
+          <Label Text="{Binding StateText}" Style="{StaticResource MutedLabel}" />
+          <HorizontalStackLayout Spacing="8">
+            <Button Text="{Binding ApproveText}" Command="{Binding BeginApproveCommand}" />
+            <Button Text="{Binding DenyText}" Style="{StaticResource DangerButton}"
+                    Command="{Binding DenyCommand}" />
+          </HorizontalStackLayout>
+        </VerticalStackLayout>
+      </Border>
+
+      <Border Style="{StaticResource Card}" IsVisible="{Binding ApprovalConfirmVisible}">
+        <VerticalStackLayout Spacing="8">
+          <Label Text="{Binding ApproveConfirmText}" />
+          <HorizontalStackLayout Spacing="8">
+            <Button Text="{Binding ConfirmText}" Command="{Binding ConfirmApproveCommand}" />
+            <Button Text="{Binding CancelText}" Style="{StaticResource SecondaryButton}"
+                    Command="{Binding CancelApproveCommand}" />
+          </HorizontalStackLayout>
+        </VerticalStackLayout>
+      </Border>
+
+      <Label Text="{Binding ErrorText}"
+             IsVisible="{Binding ErrorText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource ErrorLabel}" />
+      <Label Text="{Binding NoticeText}"
+             IsVisible="{Binding NoticeText, Converter={StaticResource NotEmpty}}"
+             Style="{StaticResource MutedLabel}" />
+
+      <Button Text="{Binding CancelText}" Style="{StaticResource SecondaryButton}"
+              Clicked="OnCloseClicked" />
+    </VerticalStackLayout>
+  </ScrollView>
+</ContentPage>
