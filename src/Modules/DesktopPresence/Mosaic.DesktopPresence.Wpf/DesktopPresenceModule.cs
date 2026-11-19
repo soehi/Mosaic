@@ -33,8 +33,20 @@ public sealed class DesktopPresenceModule : IModuleActivation
         _settings = new(values =>
         {
             _controller.Configure(Enum.Parse<DesktopCloseBehavior>(PresenceSettings.ReadString(values, "desktop.closeBehavior", "Reside")));
+            _controller.ConfigureShowTiming(ShowTiming(values));
             _surface.UpdateSettings(values);
         }, _surface.MaximumOffset, dependencies.Dispatcher);
+    }
+
+    internal static MainWindowPresentation[] ShowTiming(IReadOnlyDictionary<string, object?> values)
+    {
+        var timing = PresenceSettings.ReadString(values, "desktop.edge.showTiming", "Resident");
+        return timing switch
+        {
+            "Always" => [MainWindowPresentation.Visible, MainWindowPresentation.Minimized, MainWindowPresentation.Hidden],
+            "Minimized" => [MainWindowPresentation.Minimized, MainWindowPresentation.Hidden],
+            _ => [MainWindowPresentation.Hidden]
+        };
     }
 
     public async Task ActivateAsync(CancellationToken cancellationToken = default)

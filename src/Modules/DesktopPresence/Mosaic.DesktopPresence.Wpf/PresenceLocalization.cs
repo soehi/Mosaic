@@ -25,6 +25,7 @@ internal static class PresenceLocalization
         var names = new (string Id, string Zh, string En, string ZhDescription, string EnDescription)[]
         {
             ("desktop.closeBehavior", "关闭主窗口", "Closing the main window", "驻留后台保留草稿；选择退出将结束进程", "Keep drafts in the background, or exit the application"),
+            ("desktop.edge.showTiming", "任务速览入口显示时机", "Entry visibility timing", "主窗口关闭后出现；也可选择最小化时出现或一直显示", "Show after the main window is hidden; optionally when minimized or always"),
             ("desktop.edge.activation", "入口触发方式", "Edge activation", "通过悬停、单击或双击打开任务速览", "Open the overview by hovering, clicking or double-clicking"),
             ("desktop.popup.filter", "摘要任务筛选", "Overview filter", "只展示符合筛选条件的只读任务快照", "Show a read-only snapshot matching this filter"),
             ("desktop.edge.monitor", "目标显示器", "Target monitor", "使用主显示器或主窗口上次所在的显示器", "Use the primary monitor or the last main-window monitor"),
@@ -68,6 +69,7 @@ internal static class PresenceLocalization
         foreach (var (value, zh, english) in new[]
         {
             ("Reside", "驻留后台", "Keep in background"), ("Exit", "退出应用", "Exit application"),
+            ("Resident", "主窗口关闭后", "After main window hides"), ("Minimized", "主窗口最小化后", "After main window minimizes"), ("Always", "一直显示", "Always"),
             ("Hover", "鼠标悬停", "Hover"), ("SingleClick", "单击", "Single click"), ("DoubleClick", "双击", "Double click"),
             ("Primary", "主显示器", "Primary monitor"), ("LastMainWindow", "主窗口所在显示器", "Last main-window monitor"),
             ("RightEdgeTop", "右边缘靠上", "Right edge, near top"), ("TopEdgeRight", "上边缘靠右", "Top edge, near right"),

@@ -2,6 +2,10 @@ using System.Windows;
 using Mosaic.Contracts;
 using Mosaic.FloatingWindows.Contracts;
 namespace Mosaic.Presentation.Contracts;
+// Content decides whether a window-space point is plain blank space (Immediate), a press-and-drag
+// candidate over read-only text (Deferred) or interactive content (None). The window layer never
+// interprets content meaning; it only turns the hint into native move behaviour.
+public enum FloatingContentDragKind { None, Immediate, Deferred }
 public interface IFloatingDetachSource
 {
     bool IsAvailable {get;}
@@ -18,6 +22,9 @@ public interface IFloatingContentSession : IAsyncDisposable
 {
     FrameworkElement View {get;}
     FrameworkElement? Header => null;
+    // Point is in the View's coordinate space. Deferred marks read-only text: press stays interactive,
+    // crossing the system drag threshold starts a native window move.
+    FloatingContentDragKind QueryContentDrag(Point pointInView) => FloatingContentDragKind.None;
     void ConfigureLayout(FloatingContentLayoutOptions options) { }
     event EventHandler? LayoutInvalidated;
     event EventHandler? Missing;

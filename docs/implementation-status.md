@@ -1,5 +1,31 @@
 # Mosaic：实施与验证记录
 
+## 0.14.0：浮窗空白区拖动与速览入口显示时机（2026-11-19）
+
+- 根因位置：
+  - 需求一（浮窗空白区不可拖动）：`src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/FloatingWindowInput.cs` 的 `HitTest`（改动前 :111-112）把命中的所有可见 `TextBoxBase` 整个边界框判为 HTCLIENT；`OnMouseDown`（:39-46）与 `OnMouseMove`（:47-53）的阈值拖动候选只来自 `_tools`/`_header` 中的 `ButtonBase`；HTCAPTION 尾部（:113-121）只覆盖顶部拖动带与 header。同时 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskFloatingDetailsView.cs:25,30` 与 `TaskFloatingContentFactory.cs:170` 让只读备注 `TextBox` 拉伸占满正文区，于是正文大片空白、底部按钮周边与标题下方空白全部落进 HTCLIENT，无法拖动窗口。
+  - 需求二（速览入口出现时机不可配置）：`src/Modules/DesktopPresence/Mosaic.DesktopPresence.Core/PresenceController.cs`（改动前 :15-32）只有 `RequestParkAsync` 调用 `showEdge`；`RequestRestoreAsync`（:34-41）恢复后必隐藏；`RequestPopupAsync`（:45）对 `MainVisible` 直接返回；`src/Mosaic.Desktop/DesktopWindowHost.cs:12-23` 不向 Presence 通知主窗口可见/最小化/隐藏状态；`src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSettings.cs:10-40` 没有显示时机设置项。三者叠加导致入口只在“关闭主窗口后驻留”时出现，最小化或保持显示均不可选。
+  - 顺带修复（布局快照跨窗口泄漏）：`src/Mosaic.Shell.Wpf/ShellSettingSource.cs` 的 `ShellSettingsApplier.Detach`（改动前 :110-114）只清 `_current`，静态 `_latest` 快照保留上一个 `ShellWindow` 应用过的布局值；新窗口 `Attach` 时（:104-108）把旧快照套到新实例，侧栏宽度等布局被错误继承。
+- 改动位置：
+  - `src/Mosaic.Presentation.Contracts/FloatingPresentation.cs`：新增 `FloatingContentDragKind { None, Immediate, Deferred }`（:5-8）与 `IFloatingContentSession.QueryContentDrag(Point)`（:25-27，默认 `None`）。
+  - `src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/FloatingWindowInput.cs`：新增 `_content`/`_contentDrag` 字段与可选构造参数；`OnMouseDown` 在非按钮命中且 `QueryContentDrag == Deferred` 时记录 `_pressContent`；`OnMouseMove` 阈值判断条件加入 `!_pressContent`；`HitTest` 中 `TextBoxBase` 命中先询问内容层，`Immediate` 时跳过 HTCLIENT 判定，HTCAPTION 尾部对内容层报 `Immediate` 的点返回 2；新增 `MouseToElement` 坐标换算。
+  - `src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/FloatingSurface.cs:167-169`：把 `session.View` 与 `session.QueryContentDrag` 传入 `FloatingWindowInput`。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskFloatingContentFactory.cs`：`TaskFloatingContentSession` 新增 `QueryContentDrag(Point)`——详情不可见时返回 `Immediate`，否则经 `TransformToAncestor` 逆变换转到详情视图坐标后转发。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskFloatingDetailsView.cs`：新增 `_editing` 字段并在 `Render` 中同步；新增 `QueryContentDrag`（按钮/滚动条/Thumb 返回 `None`，只读备注非编辑态转 `DragKindForNotes`，其余空白 `Immediate`）、`DragKindForNotes`（空文本立即拖；`GetCharacterIndexFromPoint(snapToText: true)` + `GetRectFromCharacterIndex` 判定字形，跨行回退 `FontSize` 步进，`GlyphSlack` 容差内命中字形返回 `Deferred`，否则 `Immediate`）、`GlyphSlack`、`TreeParent`。
+  - `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Contracts/PresenceContracts.cs`：新增 `MainWindowPresentation { Visible, Minimized, Hidden }`；`IDesktopWindowHost` 新增 `CurrentPresentation` 与 `PresentationChanged`；`IDesktopPresenceSurface` 新增 `SetEdgeVisibleAsync(bool)`。
+  - `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Core/PresenceController.cs`：新增 `_showTiming`（默认仅 `Hidden`）与 `_subscribed` 字段；新增 `ConfigureShowTiming(MainWindowPresentation[])`（幂等订阅 `PresentationChanged` 并触发 `EvaluateEdgeAsync`）、`OnPresentationChanged`、`EvaluateEdgeAsync`（驻留或挂起时按时机集合判定，否则恒显示）；`RequestRestoreAsync` 改为按 `CurrentPresentation` 是否在时机集合内决定隐藏；`RequestPopupAsync` 仅驻留挂起时直接返回，主窗口可见但不在时机内也返回。
+  - `src/Mosaic.Desktop/DesktopWindowHost.cs`：`Window` 属性改为带 `Attach`/`Detach` 的后备字段；新增 `CurrentPresentation`（无窗口按 `Visible`，`!IsVisible` 为 `Hidden`，最小化为 `Minimized`）与 `PresentationChanged`，订阅 `StateChanged`/`IsVisibleChanged`。
+  - `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/DesktopPresenceModule.cs`：设置应用回调接入 `_controller.ConfigureShowTiming(ShowTiming(values))`；新增 `ShowTiming` 映射（Always→全部、Minimized→最小化+隐藏、默认 Resident→仅隐藏）。
+  - `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSettings.cs`：新增 `desktop.edge.showTiming`（Normal 类别，默认 `Resident`，选项 `Resident/Minimized/Always`）及显示名、描述与取值映射。
+  - `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceLocalization.cs`：新增设置名、描述与三个取值的本地化键。
+  - `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs`：新增幂等 `SetEdgeVisibleAsync(bool)`，不为未创建的窗口构造实例。
+  - `src/Mosaic.Shell.Wpf/ShellSettingSource.cs`：`ShellSettingsApplier.Detach` 清空 `_latest`（:110-117）。
+  - `build/public-api.txt`：登记 `Mosaic.Presentation.Contracts.FloatingContentDragKind` 与 `Mosaic.DesktopPresence.Contracts.MainWindowPresentation`。
+  - 测试：`tests/Mosaic.Wpf.Tests/FloatingWindowsTests.cs` 的 `Unified_hit_regions` 改为按文本为空/字形点断言，并新增 `Notes_blank_and_footer_drag_the_window_while_glyphs_and_editing_stay_interactive`；`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 行数 28→29、Normal 5→6 并验证新设置默认值与选项；`tests/Mosaic.DesktopPresence.Core.Tests/PresenceTests.cs` 覆盖显示时机配置与恢复行为。
+  - 发布：`Directory.Build.props`、`build/installer/Mosaic.Installer.wixproj` 版本升为 0.14.0；`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json` 追加 mosaic-0.14.0（指纹 8CCA2A8E…FE8087，21 条索引，未改动既有条目）；`README.md`、`docs/releases/v0.14.0.md`、`docs/releases/v0.14.0-files.md` 同步。
+- 迁移与兼容：无数据库结构变化；`desktop.edge.showTiming` 默认 `Resident`（仅主窗口关闭后显示），与旧行为完全一致，既有安装升级后无需任何迁移操作；浮窗拖动为纯交互层变化，持久化的浮窗位置/尺寸记录格式不变。
+- 验证：全部测试程序集通过（Architecture 4/4、DesktopPresence.Core 17/17、FloatingWindows 12/12、Kernel 5/5、ReleaseSummary、Settings、Storage、Tasks 各套件全绿；Wpf 78/78；桌面真实指针 Smoke 32/32 第三次全量通过，前两次各有一项拖动坐标断言抖动、单独重跑均通过，判定为时序抖动非功能缺陷）。发布内容指纹、索引不可变性、范围汇总长度按 `build/release-content.ps1` 算法以兼容脚本独立复算通过。未验证项：真实指针矩阵中的 150% DPI、高对比度主题与中英文界面组合未逐项落地；MSI 实际安装/升级/卸载在打包后以既有流程验收。
+
 ## 0.13.1：速览详情卡片与更新简要补发（2026-11-18）
 
 - 根因位置：`build/publish.ps1` 的 0.13.0 发布流程未以 `-p:MosaicPublishedBuild=true` 构建，`BuiltInModuleCatalog.cs:126–134` 因此将已安装程序判定为开发构建，`ReleaseSummaryModule` 在启动时直接返回 `DevelopmentBuild`，用户数据目录没有 `mosaic-0.13.0` 回执。`TaskPeekDetailsView.Render` 此前把标题、状态、备注等以多条 `TextBox` 逐条拼接，点击标题或正文即触发全局 TextBox 模板的 2px 焦点框（图 1、图 2）。

@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Mosaic.Presentation.Contracts;
 
 namespace Mosaic.FloatingWindows.Wpf;
 
@@ -16,17 +17,21 @@ internal sealed class FloatingWindowInput : IDisposable
     private readonly FrameworkElement _tools;
     private readonly FrameworkElement? _header;
     private readonly Func<double> _band;
+    private readonly FrameworkElement? _content;
+    private readonly Func<Point, FloatingContentDragKind>? _contentDrag;
     private readonly ToolTip _tip = new();
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private HwndSource? _source;
     private FrameworkElement? _pressButton;
+    private bool _pressContent;
     private Point _pressPoint;
     private bool _suppressClick;
     private bool _disposed;
 
-    internal FloatingWindowInput(Window window, Border frame, FrameworkElement tools, FrameworkElement? header, Func<double> band)
+    internal FloatingWindowInput(Window window, Border frame, FrameworkElement tools, FrameworkElement? header, Func<double> band,
+        FrameworkElement? content = null, Func<Point, FloatingContentDragKind>? contentDrag = null)
     {
-        _window = window; _frame = frame; _tools = tools; _header = header; _band = band;
+        _window = window; _frame = frame; _tools = tools; _header = header; _band = band; _content = content; _contentDrag = contentDrag;
         _tip.SetResourceReference(ContentControl.ContentProperty, "Floating.Move");
         _hover.Tick += (_, _) => { _hover.Stop(); if (!_disposed && _window.IsEnabled) _tip.IsOpen = true; };
         window.SourceInitialized += Attach;
@@ -46,18 +51,29 @@ internal sealed class FloatingWindowInput : IDisposable
     }
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
     {
-        _suppressClick = false; _pressButton = null;
+        _suppressClick = false; _pressButton = null; _pressContent = false;
         if (e.ChangedButton != MouseButton.Left) return;
         _pressButton = HeaderButton(e.OriginalSource);
-        if (_pressButton is not null) _pressPoint = e.GetPosition(_window);
+        if (_pressButton is not null)
+        {
+            _pressPoint = e.GetPosition(_window);
+            return;
+        }
+        // Deferred marks read-only text: the press stays interactive (caret/selection) and only a
+        // press-and-drag beyond the system threshold starts the native caption move loop.
+        var point = e.GetPosition(_window);
+        if (_contentDrag is not null && _content is { IsVisible: true } &&
+            _contentDrag(point) == FloatingContentDragKind.Deferred)
+            _pressContent = true;
+        _pressPoint = point;
     }
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
-        if (_pressButton is null || e.LeftButton != MouseButtonState.Pressed) return;
+        if ((_pressButton is null && !_pressContent) || e.LeftButton != MouseButtonState.Pressed) return;
         var point = e.GetPosition(_window);
         if (Math.Abs(point.X - _pressPoint.X) <= SystemParameters.MinimumHorizontalDragDistance &&
             Math.Abs(point.Y - _pressPoint.Y) <= SystemParameters.MinimumVerticalDragDistance) return;
-        _pressButton = null; _suppressClick = true; CancelHint();
+        _pressButton = null; _pressContent = false; _suppressClick = true; CancelHint();
         // Reuse the native caption move loop: Window.DragMove() posts SC_MOVE, which ends at once for a
         // press that started on a captured child button; releasing capture and asking for HTCAPTION does not.
         ReleaseCapture();
@@ -65,7 +81,7 @@ internal sealed class FloatingWindowInput : IDisposable
     }
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
-        _pressButton = null;
+        _pressButton = null; _pressContent = false;
         if (_suppressClick) e.Handled = true;
     }
     private static T? Ancestor<T>(DependencyObject node) where T : DependencyObject
@@ -91,6 +107,11 @@ internal sealed class FloatingWindowInput : IDisposable
     }
 
     private Rect Bounds(FrameworkElement element) => element.TransformToAncestor(_window).TransformBounds(new Rect(element.RenderSize));
+    private Point MouseToElement(Point point, FrameworkElement element)
+    {
+        try { return element.TransformToAncestor(_window).Inverse.Transform(point); }
+        catch (InvalidOperationException) { return point; }
+    }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject node)
     {
         yield return node;
@@ -109,7 +130,15 @@ internal sealed class FloatingWindowInput : IDisposable
         if ((point.X-cx)*(point.X-cx)+(point.Y-cy)*(point.Y-cy) > radius*radius) return -1;
         if (Bounds(_tools).Contains(point)) return 1;
         foreach (var element in Descendants(_frame).OfType<FrameworkElement>())
-            if (element.IsVisible && element is ButtonBase or TextBoxBase or ScrollBar or Thumb && Bounds(element).Contains(point)) return 1;
+        {
+            if (!element.IsVisible || !(element is ButtonBase or TextBoxBase or ScrollBar or Thumb) || !Bounds(element).Contains(point)) continue;
+            // A read-only text box that the content declares draggable blanks through: glyphs keep
+            // HTCLIENT (selection/copy), blank inside it returns HTCAPTION via the content query.
+            if (element is TextBoxBase && _contentDrag is not null &&
+                _contentDrag(element is FrameworkElement fe ? MouseToElement(point, fe) : point) == FloatingContentDragKind.Immediate)
+                continue;
+            return 1;
+        }
         if (point.Y <= rect.Top + _band()) return 2;
         const double edge = 5;
         var left = point.X < rect.Left + edge;
@@ -118,6 +147,9 @@ internal sealed class FloatingWindowInput : IDisposable
         if (left) return 10;
         if (right) return 11;
         if (_header is { IsVisible: true } && point.Y <= Bounds(_header).Bottom) return 2;
+        // Content blanks (footer gaps, empty regions, off-glyph notes space) drag the window.
+        if (_contentDrag is not null && _content is { IsVisible: true } &&
+            _contentDrag(MouseToElement(point, _content)) == FloatingContentDragKind.Immediate) return 2;
         return 1;
     }
 

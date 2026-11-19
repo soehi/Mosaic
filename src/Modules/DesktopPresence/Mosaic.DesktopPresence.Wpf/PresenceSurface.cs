@@ -254,6 +254,13 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         return Task.CompletedTask;
     }
 
+    // Idempotent edge visibility used by show-timing transitions; does not create the window when it
+    // has never been shown (only ShowEdgeAsync constructs it, so first use still comes from parking).
+    public Task SetEdgeVisibleAsync(bool visible) =>
+        visible && _edge is not null ? ShowEdgeAsync(CancellationToken.None)
+        : !visible ? HideEdgeAsync()
+        : Task.CompletedTask;
+
     public async Task StopAsync()
     {
         if (_stopped) return;

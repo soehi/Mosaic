@@ -452,13 +452,79 @@ public sealed class FloatingWindowsTests
         Assert.True(expand.TransformToAncestor(window).TransformBounds(new Rect(expand.RenderSize)).Right<=tools.TranslatePoint(new Point(),window).X);
         expand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);window.UpdateLayout();
         Assert.Equal(2,Hit(window.Width/2,4));
+        // Read-only notes keep the glyphs interactive but leave the surrounding blank space draggable;
+        // this item has no notes, so the whole box is blank and resolves to the caption.
         foreach(var text in Descendants(window).OfType<TextBox>().Where(text=>text.IsVisible))
-        {var point=text.TranslatePoint(new Point(2,2),window);Assert.Equal(1,Hit(point.X,point.Y));}
+        {
+            if(text.Text.Length==0){var point=text.TranslatePoint(new Point(2,2),window);Assert.Equal(2,Hit(point.X,point.Y));}
+            else
+            {
+                var lead=text.GetRectFromCharacterIndex(0,false);var trail=text.GetRectFromCharacterIndex(0,true);
+                var glyph=text.TranslatePoint(new Point((lead.X+trail.X)/2,lead.Y+lead.Height/2),window);
+                Assert.Equal(1,Hit(glyph.X,glyph.Y));
+            }
+        }
         window.IsEnabled=false;Assert.Equal(1,Hit(window.Width/2,4));window.IsEnabled=true;
         await using var edit=(await settings.Api.BeginEditSessionAsync()).Value;
         var before=repo.Records[reference];
         Assert.True((await edit.PreviewAsync(new Dictionary<string,object?>{["floating.cardPadding"]=4,["floating.dragBandHeight"]=8,["floating.contentGap"]=0},1)).IsSuccess);
         Assert.Equal(before,repo.Records[reference]);await edit.DiscardAsync();Assert.Equal(before,repo.Records[reference]);
+    });
+
+    [Fact]
+    public Task Notes_blank_and_footer_drag_the_window_while_glyphs_and_editing_stay_interactive() => Sta.Run(async()=>
+    {
+        const string notesEditing="tasks.floating.allowNotesEditing";
+        var api=new Api();var item=Item() with {Notes=string.Concat(Enumerable.Repeat("第一行内容 ",3))+"\n第二行\n"};
+        api.Items[item.Id]=item;
+        var repo=new Repository();
+        await using var settings=new SettingsModule(new(new SettingsRepository()));await settings.ActivateAsync();
+        await using var tasks=new TasksUiModule(new(api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Dialogs(),new Diagnostics(),settings.Api));await tasks.ActivateAsync();
+        await using var module=new FloatingWindowsModule(new(repo,tasks.FloatingFactory,tasks.DetachSource,settings.Api,new UiDispatcher(Dispatcher.CurrentDispatcher),new Diagnostics(),()=>Task.CompletedTask));
+        await module.ActivateAsync();Assert.True((await module.Api.OpenAsync(new("tasks-ui",item.Id.ToString("D")))).IsSuccess);
+        var window=Windows(module).Single();window.UpdateLayout();
+        var surface=typeof(FloatingWindowsModule).GetField("_surface",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(module)!;
+        var entry=((IDictionary)surface.GetType().GetField("_windows",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!).Values.Cast<object>().Single();
+        var input=entry.GetType().GetField("Input",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(entry)!;
+        Assert.NotNull(input);
+        // Probe the live session the open window owns, so layout sizes are real.
+        var session=(IFloatingContentSession)entry.GetType().GetField("Session",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(entry)!;
+        var expand=Descendants(window).OfType<Button>().Single(button=>System.Windows.Automation.AutomationProperties.GetAutomationId(button)=="FloatingTaskExpand");
+        expand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);window.UpdateLayout();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);window.UpdateLayout();
+        var view=session.View;
+        FloatingContentDragKind Query(Point point)=>session.QueryContentDrag(point);
+        Button Find(string id)=>Descendants(view).OfType<Button>().Single(button=>System.Windows.Automation.AutomationProperties.GetAutomationId(button)==id);
+        var notes=Assert.Single(Descendants(view).OfType<TextBox>());
+        var notesBlank=new Point(Math.Max(6,notes.ActualWidth-6),Math.Max(6,notes.ActualHeight-6));
+        // A press on a glyph keeps selection interactive; only the system drag threshold moves the window.
+        var lead=notes.GetRectFromCharacterIndex(0,false);var trail=notes.GetRectFromCharacterIndex(0,true);
+        var glyph=new Point((lead.X+trail.X)/2,lead.Y+lead.Height/2);
+        Assert.Equal(FloatingContentDragKind.Deferred,Query(notes.TranslatePoint(glyph,view)));
+        // The stretched blank area below the last line moves the window immediately.
+        Assert.Equal(FloatingContentDragKind.Immediate,Query(notes.TranslatePoint(notesBlank,view)));
+        // Footer blank beside the timestamps and buttons moves immediately too.
+        Assert.Equal(FloatingContentDragKind.Immediate,Query(notes.TranslatePoint(new Point(notes.ActualWidth*0.75,notes.ActualHeight+8),view)));
+        // The window hit test turns that split into HTCLIENT (interactive) and HTCAPTION (drag).
+        var hitTest=input.GetType().GetMethod("HitTest",BindingFlags.Instance|BindingFlags.NonPublic)!;
+        int Hit(Point point)=>(int)hitTest.Invoke(input,[view.TranslatePoint(point,window)])!;
+        Assert.Equal(1,Hit(glyph));Assert.Equal(2,Hit(notesBlank));
+        await using(var edit=(await settings.Api.BeginEditSessionAsync()).Value)
+        {
+            Assert.True((await edit.PreviewAsync(new Dictionary<string,object?>{[notesEditing]=true},1)).IsSuccess);
+            window.UpdateLayout();
+            // The edit button keeps its button semantics.
+            var editButton=Find("FloatingNotesEdit");
+            Assert.True(editButton.IsVisible);
+            Assert.Equal(FloatingContentDragKind.None,Query(editButton.TranslatePoint(new Point(8,8),view)));
+            editButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            Assert.False(notes.IsReadOnly);
+            // While editing, even the blank part of the notes box stays interactive so the caret wins.
+            notesBlank=new Point(Math.Max(6,notes.ActualWidth-6),Math.Max(6,notes.ActualHeight-6));
+            Assert.Equal(FloatingContentDragKind.None,Query(notes.TranslatePoint(notesBlank,view)));
+            Assert.True((await edit.DiscardAsync()).IsSuccess);
+        }
     });
 
     [Fact]

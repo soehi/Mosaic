@@ -8,10 +8,9 @@
       "mosaic.floatingwindows.contracts": {
         "type": "Project",
         "dependencies": {
-          "Mosaic.Contracts": "[0.13.0, )"
+          "Mosaic.Contracts": "[0.14.0, )"
         }
       }
-    },
-    "net10.0/win-x64": {}
+    }
   }
 }

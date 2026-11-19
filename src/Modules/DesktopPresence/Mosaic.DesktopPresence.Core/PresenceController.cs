@@ -8,9 +8,44 @@ public sealed class PresenceController(
 {
     private readonly SemaphoreSlim _requests = new(1, 1);
     private bool _stopped;
+    private MainWindowPresentation[] _showTiming = [MainWindowPresentation.Hidden];
+    private bool _subscribed;
     public DesktopPresenceState State { get; private set; } = DesktopPresenceState.MainVisible;
     public DesktopCloseBehavior CloseBehavior { get; private set; } = DesktopCloseBehavior.Reside;
     public void Configure(DesktopCloseBehavior behavior) => CloseBehavior = behavior;
+
+    // Timing picks the main-window presentations that keep the edge entry visible. Resident (hidden
+    // main window) is the default; Minimized adds the minimized state; Always keeps it permanent.
+    public void ConfigureShowTiming(MainWindowPresentation[] presentations)
+    {
+        _showTiming = presentations.Length == 0 ? [MainWindowPresentation.Hidden] : presentations;
+        if (!_subscribed && host is { } h)
+        {
+            h.PresentationChanged += OnPresentationChanged;
+            _subscribed = true;
+        }
+        _ = EvaluateEdgeAsync();
+    }
+
+    private void OnPresentationChanged(object? sender, EventArgs e) => _ = EvaluateEdgeAsync();
+
+    private async Task EvaluateEdgeAsync()
+    {
+        try
+        {
+            await _requests.WaitAsync();
+            try
+            {
+                if (_stopped || State == DesktopPresenceState.Exiting) return;
+                var wanted = State is DesktopPresenceState.MainVisible or DesktopPresenceState.ParkPending
+                    ? _showTiming.Contains(host.CurrentPresentation)
+                    : true;
+                await surface.SetEdgeVisibleAsync(wanted);
+            }
+            finally { _requests.Release(); }
+        }
+        catch (Exception exception) { Report(exception); }
+    }
 
     public Task<OperationResult> RequestParkAsync(CancellationToken cancellationToken = default) => RunAsync(async () =>
     {
@@ -37,12 +72,15 @@ public sealed class PresenceController(
         try { await surface.ClosePopupAsync(); } catch (Exception exception) { Report(exception); }
         await host.RestoreMainWindowAsync();
         State = DesktopPresenceState.MainVisible;
-        await surface.HideEdgeAsync();
+        await surface.SetEdgeVisibleAsync(_showTiming.Contains(host.CurrentPresentation));
     }, cancellationToken);
 
     public Task<OperationResult> RequestPopupAsync(CancellationToken cancellationToken = default) => RunAsync(async () =>
     {
-        if (State is DesktopPresenceState.MainVisible or DesktopPresenceState.ParkPending) return;
+        // The edge entry can be visible while the main window is merely minimized (showTiming); the
+        // quick peek opens from any presentation as long as the entry is showing.
+        if (State is DesktopPresenceState.ParkPending) return;
+        if (State == DesktopPresenceState.MainVisible && !_showTiming.Contains(host.CurrentPresentation)) return;
         if (State is DesktopPresenceState.PopupOpen or DesktopPresenceState.PopupError)
         {
             await surface.ClosePopupAsync();

@@ -71,6 +71,14 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     }
     public FrameworkElement View=>_view;
     public FrameworkElement Header=>_heading;
+    public FloatingContentDragKind QueryContentDrag(Point pointInView)
+    {
+        // The contract hands us a point in the root view's space; the details panel sits below the
+        // heading, so convert before asking it. Collapsed details expose no glyphs: everything
+        // outside the heading is blank and may drag the window.
+        if (_details.Visibility != Visibility.Visible) return FloatingContentDragKind.Immediate;
+        return _details.QueryContentDrag(_details.TransformToAncestor(_view).Inverse.Transform(pointInView));
+    }
     public void ConfigureLayout(FloatingContentLayoutOptions options)
     {
         _heading.Margin=new Thickness(0,0,options.HeaderTrailingSpace,0);

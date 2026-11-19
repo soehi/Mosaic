@@ -2,7 +2,10 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
+using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
 
 namespace Mosaic.Tasks.Wpf.Internal;
@@ -19,6 +22,7 @@ internal sealed class TaskFloatingDetailsView : Grid
     private readonly Button _cancel = Button("FloatingNotesCancel");
     private readonly Button _copy = Button("FloatingNotesCopy");
     private bool _rendering;
+    private bool _editing;
 
     internal TaskFloatingDetailsView(TaskFloatingNotesViewModel model, Action save, Action cancel)
     {
@@ -62,6 +66,7 @@ internal sealed class TaskFloatingDetailsView : Grid
 
     internal void Render(TaskFloatingNotesViewModel model, bool completing)
     {
+        _editing = model.IsEditing;
         var text = model.IsEditing ? model.Draft : model.Current?.Notes ?? "";
         _rendering = true;
         try { if (_notes.Text != text) _notes.Text = text; }
@@ -100,6 +105,57 @@ internal sealed class TaskFloatingDetailsView : Grid
 
     private static Visibility Visible(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
     private static string Text(string key, string fallback) => TaskFloatingNotesViewModel.Text(key, fallback);
+
+    // Drag support for the floating window: the window layer asks whether a press in this view's
+    // space may move the window. Buttons, scrollbars and thumbs stay interactive; read-only notes
+    // are draggable only off the text glyphs so selection and copy keep working; any other blank
+    // area (footer, timestamps, action bar gaps) moves immediately.
+    internal FloatingContentDragKind QueryContentDrag(Point point)
+    {
+        var hit = InputHitTest(point) as DependencyObject;
+        if (hit is null) return FloatingContentDragKind.Immediate;
+        for (DependencyObject? current = hit; current is not null && current != this; current = TreeParent(current))
+        {
+            if (current is ButtonBase or System.Windows.Controls.Primitives.Thumb or ScrollBar) return FloatingContentDragKind.None;
+            if (current is TextBox box)
+                return box.IsReadOnly && !_editing ? DragKindForNotes(box, point) : FloatingContentDragKind.None;
+        }
+        return FloatingContentDragKind.Immediate;
+    }
+
+    private FloatingContentDragKind DragKindForNotes(TextBox box, Point point)
+    {
+        if (box.Text.Length == 0) return FloatingContentDragKind.Immediate;
+        // Convert the view-space point into the box's space (strip padding) so the native caret
+        // queries account for wrapping, DPI and horizontal layout.
+        var local = box.TransformToAncestor(this).Inverse.Transform(point);
+        // Snap to the nearest character so presses just off a glyph edge still count as text; the
+        // glyph rect check below tells actual text apart from blank space in the stretched box.
+        var offset = box.GetCharacterIndexFromPoint(local, snapToText: true);
+        if (offset < 0) return FloatingContentDragKind.Immediate;
+        var text = box.Text;
+        if (offset >= text.Length) return FloatingContentDragKind.Immediate;
+        if (text[offset] == '\n') return FloatingContentDragKind.Immediate;
+        var lead = box.GetRectFromCharacterIndex(offset, false);
+        var trail = box.GetRectFromCharacterIndex(offset, true);
+        var slack = GlyphSlack(box);
+        var left = Math.Min(lead.X, trail.X);
+        var right = Math.Max(lead.X, trail.X);
+        // A wrapped last character reports its trailing caret on the next line; fall back to an
+        // approximate advance so the press still counts as text.
+        if (Math.Abs(trail.Y - lead.Y) > 0.5) right = left + box.FontSize;
+        var onGlyph = local.X >= left - slack && local.X <= right + slack
+                   && local.Y >= lead.Y - slack && local.Y <= lead.Y + lead.Height + slack;
+        return onGlyph ? FloatingContentDragKind.Deferred : FloatingContentDragKind.Immediate;
+    }
+
+    private static double GlyphSlack(TextBox box) => Math.Max(2, box.FontSize * 0.25);
+    private static DependencyObject? TreeParent(DependencyObject node)
+    {
+        try { return node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node); }
+        catch (InvalidOperationException) { return LogicalTreeHelper.GetParent(node); }
+    }
+
     private static Button Button(string id)
     {
         var button = new Button { Padding = new Thickness(6, 3, 6, 3), MinHeight = 26, Margin = new Thickness(0, 2, 4, 0) };

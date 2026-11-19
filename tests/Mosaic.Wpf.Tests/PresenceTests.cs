@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -38,6 +38,10 @@ public sealed class PresenceTests
     }
     private sealed class Host : IDesktopWindowHost
     {
+        public MainWindowPresentation CurrentPresentation => MainWindowPresentation.Visible;
+#pragma warning disable CS0067
+        public event EventHandler? PresentationChanged;
+#pragma warning restore CS0067
         public Task HideMainWindowAsync() => Task.CompletedTask;
         public Task RestoreMainWindowAsync() => Task.CompletedTask;
         public Task<ExitRequestResult> RequestApplicationExitAsync(CancellationToken cancellationToken = default) => Task.FromResult(ExitRequestResult.Cancelled);
@@ -356,14 +360,17 @@ public sealed class PresenceTests
     });
 
     [Fact]
-    public Task Settings_register_28_rows_project_5_normal_validate_save_and_revoke() => Sta.Run(async () =>
+    public Task Settings_register_29_rows_project_6_normal_validate_save_and_revoke() => Sta.Run(async () =>
     {
         await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
         await using var module = new DesktopPresenceModule(new(new Host(), new EmptyFactory(), settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
         await module.ActivateAsync();
         var definitions = (await settings.Api.ListDefinitionsAsync()).Value;
-        Assert.Equal(28, definitions.Count);
-        Assert.Equal(5, definitions.Count(item => item.Category == SettingCategory.Normal));
+        Assert.Equal(29, definitions.Count);
+        Assert.Equal(6, definitions.Count(item => item.Category == SettingCategory.Normal));
+        var timing = Assert.Single(definitions, item => item.Id == "desktop.edge.showTiming");
+        Assert.Equal("Resident", timing.DefaultValue);
+        Assert.Equal(["Resident", "Minimized", "Always"], timing.Options!.Select(option => option.Value));
         Assert.All(definitions, item => Assert.Equal(SettingsGroup.DesktopPresence, item.Group));
         Assert.All(definitions.Where(item => item.Id is "desktop.popup.fitContent" or "desktop.popup.padding" or
             "desktop.popup.cornerRadius" or "desktop.popup.rowGap" or "desktop.popup.rowPaddingY" or
@@ -380,14 +387,14 @@ public sealed class PresenceTests
         await ui.ActivateAsync(); var page = Assert.Single(ui.Views).Factory.Create();
         await page.Controller.InitializeAsync();
         var model = page.View.DataContext;
-        Assert.Equal(5, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(6, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         page.View.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative) });
         page.View.Measure(new Size(1200, 800)); page.View.Arrange(new Rect(0, 0, 1200, 800)); page.View.UpdateLayout();
         var activation = Descendants(page.View).OfType<ComboBox>().Single(combo =>
             combo.DataContext.GetType().GetProperty("Id")!.GetValue(combo.DataContext) as string == "desktop.edge.activation");
         Assert.Equal("SingleClick", activation.SelectedValue);
         model.GetType().GetProperty("ShowAdvanced")!.SetValue(model, true);
-        Assert.Equal(28, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(29, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         await page.Controller.DisposeAsync(); await ui.DisposeAsync();
         await module.StopAsync();
         Assert.Empty((await settings.Api.ListDefinitionsAsync()).Value);

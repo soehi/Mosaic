@@ -17,6 +17,7 @@ Mosaic.DesktopPresence.Contracts.ExitRequestResult
 Mosaic.DesktopPresence.Contracts.IDesktopPresenceApi
 Mosaic.DesktopPresence.Contracts.IDesktopPresenceSurface
 Mosaic.DesktopPresence.Contracts.IDesktopWindowHost
+Mosaic.DesktopPresence.Contracts.MainWindowPresentation
 Mosaic.DesktopPresence.Core.PresenceActivationRules
 Mosaic.DesktopPresence.Core.PresenceController
 Mosaic.DesktopPresence.Wpf.DesktopPresenceDependencies
@@ -38,6 +39,7 @@ Mosaic.Kernel.ModuleExecutionGate
 Mosaic.Kernel.ModuleGraph
 Mosaic.Kernel.ModuleRuntime
 Mosaic.Presentation.Contracts.CompanionViewOptions
+Mosaic.Presentation.Contracts.FloatingContentDragKind
 Mosaic.Presentation.Contracts.ICompanionInteraction
 Mosaic.Presentation.Contracts.ICompanionNavigation
 Mosaic.Presentation.Contracts.ICompanionViewFactory

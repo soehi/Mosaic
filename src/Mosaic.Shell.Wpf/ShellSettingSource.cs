@@ -109,7 +109,11 @@ internal static class ShellSettingsApplier
 
     internal static void Detach(ShellWindow window)
     {
-        if (ReferenceEquals(_current, window)) _current = null;
+        if (!ReferenceEquals(_current, window)) return;
+        _current = null;
+        // The cached snapshot belongs to the window that applied it; keeping it would push one
+        // window's layout onto the next one created in the same process.
+        _latest = null;
     }
 
     public static Task ApplyAsync(IReadOnlyDictionary<string, object?> values)

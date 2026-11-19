@@ -167,7 +167,8 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         var retry=new Button{Visibility=Visibility.Collapsed,HorizontalAlignment=HorizontalAlignment.Left};retry.SetResourceReference(ContentControl.ContentProperty,"Floating.Retry");footer.Children.Add(error);footer.Children.Add(retry);Grid.SetRow(footer,1);grid.Children.Add(footer);
         frame.Child=grid;window.Content=frame;
         var entry=new Entry(window,session,record,error,retry,pin){Frame=frame,Tools=bar,Footer=footer};
-        entry.Input=new FloatingWindowInput(window,frame,bar,session.Header,()=>Number("floating.dragBandHeight",12));
+        entry.Input=new FloatingWindowInput(window,frame,bar,session.Header,()=>Number("floating.dragBandHeight",12),
+            session.View, session.QueryContentDrag);
         _windows.Add(record.Reference,entry);
         entry.Timer.Tick+=async(_,_)=>{entry.Timer.Stop();await SaveBoundsAsync(entry);};
         close.Click+=async(_,_)=>await CloseUserAsync(entry);

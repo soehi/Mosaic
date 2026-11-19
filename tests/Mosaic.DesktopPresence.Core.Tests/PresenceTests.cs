@@ -10,6 +10,11 @@ public sealed class PresenceTests
     {
         internal ExitRequestResult ExitResult = ExitRequestResult.Cancelled;
         internal int Exits;
+        internal MainWindowPresentation Presentation = MainWindowPresentation.Visible;
+        public MainWindowPresentation CurrentPresentation => Presentation;
+        public event EventHandler? PresentationChanged;
+        internal void Appear(MainWindowPresentation presentation)
+        { Presentation = presentation; PresentationChanged?.Invoke(this, EventArgs.Empty); }
         public Task HideMainWindowAsync() { calls.Add("hide-main"); return Task.CompletedTask; }
         public Task RestoreMainWindowAsync() { calls.Add("restore-main"); return Task.CompletedTask; }
         public Task<ExitRequestResult> RequestApplicationExitAsync(CancellationToken cancellationToken = default)
@@ -29,6 +34,8 @@ public sealed class PresenceTests
             if (EdgeGate is not null) await EdgeGate.Task.WaitAsync(cancellationToken);
         }
         public Task HideEdgeAsync() { calls.Add("hide-edge"); return Task.CompletedTask; }
+        public Task SetEdgeVisibleAsync(bool visible)
+        { calls.Add(visible ? "show-edge-if-created" : "hide-edge-if-shown"); return Task.CompletedTask; }
         public Task ShowPopupAsync(CancellationToken cancellationToken)
         { calls.Add("popup"); if (FailPopup) throw new IOException("query failure"); return Task.CompletedTask; }
         public Task ClosePopupAsync() { calls.Add("close-popup"); if (FailClose) throw new IOException("cleanup failed"); return Task.CompletedTask; }
@@ -51,7 +58,7 @@ public sealed class PresenceTests
         await controller.RequestPopupAsync();
         await controller.RequestRestoreAsync();
         Assert.Equal(DesktopPresenceState.MainVisible, controller.State);
-        Assert.Equal(new[] { "close-popup", "restore-main", "hide-edge" }, calls.TakeLast(3));
+        Assert.Equal(new[] { "close-popup", "restore-main", "hide-edge-if-shown" }, calls.TakeLast(3));
     }
 
     [Fact]
@@ -129,6 +136,72 @@ public sealed class PresenceTests
         Assert.Equal(DesktopPresenceState.PopupError, controller.State);
         await controller.RequestDismissAsync();
         Assert.Equal(DesktopPresenceState.ResidentIdle, controller.State);
+    }
+
+    [Fact]
+    public async Task Resident_timing_hides_entry_when_main_window_becomes_visible()
+    {
+        var calls = new List<string>(); var host = new Host(calls);
+        var controller = new PresenceController(host, new Surface(calls), new Diagnostics());
+        controller.ConfigureShowTiming([MainWindowPresentation.Hidden]);
+        await DrainAsync();
+        host.Appear(MainWindowPresentation.Hidden);
+        await DrainAsync();
+        // Parked later: only RequestParkAsync creates the edge window; timing evaluation before
+        // that may ask for visibility but must not construct it.
+        Assert.DoesNotContain("edge", calls);
+        await controller.RequestParkAsync();
+        calls.Clear();
+        // While resident the entry stays regardless of the main-window presentation; only the
+        // restore path re-evaluates the timing.
+        host.Appear(MainWindowPresentation.Visible);
+        await DrainAsync();
+        Assert.DoesNotContain("hide-edge-if-shown", calls);
+        await controller.RequestRestoreAsync();
+        calls.Clear();
+        host.Appear(MainWindowPresentation.Visible);
+        await DrainAsync();
+        Assert.Contains("hide-edge-if-shown", calls);
+        host.Appear(MainWindowPresentation.Hidden);
+        await DrainAsync();
+        Assert.Contains("show-edge-if-created", calls);
+    }
+
+    [Fact]
+    public async Task Minimized_timing_shows_entry_while_minimized_and_popup_opens()
+    {
+        var calls = new List<string>(); var host = new Host(calls) { Presentation = MainWindowPresentation.Minimized };
+        var controller = new PresenceController(host, new Surface(calls), new Diagnostics());
+        controller.ConfigureShowTiming([MainWindowPresentation.Minimized, MainWindowPresentation.Hidden]);
+        host.Appear(MainWindowPresentation.Minimized);
+        await DrainAsync();
+        // Never parked: no edge window exists yet, so nothing shows until parking.
+        Assert.DoesNotContain("edge", calls);
+        await controller.RequestParkAsync();
+        calls.Clear();
+        Assert.True((await controller.RequestPopupAsync()).IsSuccess);
+        Assert.Equal(DesktopPresenceState.PopupOpen, controller.State);
+        Assert.Contains("popup", calls);
+    }
+
+    [Fact]
+    public async Task Default_timing_blocks_popup_while_main_window_is_visible()
+    {
+        var calls = new List<string>(); var host = new Host(calls);
+        var controller = new PresenceController(host, new Surface(calls), new Diagnostics());
+        controller.ConfigureShowTiming([MainWindowPresentation.Hidden]);
+        await controller.RequestParkAsync();
+        await controller.RequestRestoreAsync();
+        calls.Clear();
+        Assert.True((await controller.RequestPopupAsync()).IsSuccess);
+        Assert.DoesNotContain("popup", calls);
+        Assert.Equal(DesktopPresenceState.MainVisible, controller.State);
+    }
+
+    private static async Task DrainAsync()
+    {
+        for (var i = 0; i < 5; i++) await Task.Yield();
+        await Task.Delay(20);
     }
 
     [Theory]

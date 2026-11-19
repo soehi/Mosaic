@@ -10,6 +10,7 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
     public IReadOnlyList<SettingDefinition> Definitions { get; } =
     [
         Define("desktop.closeBehavior", "关闭主窗口", "驻留后台或退出应用；退出后边缘入口也会关闭", "Reside", ["Reside", "Exit"], normal: true),
+        Define("desktop.edge.showTiming", "任务速览入口显示时机", "主窗口关闭后出现；也可选择最小化时出现或一直显示", "Resident", ["Resident", "Minimized", "Always"], normal: true),
         Define("desktop.edge.activation", "入口触发方式", "通过悬停、单击或双击打开任务摘要", "SingleClick", ["Hover", "SingleClick", "DoubleClick"], normal: true),
         Define("desktop.popup.filter", "摘要任务筛选", "弹窗只展示筛选后的任务快照", "All", ["All", "Open", "Completed"], normal: true),
         Define("desktop.popup.completionToggle", "显示完成按钮", "在速览中标记完成或恢复未完成", true, normal: true),
@@ -53,6 +54,7 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
     private static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["desktop.closeBehavior"] = "Settings.Setting.Desktop.CloseBehavior",
+        ["desktop.edge.showTiming"] = "Settings.Setting.Desktop.EdgeShowTiming",
         ["desktop.edge.activation"] = "Settings.Setting.Desktop.EdgeActivation",
         ["desktop.popup.filter"] = "Settings.Setting.Desktop.PopupFilter",
         ["desktop.popup.completionToggle"] = "Settings.Setting.Desktop.PopupCompletionToggle",
@@ -87,6 +89,9 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         "LastMainWindow" => "Setting.Value.LastMainWindow",
         "RightEdgeTop" => "Setting.Value.RightEdgeTop",
         "TopEdgeRight" => "Setting.Value.TopEdgeRight",
+        "Resident" => "Setting.Value.Resident",
+        "Minimized" => "Setting.Value.Minimized",
+        "Always" => "Setting.Value.Always",
         _ => "Setting.Value." + value
     };
 
