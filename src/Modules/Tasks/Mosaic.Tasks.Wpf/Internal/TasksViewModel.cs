@@ -39,6 +39,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private bool _confirmUnsaved = true;
     private bool _autoSwitchToAllOnHidden = true;
     private bool _defaultFilterApplied;
+    private readonly bool _archivedOnly;
     private TaskSortOrder _sortOrder = TaskSortOrder.CreatedDesc;
     private TaskTextSettings _text = TaskTextSettings.Defaults;
     private TasksLayoutSettings _layout = TasksLayoutSettings.Defaults;
@@ -58,8 +59,10 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IUserDialogService dialogs,
         IDiagnosticSink diagnostics,
         Mosaic.Settings.Contracts.ISettingsApi? settings = null,
-        TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null)
+        TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null, bool archivedOnly = false)
     {
+        _archivedOnly = archivedOnly;
+        if (archivedOnly) _filter = 3;
         _api = api;
         _changeSubscription=changes?.Subscribe(change=>_ = dispatcher.InvokeAsync(()=>
         {
@@ -72,7 +75,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         _settings = settings;
         _settingsTarget = settingsTarget;
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
-        NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy);
+        NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy && !_archivedOnly);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
         BackToListCommand = new AsyncRelayCommand(BackToListAsync, () => !IsBusy && IsEditorOpen);
         SaveCommand = new AsyncRelayCommand(SaveAsync, () => !IsBusy && Editor.IsDirty && !IsArchived);
@@ -129,7 +132,11 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public int FilterIndex
     {
         get => _filter;
-        set => SetFilter(value, load: true);
+        set
+        {
+            if (_archivedOnly && value != 3) return;
+            SetFilter(value, load: true);
+        }
     }
 
     public bool IsBusy
@@ -189,8 +196,10 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             : TaskLocalization.Format("Tasks.Count.All", "{0} 项任务", Items.Count)
     };
     public string EmptyTitle => FilterIndex switch { 3 => TaskLocalization.Localize("Tasks.Empty.Archived", "没有归档任务"), 1 => _text.EmptyOpenTitle, 2 => _text.EmptyCompletedTitle, _ => _text.EmptyAllTitle };
+    public bool ShowNewTask => !_archivedOnly;
+    public bool ShowFilterChooser => !_archivedOnly;
     public string EmptyDescription => FilterIndex switch { 3 => TaskLocalization.Localize("Tasks.Empty.Archived.Description", "归档的任务会显示在这里。"), 1 => _text.EmptyOpenDescription, 2 => _text.EmptyCompletedDescription, _ => _text.EmptyAllDescription };
-    public string ListTitle => FilterIndex == 3
+    public string ListTitle => _archivedOnly || FilterIndex == 3
         ? TaskLocalization.Localize("Tasks.ListTitle.Archived", "已归档任务")
         : TaskLocalization.Localize("Tasks.ListTitle", "任务清单");
     public string ListError
@@ -289,6 +298,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private async Task NewAsync()
     {
+        if (_archivedOnly) return;
         if (!await CanLeaveAsync()) return;
         if (FilterIndex != 0) SetFilter(0, load: false);
         Editor.Load(null);
@@ -609,6 +619,10 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private void OnEditorPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(TaskEditorViewModel.HasTask))
+        {
+            if (!Editor.HasTask && _archivedOnly && _archivedVersion is null) IsEditorOpen = false;
+        }
         NotifyCommands();
         if (e.PropertyName is nameof(TaskEditorViewModel.Title) or nameof(TaskEditorViewModel.Notes))
             ClearFeedback();
@@ -856,11 +870,14 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
         if (!_defaultFilterApplied)
         {
-            var filter = ReadString(values, "tasks.defaultFilter", "All") switch { "Open" => 1, "Completed" => 2, _ => 0 };
-            if (_filter != filter)
+            if (!_archivedOnly)
             {
-                _filter = filter;
-                OnPropertyChanged(nameof(FilterIndex));
+                var filter = ReadString(values, "tasks.defaultFilter", "All") switch { "Open" => 1, "Completed" => 2, _ => 0 };
+                if (_filter != filter)
+                {
+                    _filter = filter;
+                    OnPropertyChanged(nameof(FilterIndex));
+                }
             }
             _defaultFilterApplied = true;
         }

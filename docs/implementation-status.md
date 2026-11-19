@@ -1,5 +1,21 @@
 # Mosaic：实施与验证记录
 
+## 0.15.1：归档页锁定筛选并隐藏新建与筛选入口（2026-11-19）
+
+- 根因位置：
+  - 筛选被覆盖：0.15.0 的归档页是在构造完成后设置 `FilterIndex = 3`（`TasksViewModel` 的公开 setter），而 `TasksViewModel.ApplySettings` 的 `tasks.defaultFilter` 分支会无条件写回筛选。当页面在设置到达之前创建（`TaskUiSettingsTarget.Attach` 时还没有 `_latest`），首次 `ApplySettings` 在页面创建后到达，就把「已归档」覆盖成「全部/未完成/已完成」；设置再次应用时也会重复覆盖。根因即 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs` 的 `TasksViewModel.ApplySettings`（0.15.0 版本 :853-862）缺少归档页判断。
+  - 入口失步：同一页面上「新建任务」按钮与四项筛选下拉始终可见可用（0.15.0 的 `Views/TasksView.xaml` 中 `NewTask` 按钮与 `TaskFilter` 下拉），归档页可以借此新建任务或切换到非归档筛选，与「固定查看已归档」的页面语义冲突。
+- 改动位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs`：构造函数新增 `bool archivedOnly = false`（:62），构造期写入 `_archivedOnly` 并把 `_filter` 置 3（:42、:64-65），不再依赖构造后赋值；`FilterIndex` setter 忽略归档页上非 3 的写入（:132-140）；`ApplySettings` 的 `tasks.defaultFilter` 分支只在非归档页执行（:871-883），`_defaultFilterApplied` 仍统一置位；`NewCommand` 的 `CanExecute` 排除归档页（:78），`NewAsync` 首行直接返回（:301）；新增每实例恒定的 `ShowNewTask`、`ShowFilterChooser`（:199-200）；`OnEditorPropertyChanged` 只保留「归档页编辑器空态自动关闭」，删除无消费方的 `IsArchivedPage` 与不再变化的可见性通知。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskViewFactory.cs`：构造函数新增 `bool archivedOnly = false` 并透传给 `TasksViewModel`。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/TasksUiModule.cs`：归档视图 `tasks.archived.list` 使用 `new TaskViewFactory(dependencies, _settingsTarget, archivedOnly: true)`；主任务页继续使用默认工厂。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml`：`NewTask` 按钮（:54）与 `TaskFilter` 下拉（:96）按 `ShowNewTask`/`ShowFilterChooser` 绑定 `BoolVisibility`，归档页隐藏。
+  - `tests/Mosaic.Wpf.Tests/PresentationTests.cs`：`Archived_navigation_opens_an_independent_archived_page` 增加两个控件的 `Collapsed` 断言；新增 `Archived_page_locks_its_filter_when_settings_arrive_late` 覆盖构造期筛选、非 3 写入忽略、`tasks.defaultFilter=Open` 晚到不覆盖、`NewCommand` 不可执行与初始化后仍为 3。
+- 兼容与迁移：数据目录、设置键、ViewId 与导航契约均未变化；`tasks.defaultFilter` 仍作用于主任务页，归档页只是不再消费它。升级不需要迁移，已有安装的归档数据与筛选偏好照旧。
+- 验证：Debug/Release 构建 0 警告 0 错误；`Mosaic.Wpf.Tests` 82/82（含新增用例）；Architecture 4、DesktopPresence.Core 17、FloatingWindows 12、Kernel 5、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 1、Storage.Sqlite 12、Tasks.Contract 7、Tasks.Core 20 全绿；Desktop Smoke 31/32。未通过项为 `Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds`，已定位为环境干扰：点击命中窗口为 `pid 42580`（本机已安装并运行的 Mosaic 0.14.0）的置顶浮窗（`HwndWrapper[Mosaic.Desktop;;fe0fb391-...]`，`WS_EX_TOPMOST`），它覆盖了测试卡片取消置顶后的同一坐标，UIA 命中同样来自该进程的元素，与本仓库被测进程（`hwnd=37817946`）无关；0.14.0 记录中同一用例也曾出现两次同类抖动。该用例在 0.15.0 发布时通过，本轮代码不涉及浮窗路径。
+- 发布内容：`build/release-content.json` 追加 `mosaic-0.15.1`（`previousReleaseId=mosaic-0.15.0`，指纹 `A05423517DE48F37E7D27E4C00AA65702673B719E367896A9329750506FC4698`）；`build/published-release-index.json` 追加为第 23 条，既有 22 条与 0.14.0、0.15.0 的哈希未改动（以 HEAD 索引逐条比对）。MSI：`Mosaic-0.15.1-win-x64.msi`，52482228 字节，SHA-256 `52D56AC3CAE0F85827ED57D8A2F7C4C76FC01F41CA4D7F78DA7135FEAA1042EA`，数据库回读 ProductVersion=0.15.1；发布产物 ProductVersion 为 `0.15.1+1419bba...`（工作树改动尚未提交时的构建）。
+- 未验证项：MSI 的实际安装/升级/卸载不在本机执行（本机存在正在运行的真实安装，避免干扰用户环境）；被环境遮挡的真实指针用例未在其干扰消失后重跑。
+
 ## 0.15.0：已归档任务导航与未完成不自动归档（2026-11-19）
 
 - 根因位置：

@@ -51,6 +51,7 @@
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     Margin="24,0,0,0"
+                    Visibility="{Binding ShowNewTask, Converter={StaticResource BoolVisibility}}"
                     AutomationProperties.AutomationId="NewTask"/>
         </Grid>
 
@@ -92,6 +93,7 @@
                               MinWidth="116"
                               IsEnabled="{Binding CanEdit}"
                               SelectedIndex="{Binding FilterIndex}"
+                              Visibility="{Binding ShowFilterChooser, Converter={StaticResource BoolVisibility}}"
                               AutomationProperties.AutomationId="TaskFilter">
                         <ComboBoxItem Content="{DynamicResource Tasks.FilterAll}"/>
                         <ComboBoxItem Content="{DynamicResource Tasks.FilterOpen}"/>

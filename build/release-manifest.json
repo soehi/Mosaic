@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.15.0",
+  "currentReleaseId": "mosaic-0.15.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -386,6 +386,20 @@
       ],
       "fixed": [],
       "contentSha256": "053E513BEF2A5D9178FEB96DF3DEDEAD7FB18715315DC8D853EF3CF2F19AF9FD"
+    },
+    {
+      "releaseId": "mosaic-0.15.1",
+      "version": "0.15.1",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.15.0",
+      "added": [],
+      "improved": [
+        "归档任务页不再显示“新建任务”按钮和筛选下拉，页面状态与锁定的“已归档”筛选保持一致。"
+      ],
+      "fixed": [
+        "修复已归档任务页的筛选可能被设置中的默认筛选覆盖的问题：归档页在构造期即锁定为“已归档”，设置晚到或再次应用都不会改变筛选，页面上也没有可切换到其他筛选的入口。"
+      ],
+      "contentSha256": "A05423517DE48F37E7D27E4C00AA65702673B719E367896A9329750506FC4698"
     }
   ]
 }

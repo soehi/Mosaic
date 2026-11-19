@@ -38,7 +38,7 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
     public IReadOnlyList<ViewContribution> Views => _active
         ? [
             new("tasks.list", new TaskViewFactory(dependencies, _settingsTarget)),
-            new("tasks.archived.list", new TaskViewFactory(dependencies, _settingsTarget, 3))
+            new("tasks.archived.list", new TaskViewFactory(dependencies, _settingsTarget, archivedOnly: true))
         ]
         : [];
     public async Task ActivateAsync(CancellationToken cancellationToken = default)

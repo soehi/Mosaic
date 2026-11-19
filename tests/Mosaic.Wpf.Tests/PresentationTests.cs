@@ -15,6 +15,7 @@ using Mosaic.Settings.Wpf;
 using Mosaic.Shell.Wpf;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf;
+using Mosaic.Tasks.Wpf.Internal;
 using Mosaic.Tasks.Wpf.Views;
 
 namespace Mosaic.Wpf.Tests;
@@ -525,6 +526,12 @@ public sealed class PresentationTests
             var title = FindVisualChildren<TextBlock>(page)
                 .Single(text => text.Text is "已归档任务" or "任务清单");
             Assert.Equal("已归档任务", title.Text);
+            var newTask = Assert.Single(FindVisualChildren<Button>(page),
+                button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "NewTask");
+            Assert.Equal(Visibility.Collapsed, newTask.Visibility);
+            var filter = Assert.Single(FindVisualChildren<ComboBox>(page),
+                combo => System.Windows.Automation.AutomationProperties.GetAutomationId(combo) == "TaskFilter");
+            Assert.Equal(Visibility.Collapsed, filter.Visibility);
         }
         finally
         {
@@ -612,6 +619,44 @@ public sealed class PresentationTests
         {
             await activePage.Controller.DisposeAsync();
             await archivedPage.Controller.DisposeAsync();
+        }
+    });
+    [Fact]
+    public Task Archived_page_locks_its_filter_when_settings_arrive_late() => Sta.Run(async () =>
+    {
+        var api = new Api();
+        var target = new TaskUiSettingsTarget();
+        var model = new TasksViewModel(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics(),
+            null, target, null, archivedOnly: true);
+        try
+        {
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+            Assert.False(Get<bool>(model, "ShowNewTask"));
+            Assert.False(Get<bool>(model, "ShowFilterChooser"));
+            Assert.False(Get<IAsyncRelayCommand>(model, "NewCommand").CanExecute(null));
+
+            Set(model, "FilterIndex", 1);
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+            Set(model, "FilterIndex", 0);
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+
+            target.Apply(new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["tasks.defaultFilter"] = "Open",
+                ["tasks.confirmDelete"] = true
+            });
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+            Assert.Equal("已归档任务", Get<string>(model, "ListTitle"));
+            Assert.False(Get<bool>(model, "ShowNewTask"));
+            Assert.False(Get<bool>(model, "ShowFilterChooser"));
+
+            await model.InitializeAsync();
+            Assert.Equal(3, Get<int>(model, "FilterIndex"));
+            Assert.False(Get<IAsyncRelayCommand>(model, "NewCommand").CanExecute(null));
+        }
+        finally
+        {
+            await model.DisposeAsync();
         }
     });
     [Fact]
