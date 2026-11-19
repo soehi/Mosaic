@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Mosaic.Server.Emailing;
 using Mosaic.Server.Http;
 using Mosaic.Server.RateLimiting;
@@ -80,6 +81,7 @@ public static class AuthEndpoints
                 var tokens = await sessions.CreateAsync(
                     user,
                     AuthSupport.SanitizeDeviceLabel(body.DeviceLabel),
+                    AuthSupport.SanitizeShort(body.Platform),
                     cancellationToken).ConfigureAwait(false);
                 return Results.Json(AuthSupport.SessionJson(tokens), statusCode: 201);
             }).ConfigureAwait(false);
@@ -134,6 +136,7 @@ public static class AuthEndpoints
                 var tokens = await sessions.CreateAsync(
                     credentials.User,
                     AuthSupport.SanitizeDeviceLabel(body.DeviceLabel),
+                    AuthSupport.SanitizeShort(body.Platform),
                     cancellationToken).ConfigureAwait(false);
                 return Results.Json(AuthSupport.SessionJson(tokens));
             }).ConfigureAwait(false);
@@ -169,6 +172,7 @@ public static class AuthEndpoints
                 var tokens = await sessions.CreateAsync(
                     user,
                     AuthSupport.SanitizeDeviceLabel(body.DeviceLabel),
+                    AuthSupport.SanitizeShort(body.Platform),
                     cancellationToken).ConfigureAwait(false);
                 return Results.Json(AuthSupport.SessionJson(tokens));
             }).ConfigureAwait(false);
@@ -203,16 +207,19 @@ public static class AuthEndpoints
             CancellationToken cancellationToken) =>
         {
             var ipHash = AuthSupport.IpHash(http, hasher);
-            var user = await AuthSupport.RequireUserAsync(http, sessions).ConfigureAwait(false);
-            return await TracedAsync(logger, "session.logout", ipHash, user.Id, async () =>
+            var principal = await AuthSupport.RequirePrincipalAsync(http, sessions).ConfigureAwait(false);
+            return await TracedAsync(logger, "session.logout", ipHash, principal.User.Id, async () =>
             {
                 if (string.IsNullOrWhiteSpace(body.RefreshToken))
                 {
                     throw new ApiException(422, "request.invalid", "缺少 refreshToken。");
                 }
 
-                await sessions.LogoutAsync(user.Id, body.RefreshToken, body.AllDevices == true, cancellationToken)
-                    .ConfigureAwait(false);
+                await sessions.LogoutAsync(
+                    principal.User.Id,
+                    body.RefreshToken,
+                    body.AllDevices == true,
+                    cancellationToken).ConfigureAwait(false);
                 return Results.NoContent();
             }).ConfigureAwait(false);
         });
@@ -250,12 +257,13 @@ public static class AuthEndpoints
             return await TracedAsync(logger, "password.reset", ipHash, null, async () =>
             {
                 var email = EmailNormalizer.Normalize(body.Email);
-                PasswordPolicy.Validate(body.NewPassword);
+                var password = body.NewPassword ?? body.Password;
+                PasswordPolicy.Validate(password);
                 await codes.ConsumeAsync(email, EmailCodeService.PurposeReset, body.Code, cancellationToken)
                     .ConfigureAwait(false);
                 var user = await sessions.FindUserByEmailAsync(email, cancellationToken).ConfigureAwait(false)
                     ?? throw InvalidCredentials();
-                await sessions.UpdatePasswordAsync(user.Id, body.NewPassword!, cancellationToken)
+                await sessions.UpdatePasswordAsync(user.Id, password!, cancellationToken)
                     .ConfigureAwait(false);
                 await sessions.RevokeAllAsync(user.Id, user.Email, cancellationToken).ConfigureAwait(false);
                 return Results.Json(new { status = "password_reset" });
@@ -268,9 +276,149 @@ public static class AuthEndpoints
             SecretHasher hasher) =>
         {
             var ipHash = AuthSupport.IpHash(http, hasher);
-            var user = await AuthSupport.RequireUserAsync(http, sessions).ConfigureAwait(false);
-            AuthSupport.LogEvent(logger, "session.me", "ok", ipHash, Stopwatch.GetTimestamp(), user.Id);
-            return Results.Json(new { user = AuthSupport.UserJson(user) });
+            var principal = await AuthSupport.RequirePrincipalAsync(http, sessions).ConfigureAwait(false);
+            AuthSupport.LogEvent(logger, "session.me", "ok", ipHash, Stopwatch.GetTimestamp(), principal.User.Id);
+            return Results.Json(AuthSupport.AccountJson(principal.User));
+        });
+
+        app.MapGet("/v1/auth/sessions", async (
+            HttpContext http,
+            SessionService sessions,
+            SecretHasher hasher,
+            CancellationToken cancellationToken) =>
+        {
+            var ipHash = AuthSupport.IpHash(http, hasher);
+            var principal = await AuthSupport.RequirePrincipalAsync(http, sessions).ConfigureAwait(false);
+            var items = await sessions.ListSessionsAsync(principal.User.Id, principal.FamilyId, cancellationToken)
+                .ConfigureAwait(false);
+            return Results.Json(new
+            {
+                sessions = items.Select(item => new
+                {
+                    id = item.Id,
+                    deviceLabel = item.DeviceLabel,
+                    platform = item.Platform,
+                    createdAt = TimeFormat.Iso(item.CreatedAt),
+                    lastSeenAt = TimeFormat.Iso(item.LastSeenAt),
+                    expiresAt = TimeFormat.Iso(item.ExpiresAt),
+                    current = item.Current,
+                }).ToArray(),
+            });
+        });
+
+        app.MapPost("/v1/auth/sessions/{id}/revoke", async (
+            string id,
+            HttpContext http,
+            SessionService sessions,
+            SecretHasher hasher,
+            CancellationToken cancellationToken) =>
+        {
+            var ipHash = AuthSupport.IpHash(http, hasher);
+            var principal = await AuthSupport.RequirePrincipalAsync(http, sessions).ConfigureAwait(false);
+            return await TracedAsync(logger, "session.revoke", ipHash, principal.User.Id, async () =>
+            {
+                var revoked = await sessions.RevokeSessionAsync(principal.User.Id, id, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!revoked)
+                {
+                    throw new ApiException(404, "auth.session_not_found", "找不到该会话。");
+                }
+
+                return Results.NoContent();
+            }).ConfigureAwait(false);
+        });
+
+        app.MapPost("/v1/auth/sessions/revoke-all", async (
+            HttpContext http,
+            SessionService sessions,
+            SecretHasher hasher,
+            CancellationToken cancellationToken) =>
+        {
+            var ipHash = AuthSupport.IpHash(http, hasher);
+            var principal = await AuthSupport.RequirePrincipalAsync(http, sessions).ConfigureAwait(false);
+            return await TracedAsync(logger, "session.revoke_all", ipHash, principal.User.Id, async () =>
+            {
+                var keepCurrent = false;
+                if (AuthSupport.HasBody(http.Request))
+                {
+                    try
+                    {
+                        var body = await http.Request
+                            .ReadFromJsonAsync<RevokeAllSessionsRequest>(cancellationToken)
+                            .ConfigureAwait(false);
+                        keepCurrent = body?.KeepCurrent == true;
+                    }
+                    catch (JsonException)
+                    {
+                        throw new ApiException(400, "request.invalid", "请求格式无效。");
+                    }
+                }
+
+                await sessions.RevokeAllSessionsAsync(
+                    principal.User.Id,
+                    keepCurrent ? principal.FamilyId : null,
+                    cancellationToken).ConfigureAwait(false);
+                return Results.NoContent();
+            }).ConfigureAwait(false);
+        });
+
+        app.MapPost("/v1/auth/account/delete", async (
+            AccountDeleteRequest body,
+            HttpContext http,
+            SessionService sessions,
+            EmailCodeService codes,
+            SecretHasher hasher,
+            WindowLimiter limiter,
+            CancellationToken cancellationToken) =>
+        {
+            var ipHash = AuthSupport.IpHash(http, hasher);
+            var principal = await AuthSupport.RequirePrincipalAsync(http, sessions).ConfigureAwait(false);
+            return await TracedAsync(logger, "account.delete", ipHash, principal.User.Id, async () =>
+            {
+                if (!limiter.TryAcquire(
+                        "account-delete:" + principal.User.Id,
+                        5,
+                        TimeSpan.FromMinutes(15)))
+                {
+                    throw new ApiException(429, "auth.rate_limited", "请求过于频繁，请稍后再试。",
+                        retryAfterSeconds: 900);
+                }
+
+                var verified = false;
+                if (!string.IsNullOrEmpty(body.Password))
+                {
+                    var credentials = await sessions.FindCredentialsAsync(
+                        principal.User.Email,
+                        cancellationToken).ConfigureAwait(false);
+                    verified = credentials is not null
+                        && PasswordHasher.Verify(body.Password, credentials.Salt, credentials.Hash);
+                }
+                else if (!string.IsNullOrWhiteSpace(body.Code))
+                {
+                    try
+                    {
+                        await codes.ConsumeAsync(
+                            principal.User.Email,
+                            EmailCodeService.PurposeDeleteAccount,
+                            body.Code,
+                            cancellationToken).ConfigureAwait(false);
+                        verified = true;
+                    }
+                    catch (ApiException)
+                    {
+                        verified = false;
+                    }
+                }
+
+                if (!verified)
+                {
+                    throw new ApiException(401, "auth.reauth_required", "请输入当前密码或重新获取邮箱验证码。");
+                }
+
+                await sessions.DeleteAccountAsync(principal.User.Id, principal.User.Email, cancellationToken)
+                    .ConfigureAwait(false);
+                return Results.NoContent();
+            }).ConfigureAwait(false);
         });
     }
 

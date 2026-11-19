@@ -29,11 +29,14 @@ public sealed class EmailCodeService(
 
     public const string PurposeReset = "reset";
 
+    public const string PurposeDeleteAccount = "delete-account";
+
     public static string NormalizePurpose(string? purpose) => purpose?.Trim().ToLowerInvariant() switch
     {
         PurposeRegister => PurposeRegister,
         PurposeLogin => PurposeLogin,
         PurposeReset => PurposeReset,
+        PurposeDeleteAccount => PurposeDeleteAccount,
         _ => throw new ApiException(422, "request.invalid", "验证码用途无效。"),
     };
 

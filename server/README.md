@@ -1,4 +1,4 @@
-# Mosaic 服务端（0.1.0）
+# Mosaic 服务端（0.1.1）
 
 Mosaic 的可选自建账号与同步服务端：邮箱验证码注册/登录、密码与令牌、Device Flow 浏览器授权、任务与可移植设置的备份/恢复、增量同步。桌面客户端未登录时仍可完全离线使用。
 
@@ -58,6 +58,7 @@ dotnet test Mosaic.Server.sln
 | `MOSAIC_LOGIN_IP_LIMIT` / `..._WINDOW_SECONDS` | `30` / `600` | 登录接口按 IP 限流 |
 | `MOSAIC_LOGIN_FAILURE_LIMIT` / `..._WINDOW_SECONDS` | `10` / `900` | 同邮箱登录失败上限 |
 | `MOSAIC_DEVICE_TTL_SECONDS` | `600` | 设备授权码有效期 |
+| `MOSAIC_SYNC_HISTORY_DAYS` | `90` | 增量变更日志保留天数；更早的历史在推送时清理，过期游标返回 `410 sync.cursor_invalid` |
 | `MOSAIC_SMTP_HOST` / `_PORT` | 空 / `587` | 邮件服务器；未设置 `HOST` 即禁用邮箱功能 |
 | `MOSAIC_SMTP_SECURITY` | `starttls` | `starttls` 或 `ssl`（隐式 TLS）；两者都强制 TLS 1.2+ |
 | `MOSAIC_SMTP_USERNAME` / `_PASSWORD` | 空 | SMTP 认证；支持 AUTH PLAIN / LOGIN |
@@ -158,29 +159,36 @@ WantedBy=multi-user.target
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/v1/auth/policy` | 注册开关、邮件可用性、验证码/密码参数 |
-| POST | `/v1/auth/email-code` | `{email, purpose}`，`purpose` 为 `register`/`login`/`reset`；恒 `202 {status,resendAfterSeconds}`，不发送时也返回相同响应 |
-| POST | `/v1/auth/register` | `{email, password, code, deviceLabel?}`，`201` + 会话 |
-| POST | `/v1/auth/login` | `{email, password, deviceLabel?}`，`200` + 会话 |
-| POST | `/v1/auth/login/code` | `{email, code, deviceLabel?}`，`200` + 会话 |
+| POST | `/v1/auth/email-code` | `{email, purpose}`，`purpose` 为 `register`/`login`/`reset`/`delete-account`；恒 `202 {status,resendAfterSeconds}`，不发送时也返回相同响应 |
+| POST | `/v1/auth/register` | `{email, password, code, deviceLabel?, platform?}`，`201` + 会话 |
+| POST | `/v1/auth/login` | `{email, password, deviceLabel?, platform?}`，`200` + 会话 |
+| POST | `/v1/auth/login/code` | `{email, code, deviceLabel?, platform?}`，`200` + 会话 |
 | POST | `/v1/auth/refresh` | `{refreshToken}`，轮换后返回新会话 |
 | POST | `/v1/auth/logout` | Bearer + `{refreshToken, allDevices?}`，撤销该 family（或全部） |
 | POST | `/v1/auth/forgot-password` | `{email}`，恒 `202`，发重置验证码 |
-| POST | `/v1/auth/reset-password` | `{email, code, newPassword}`，成功后撤销全部令牌、验证码与已绑定的设备授权 |
-| GET | `/v1/auth/me` | Bearer，`{user}` |
+| POST | `/v1/auth/reset-password` | `{email, code, newPassword}`（兼容 `password`），成功后撤销全部令牌、验证码与已绑定的设备授权 |
+| GET | `/v1/auth/me` | Bearer，账户字段（`userId`、`email`、`createdAt`、`emailVerifiedAt`）+ `user` |
+| GET | `/v1/auth/sessions` | Bearer，`{sessions:[{id,deviceLabel,platform,createdAt,lastSeenAt,expiresAt,current}]}`，`id` 为会话家族 ID |
+| POST | `/v1/auth/sessions/{id}/revoke` | Bearer，撤销指定会话（该设备的全部刷新令牌）；不存在 `404 auth.session_not_found` |
+| POST | `/v1/auth/sessions/revoke-all` | Bearer，可选 `{keepCurrent:true}`；无请求体时撤销全部，包括当前会话 |
+| POST | `/v1/auth/account/delete` | Bearer + `{password}` 或 `{code}`（`delete-account` 验证码）；重新认证失败 `401 auth.reauth_required`，成功后级联删除账户全部数据并返回 `204` |
 
 密码规则：10–256 个 Unicode 字符；PBKDF2-HMAC-SHA256，310,000 次迭代，16 字节盐，32 字节密钥，常量时间比较。刷新令牌每次使用都轮换；已轮换的令牌再次出现视为泄露，撤销整个 family。
+
+会话对象在 `accessToken`、`refreshToken`、`accessTokenExpiresAt`、`refreshTokenExpiresAt`、`user` 之外还返回 `expiresIn`（访问令牌剩余秒数）与 `account{userId,email,displayName}`，两者均为兼容性附加字段。被撤销的会话访问时返回 `401 auth.session_revoked`，过期返回 `401 auth.session_expired`。删除账户后令牌所属行已随账户级联删除，因此返回 `401 auth.required`（与未知令牌不可区分），而非 `auth.session_revoked`。
 
 ### Device Flow
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/v1/device/start` | 无鉴权，请求体可省略或 `{deviceLabel}`；返回 `{deviceCode,userCode,verificationUri,expiresIn,interval}` |
-| POST | `/v1/device/poll` | `{deviceCode}`；`{status}` 为 `pending`/`denied`/`expired`/`consumed`，或 `{status:"approved", session}` |
+| POST | `/v1/device/start` | 无鉴权，请求体可省略或 `{deviceLabel?, platform?, appVersion?}`；返回 `{deviceCode,userCode,verificationUri,verificationUriComplete,expiresIn,interval}` |
+| POST | `/v1/device/poll` | `{deviceCode}`；`{status,interval}` 为 `pending`/`denied`/`expired`/`consumed`，或 `{status:"approved", session}`；轮询快于 `interval` 返回 `429 slow_down` |
 | POST | `/v1/device/approve` | Bearer + `{userCode}`，确认授权 |
 | POST | `/v1/device/deny` | Bearer + `{userCode}`，拒绝授权 |
+| GET | `/v1/device/info?userCode=...` | Bearer，`{deviceLabel,platform,appVersion,state,expiresAt,approvedAt}`，用于确认页展示设备信息；不存在或已过期 `404 device.invalid_code` |
 | GET | `/device?code=XXXX-XXXX` | 服务端内置的浏览器授权页（无外部资源） |
 
-授权码为 8 位（`BCDFGHJKLMNPQRSTVWXZ23456789`），显示为 `XXXX-XXXX`，10 分钟有效。`interval` 为 2 秒的轮询建议；`approved` 后的会话只能领取一次，之后轮询返回 `consumed`。`verificationUri` 即 `{MOSAIC_PUBLIC_URL}/device?code=...`。
+授权码为 8 位（`BCDFGHJKLMNPQRSTVWXZ23456789`），显示为 `XXXX-XXXX`，10 分钟有效。`interval` 固定为 2 秒；同一设备码两次 `pending` 轮询间隔小于 `interval` 时返回 `429 slow_down`（`Retry-After: 2`），客户端应放慢轮询而不是重试风暴。`approved` 后的会话只能领取一次，之后轮询返回 `consumed`。`verificationUri` 为 `{MOSAIC_PUBLIC_URL}/device`，`verificationUriComplete` 带上 `?code=...` 供二维码/链接直接打开。
 
 ### 备份
 
@@ -192,6 +200,8 @@ WantedBy=multi-user.target
 | POST | `/v1/backups/{snapshotId}/restore` | 与下载相同，并记录恢复审计 |
 
 - `kind` 仅 `task`（任务）与 `setting`（可移植用户设置）；宿主相关设置由客户端过滤，不上传。
+- `kind: "setting"` 的 `key` 必须属于计划 4.3 的白名单（`ui.language`、`appearance.theme`、`tasks.sortOrder`、`tasks.defaultFilter`、`tasks.archive.autoEnabled`、`tasks.archive.delayDays`、`tasks.title.maxCharacters`、`tasks.notes.maxCharacters`、`tasks.title.required`、`tasks.defaultCompleted`、`tasks.confirmDelete`、`tasks.confirmUnsaved`、`tasks.showCharacterCount`、`tasks.autoSwitchToAllOnHidden`），否则 `400 backup.invalid`；备份与同步共用 `Sync.PortableSettings`。
+- 上传、`latest`、下载与恢复的响应都带 `serverRevision` 与 `cursor`（字符串，与 `/v1/sync/changes` 的游标同一体系），表示该快照覆盖到的同步位置；恢复快照后客户端可据此决定继续增量还是重新对齐。去重命中时返回首次记录的这两个值。
 - `payload` 必须是 JSON 对象；单条 ≤ 1 MiB；每份 ≤ 20,000 条；每用户累计 ≤ `MOSAIC_BACKUP_QUOTA_BYTES`。
 - 相同内容（不受 `deviceId` 影响）返回相同快照且不新增记录。
 - 快照不可变；恢复由客户端显式触发。
@@ -208,7 +218,7 @@ WantedBy=multi-user.target
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/v1/sync/changes` | `{deviceId, kind, key, payload, deleted, baseServerRevision, clientRevision, idempotencyKey}` |
-| GET | `/v1/sync/changes?cursor=0&limit=100&deviceId=...` | 按 `seq` 增量拉取 |
+| GET | `/v1/sync/changes?cursor=0&limit=200&deviceId=...` | 按 `seq` 增量拉取；空 `cursor` 视为 `0` |
 
 推送成功：
 
@@ -232,7 +242,9 @@ WantedBy=multi-user.target
 - `serverRevision` 由服务器单调递增，客户端本地 revision 只作为 `clientRevision` 记录，不被信任。
 - `deleted: true` 写入 tombstone，拉取端收到 `deleted: true` 与 `payload: null`。
 - `idempotencyKey` 必填；重复提交返回首次结果并带 `replayed: true`。
-- 拉取响应 `{changes:[...], nextCursor:"12", hasMore:false}`；`cursor` 为上一页 `nextCursor`，`limit` 1–500。附带 `deviceId` 时服务器记录该设备游标。
+- `kind: "setting"` 的 `key` 同样受白名单约束，未知设置键返回 `400 sync.invalid`。
+- 拉取响应 `{changes:[...], nextCursor:"12", hasMore:false}`；`cursor` 为上一页 `nextCursor`，`limit` 1–500（默认 200）。附带 `deviceId` 时服务器记录该设备游标。
+- 变更日志按 `MOSAIC_SYNC_HISTORY_DAYS` 保留；推送时清理更早的行并记录清理水位。游标早于水位时返回 `410 sync.cursor_invalid`，错误信封附带 `details.requiresSnapshot=true` 与 `details.floor`，客户端应先下载最新备份快照再继续增量；`cursor` 非法（非数字/负数）返回 `400 sync.invalid`。
 
 ### 管理与健康
 
@@ -268,7 +280,7 @@ WantedBy=multi-user.target
 dotnet test Mosaic.Server.sln
 ```
 
-69 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、备份往返/去重/隔离/配额/哈希校验、同步游标/冲突/tombstone/幂等/用户隔离、管理接口加密存储、日志不含秘密、迁移幂等、重启后数据与会话可用。
+80 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2）、重启后数据与会话可用。
 
 已验证：Windows 上 `dotnet build`/`dotnet test` 全部通过；`dotnet publish -r linux-x64 --self-contained` 产物生成；本地 Kestrel 冒烟（健康检查、策略、设备页、未配置 SMTP 的统一 503）。
 
@@ -276,4 +288,4 @@ dotnet test Mosaic.Server.sln
 
 ## 版本
 
-服务端独立版本号（当前 `0.1.0`），与桌面客户端版本无强绑定；协议版本为 `/v1`。新增字段属兼容变更，删除或改义字段需升 `/v2`。
+服务端独立版本号（当前 `0.1.1`），与桌面客户端版本无强绑定；协议版本为 `/v1`。新增字段属兼容变更，删除或改义字段需升 `/v2`。

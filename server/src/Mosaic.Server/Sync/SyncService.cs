@@ -36,7 +36,7 @@ public sealed record SyncPullResult(IReadOnlyList<SyncChange> Changes, long Next
 /// last saw (baseServerRevision) and an idempotency key; stale bases get a 409
 /// carrying the current server state instead of silently overwriting it.
 /// </summary>
-public sealed class SyncService(Database database, TimeProvider timeProvider)
+public sealed class SyncService(Database database, ServerOptions options, TimeProvider timeProvider)
 {
     public const long MaxPayloadBytes = 1024 * 1024;
 
@@ -53,6 +53,11 @@ public sealed class SyncService(Database database, TimeProvider timeProvider)
         var deviceId = Validate(request.DeviceId, 64, "deviceId");
         var kind = ValidateKind(request.Kind);
         var key = Validate(request.Key, 200, "key");
+        if (kind == KindSetting && !PortableSettings.IsAllowed(key))
+        {
+            throw Invalid("设置项不在可移植白名单内。");
+        }
+
         var idempotencyKey = Validate(request.IdempotencyKey, 128, "idempotencyKey");
         var deleted = request.Deleted == true;
         var baseRevision = request.BaseServerRevision ?? 0;
@@ -192,6 +197,8 @@ public sealed class SyncService(Database database, TimeProvider timeProvider)
                     "SELECT last_insert_rowid()",
                     token).ConfigureAwait(false);
 
+                await PruneHistoryAsync(connection, transaction, userId, now, token).ConfigureAwait(false);
+
                 var change = new SyncChange(
                     seq,
                     revision,
@@ -215,19 +222,37 @@ public sealed class SyncService(Database database, TimeProvider timeProvider)
     {
         var bounded = Math.Clamp(limit, 1, 500);
         var rows = await database.ReadAsync(
-            async (connection, token) => await connection.QueryAsync(
-                transaction: null,
-                """
-                SELECT seq, server_revision, kind, item_key, deleted, payload_json, device_id, created_at
-                FROM sync_changes
-                WHERE user_id = $user AND seq > $cursor
-                ORDER BY seq LIMIT $limit
-                """,
-                MapChange,
-                token,
-                ("$user", userId),
-                ("$cursor", cursor),
-                ("$limit", bounded + 1)).ConfigureAwait(false),
+            async (connection, token) =>
+            {
+                var floor = await connection.ScalarInt64Async(
+                    transaction: null,
+                    "SELECT COALESCE((SELECT floor_seq FROM sync_floor WHERE user_id = $user), 0)",
+                    token,
+                    ("$user", userId)).ConfigureAwait(false);
+                if (cursor < floor)
+                {
+                    // The requested history has been pruned; only a snapshot restore can recover.
+                    throw new ApiException(
+                        410,
+                        "sync.cursor_invalid",
+                        "同步游标已过期，请先恢复备份快照。",
+                        new { requiresSnapshot = true, floor = FormatCursor(floor) });
+                }
+
+                return await connection.QueryAsync(
+                    transaction: null,
+                    """
+                    SELECT seq, server_revision, kind, item_key, deleted, payload_json, device_id, created_at
+                    FROM sync_changes
+                    WHERE user_id = $user AND seq > $cursor
+                    ORDER BY seq LIMIT $limit
+                    """,
+                    MapChange,
+                    token,
+                    ("$user", userId),
+                    ("$cursor", cursor),
+                    ("$limit", bounded + 1)).ConfigureAwait(false);
+            },
             cancellationToken).ConfigureAwait(false);
 
         var hasMore = rows.Count > bounded;
@@ -261,6 +286,51 @@ public sealed class SyncService(Database database, TimeProvider timeProvider)
         }
 
         return new SyncPullResult(page.Select(ToChange).ToList(), nextCursor, hasMore);
+    }
+
+    /// <summary>
+    /// Drops change-log rows past the configured retention window and records the
+    /// highest pruned sequence so stale cursors get 410 instead of silently
+    /// missing changes.
+    /// </summary>
+    private async Task PruneHistoryAsync(
+        Microsoft.Data.Sqlite.SqliteConnection connection,
+        Microsoft.Data.Sqlite.SqliteTransaction transaction,
+        string userId,
+        long now,
+        CancellationToken cancellationToken)
+    {
+        var cutoff = now - options.SyncHistorySeconds;
+        var pruned = await connection.ScalarAsync(
+            transaction,
+            "SELECT MAX(seq) FROM sync_changes WHERE user_id = $user AND created_at < $cutoff",
+            cancellationToken,
+            ("$user", userId),
+            ("$cutoff", cutoff)).ConfigureAwait(false);
+        if (pruned is null)
+        {
+            return;
+        }
+
+        var floor = Convert.ToInt64(pruned, CultureInfo.InvariantCulture);
+        await connection.ExecuteAsync(
+            transaction,
+            "DELETE FROM sync_changes WHERE user_id = $user AND seq <= $floor",
+            cancellationToken,
+            ("$user", userId),
+            ("$floor", floor)).ConfigureAwait(false);
+        await connection.ExecuteAsync(
+            transaction,
+            """
+            INSERT INTO sync_floor(user_id, floor_seq, updated_at) VALUES($user, $floor, $now)
+            ON CONFLICT(user_id) DO UPDATE SET
+                floor_seq = MAX(sync_floor.floor_seq, excluded.floor_seq),
+                updated_at = excluded.updated_at
+            """,
+            cancellationToken,
+            ("$user", userId),
+            ("$floor", floor),
+            ("$now", now)).ConfigureAwait(false);
     }
 
     private static SyncChange ToChange(ChangeRow row) => new(

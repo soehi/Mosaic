@@ -51,7 +51,11 @@ public sealed class LoggingAndMigrationTests
             await connection.OpenAsync();
             await using var versions = connection.CreateCommand();
             versions.CommandText = "SELECT COUNT(*) FROM schema_migrations";
-            Assert.Equal(1L, Convert.ToInt64(await versions.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+            Assert.Equal(2L, Convert.ToInt64(await versions.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+
+            await using var floor = connection.CreateCommand();
+            floor.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_floor'";
+            Assert.Equal(1L, Convert.ToInt64(await floor.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
 
             await using var tables = connection.CreateCommand();
             tables.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'";

@@ -20,6 +20,8 @@ public sealed record BackupUploadResult(
     string ContentSha256,
     long SizeBytes,
     int ItemCount,
+    long ServerRevision,
+    long Cursor,
     bool Duplicate);
 
 public sealed record BackupManifest(
@@ -29,6 +31,8 @@ public sealed record BackupManifest(
     string ContentSha256,
     long SizeBytes,
     int ItemCount,
+    long ServerRevision,
+    long Cursor,
     IReadOnlyList<BackupManifestItem> Items);
 
 public sealed record BackupManifestItem(string Kind, string Key, long Revision);
@@ -72,6 +76,11 @@ public sealed class BackupService(Database database, ServerOptions options, Time
         {
             var kind = ValidateKind(item.Kind);
             var key = ValidateToken(item.Key, 200, "key");
+            if (kind == KindSetting && !Mosaic.Server.Sync.PortableSettings.IsAllowed(key))
+            {
+                throw new ApiException(400, "backup.invalid", "设置项不在可移植白名单内。");
+            }
+
             if (!keys.Add(kind + "\u0000" + key))
             {
                 throw new ApiException(400, "backup.invalid", "备份中存在重复条目。");
@@ -136,7 +145,9 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                     var latest = await connection.SingleAsync(
                         transaction,
                         """
-                        SELECT id, content_sha256, created_at, size_bytes, item_count FROM backups
+                        SELECT id, content_sha256, created_at, size_bytes, item_count,
+                               server_revision, sync_cursor
+                        FROM backups
                         WHERE user_id = $user
                         ORDER BY created_at DESC, rowid DESC LIMIT 1
                         """,
@@ -145,7 +156,9 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                             reader.Str("content_sha256"),
                             reader.Long("created_at"),
                             reader.Long("size_bytes"),
-                            (int)reader.Long("item_count")),
+                            (int)reader.Long("item_count"),
+                            reader.Long("server_revision"),
+                            reader.Long("sync_cursor")),
                         token,
                         ("$user", userId)).ConfigureAwait(false);
                     if (latest is not null && string.Equals(latest.ContentSha256, contentHash, StringComparison.Ordinal))
@@ -156,8 +169,23 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                             latest.ContentSha256,
                             latest.SizeBytes,
                             latest.ItemCount,
+                            latest.ServerRevision,
+                            latest.Cursor,
                             true);
                     }
+
+                    // Stamp the snapshot with the sync position it corresponds to so a
+                    // restoring client knows where its incremental cursor may resume.
+                    var serverRevision = await connection.ScalarInt64Async(
+                        transaction,
+                        "SELECT COALESCE((SELECT revision FROM sync_counters WHERE user_id = $user), 0)",
+                        token,
+                        ("$user", userId)).ConfigureAwait(false);
+                    var cursor = await connection.ScalarInt64Async(
+                        transaction,
+                        "SELECT COALESCE((SELECT MAX(seq) FROM sync_changes WHERE user_id = $user), 0)",
+                        token,
+                        ("$user", userId)).ConfigureAwait(false);
 
                     // Quota is measured after retention: adding a snapshot may evict the oldest one.
                     var keep = Math.Max(0, options.BackupRetention - 1);
@@ -180,8 +208,8 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                         transaction,
                         """
                         INSERT INTO backups(id, user_id, device_id, base_snapshot_id, content_sha256,
-                                            created_at, size_bytes, item_count)
-                        VALUES($id, $user, $device, $base, $hash, $now, $size, $count)
+                                            created_at, size_bytes, item_count, server_revision, sync_cursor)
+                        VALUES($id, $user, $device, $base, $hash, $now, $size, $count, $revision, $cursor)
                         """,
                         token,
                         ("$id", snapshotId),
@@ -191,7 +219,9 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                         ("$hash", contentHash),
                         ("$now", now),
                         ("$size", sizeBytes),
-                        ("$count", canonical.Count)).ConfigureAwait(false);
+                        ("$count", canonical.Count),
+                        ("$revision", serverRevision),
+                        ("$cursor", cursor)).ConfigureAwait(false);
 
                     foreach (var item in canonical)
                     {
@@ -227,6 +257,8 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                         contentHash,
                         sizeBytes,
                         canonical.Count,
+                        serverRevision,
+                        cursor,
                         false);
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -244,7 +276,8 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                 var header = await connection.SingleAsync(
                     transaction: null,
                     """
-                    SELECT id, created_at, base_snapshot_id, content_sha256, size_bytes, item_count
+                    SELECT id, created_at, base_snapshot_id, content_sha256, size_bytes, item_count,
+                           server_revision, sync_cursor
                     FROM backups WHERE user_id = $user
                     ORDER BY created_at DESC, rowid DESC LIMIT 1
                     """,
@@ -266,7 +299,8 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                 var header = await connection.SingleAsync(
                     transaction: null,
                     """
-                    SELECT id, created_at, base_snapshot_id, content_sha256, size_bytes, item_count
+                    SELECT id, created_at, base_snapshot_id, content_sha256, size_bytes, item_count,
+                           server_revision, sync_cursor
                     FROM backups WHERE id = $id AND user_id = $user
                     """,
                     MapManifestHeader,
@@ -306,6 +340,8 @@ public sealed class BackupService(Database database, ServerOptions options, Time
                     header.ContentSha256,
                     header.SizeBytes,
                     header.ItemCount,
+                    header.ServerRevision,
+                    header.Cursor,
                     items.Select(item => new BackupManifestItem(item.Kind, item.Key, item.Revision)).ToList());
                 var payloads = items.Select(item => new BackupSnapshotItem(
                     item.Kind,
@@ -353,6 +389,8 @@ public sealed class BackupService(Database database, ServerOptions options, Time
             header.ContentSha256,
             header.SizeBytes,
             header.ItemCount,
+            header.ServerRevision,
+            header.Cursor,
             items);
     }
 
@@ -363,7 +401,9 @@ public sealed class BackupService(Database database, ServerOptions options, Time
             reader.StrOrNull("base_snapshot_id"),
             reader.Str("content_sha256"),
             reader.Long("size_bytes"),
-            (int)reader.Long("item_count"));
+            (int)reader.Long("item_count"),
+            reader.Long("server_revision"),
+            reader.Long("sync_cursor"));
 
     private static string ValidateKind(string? kind) => kind?.Trim() switch
     {
@@ -396,7 +436,9 @@ public sealed class BackupService(Database database, ServerOptions options, Time
         string ContentSha256,
         long CreatedAt,
         long SizeBytes,
-        int ItemCount);
+        int ItemCount,
+        long ServerRevision,
+        long Cursor);
 
     private sealed record ManifestHeader(
         string Id,
@@ -404,5 +446,7 @@ public sealed class BackupService(Database database, ServerOptions options, Time
         string? BaseSnapshotId,
         string ContentSha256,
         long SizeBytes,
-        int ItemCount);
+        int ItemCount,
+        long ServerRevision,
+        long Cursor);
 }

@@ -186,6 +186,48 @@ public sealed class SyncTests
     }
 
     [Fact]
+    public async Task Setting_changes_are_limited_to_the_portable_whitelist()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var (_, _, session) = await host.RegisterAsync();
+        var token = TestServerHost.AccessToken(session);
+
+        var allowed = await PushAsync(host, token, Push(
+            "ui.language", 0, new { value = "zh-CN" }, kind: "setting"));
+        Assert.Equal("setting", allowed.GetProperty("change").GetProperty("kind").GetString());
+
+        var rejected = await host.PostAsync("/v1/sync/changes", Push(
+            "sync.secret", 0, new { value = "x" }, kind: "setting"), token);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Equal("sync.invalid", TestServerHost.ErrorCode(await TestServerHost.JsonAsync(rejected)));
+    }
+
+    [Fact]
+    public async Task Pruned_history_answers_cursor_invalid_requiring_a_snapshot()
+    {
+        await using var host = await TestServerHost.StartAsync(options => options.SyncHistorySeconds = 1);
+        var (_, _, session) = await host.RegisterAsync();
+        var token = TestServerHost.AccessToken(session);
+
+        await PushAsync(host, token, Push("task-1", 0, new { title = "A" }));
+        host.Clock.Advance(TimeSpan.FromSeconds(5));
+        await PushAsync(host, token, Push("task-2", 0, new { title = "B" }));
+
+        var stale = await host.GetAsync("/v1/sync/changes?cursor=0", token);
+        Assert.Equal(HttpStatusCode.Gone, stale.StatusCode);
+        var error = await TestServerHost.JsonAsync(stale);
+        Assert.Equal("sync.cursor_invalid", TestServerHost.ErrorCode(error));
+        Assert.True(error.GetProperty("details").GetProperty("requiresSnapshot").GetBoolean());
+        Assert.True(error.GetProperty("requiresSnapshot").GetBoolean());
+
+        var resumed = await TestServerHost.JsonAsync(
+            await host.GetAsync("/v1/sync/changes?cursor=1", token));
+        Assert.Equal(1, resumed.GetProperty("changes").GetArrayLength());
+        Assert.Equal("task-2", resumed.GetProperty("changes")[0].GetProperty("key").GetString());
+        Assert.Equal("2", resumed.GetProperty("nextCursor").GetString());
+    }
+
+    [Fact]
     public async Task Pull_records_the_device_cursor()
     {
         await using var host = await TestServerHost.StartAsync();

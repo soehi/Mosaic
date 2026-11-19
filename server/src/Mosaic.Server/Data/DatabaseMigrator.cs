@@ -8,6 +8,7 @@ public sealed class DatabaseMigrator(Database database, TimeProvider timeProvide
     private static readonly (int Version, string Name, string Sql)[] Migrations =
     [
         (1, "initial", Schema.Migration1),
+        (2, "session_management_and_sync_floor", Schema.Migration2),
     ];
 
     public async Task ApplyAsync(CancellationToken cancellationToken = default)

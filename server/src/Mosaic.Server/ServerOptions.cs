@@ -66,6 +66,9 @@ public sealed class ServerOptions
 
     public long DeviceCodeTtlSeconds { get; set; } = 600;
 
+    /// <summary>How long sync change history is kept before clients must fall back to a backup snapshot.</summary>
+    public long SyncHistorySeconds { get; set; } = 90L * 24 * 60 * 60;
+
     /// <summary>Test seam: a deterministic clock.</summary>
     public TimeProvider? TimeProvider { get; set; }
 
@@ -103,6 +106,7 @@ public sealed class ServerOptions
             LoginFailureLimit = (int)Number(configuration, "MOSAIC_LOGIN_FAILURE_LIMIT", 10),
             LoginFailureWindowSeconds = (int)Number(configuration, "MOSAIC_LOGIN_FAILURE_WINDOW_SECONDS", 900),
             DeviceCodeTtlSeconds = Number(configuration, "MOSAIC_DEVICE_TTL_SECONDS", 600),
+            SyncHistorySeconds = Number(configuration, "MOSAIC_SYNC_HISTORY_DAYS", 90) * 24 * 60 * 60,
             TrustedProxies = (Text(configuration, "MOSAIC_TRUSTED_PROXIES") ?? string.Empty)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             Email = new EmailSettings
@@ -163,7 +167,7 @@ public sealed class ServerOptions
         }
 
         if (AccessTokenSeconds <= 0 || RefreshTokenSeconds <= 0 || DeviceCodeTtlSeconds <= 0
-            || EmailCodeTtlSeconds <= 0 || EmailCodeResendSeconds <= 0)
+            || EmailCodeTtlSeconds <= 0 || EmailCodeResendSeconds <= 0 || SyncHistorySeconds <= 0)
         {
             throw new InvalidOperationException("令牌与验证码有效期必须为正数。");
         }

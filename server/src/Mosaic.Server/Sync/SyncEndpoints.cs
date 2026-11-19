@@ -44,7 +44,7 @@ public static class SyncEndpoints
                 throw new ApiException(400, "sync.invalid", "cursor 无效。");
             }
 
-            var parsedLimit = 100;
+            var parsedLimit = 200;
             if (!string.IsNullOrWhiteSpace(limit)
                 && (!int.TryParse(limit, NumberStyles.None, CultureInfo.InvariantCulture, out parsedLimit)
                     || parsedLimit is < 1 or > 500))

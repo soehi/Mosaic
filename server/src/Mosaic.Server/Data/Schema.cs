@@ -139,4 +139,28 @@ internal static class Schema
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL);
         """;
+
+    /// <summary>
+    /// Adds per-device session metadata, device authorization details, backup
+    /// baseline pointers and the sync history floor used to detect expired cursors.
+    /// </summary>
+    public const string Migration2 = """
+        ALTER TABLE sessions ADD COLUMN platform TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE refresh_tokens ADD COLUMN platform TEXT NOT NULL DEFAULT '';
+        ALTER TABLE refresh_tokens ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE device_auth ADD COLUMN platform TEXT NOT NULL DEFAULT '';
+        ALTER TABLE device_auth ADD COLUMN app_version TEXT NOT NULL DEFAULT '';
+        ALTER TABLE device_auth ADD COLUMN last_polled_at INTEGER;
+
+        ALTER TABLE backups ADD COLUMN server_revision INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE backups ADD COLUMN sync_cursor INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE IF NOT EXISTS sync_floor(
+            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            floor_seq INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL);
+        """;
 }

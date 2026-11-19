@@ -19,7 +19,8 @@ public sealed class DeviceFlowTests
         Assert.Matches("^[A-Z0-9]{4}-[A-Z0-9]{4}$", userCode);
         Assert.Equal(600, start.GetProperty("expiresIn").GetInt64());
         Assert.Equal(2, start.GetProperty("interval").GetInt32());
-        Assert.Contains(userCode, start.GetProperty("verificationUri").GetString(), StringComparison.Ordinal);
+        Assert.Equal("http://127.0.0.1/device", start.GetProperty("verificationUri").GetString());
+        Assert.Contains(userCode, start.GetProperty("verificationUriComplete").GetString(), StringComparison.Ordinal);
 
         var pending = await TestServerHost.JsonAsync(
             await host.PostAsync("/v1/device/poll", new { deviceCode }));
@@ -122,6 +123,63 @@ public sealed class DeviceFlowTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await TestServerHost.JsonAsync(response);
         Assert.False(string.IsNullOrEmpty(body.GetProperty("deviceCode").GetString()));
+    }
+
+    [Fact]
+    public async Task Device_start_returns_metadata_complete_uri_and_info()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var (_, _, session) = await host.RegisterAsync();
+        var access = TestServerHost.AccessToken(session);
+
+        var startResponse = await host.PostAsync("/v1/device/start", new
+        {
+            deviceLabel = "Mosaic Desktop",
+            platform = "windows",
+            appVersion = "0.16.0",
+        });
+        var start = await TestServerHost.JsonAsync(startResponse);
+        var userCode = start.GetProperty("userCode").GetString()!;
+        var complete = start.GetProperty("verificationUriComplete").GetString()!;
+        Assert.Equal(start.GetProperty("verificationUri").GetString(), complete[..complete.IndexOf('?')]);
+        Assert.Contains(Uri.EscapeDataString(userCode), complete, StringComparison.Ordinal);
+
+        var infoResponse = await host.GetAsync(
+            "/v1/device/info?userCode=" + Uri.EscapeDataString(userCode),
+            access);
+        Assert.Equal(HttpStatusCode.OK, infoResponse.StatusCode);
+        var info = await TestServerHost.JsonAsync(infoResponse);
+        Assert.Equal("Mosaic Desktop", info.GetProperty("deviceLabel").GetString());
+        Assert.Equal("windows", info.GetProperty("platform").GetString());
+        Assert.Equal("0.16.0", info.GetProperty("appVersion").GetString());
+        Assert.Equal("pending", info.GetProperty("state").GetString());
+
+        var unknown = await host.GetAsync("/v1/device/info?userCode=BCDF-GHJK", access);
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        var anonymous = await host.GetAsync("/v1/device/info?userCode=" + Uri.EscapeDataString(userCode));
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+    }
+
+    [Fact]
+    public async Task Polling_faster_than_the_interval_answers_slow_down()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var start = await TestServerHost.JsonAsync(await host.PostAsync("/v1/device/start", new { }));
+        var deviceCode = start.GetProperty("deviceCode").GetString();
+
+        var first = await host.PostAsync("/v1/device/poll", new { deviceCode });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var tooFast = await host.PostAsync("/v1/device/poll", new { deviceCode });
+        Assert.Equal(HttpStatusCode.TooManyRequests, tooFast.StatusCode);
+        var error = await TestServerHost.JsonAsync(tooFast);
+        Assert.Equal("slow_down", TestServerHost.ErrorCode(error));
+        Assert.NotNull(tooFast.Headers.RetryAfter);
+
+        host.Clock.Advance(TimeSpan.FromSeconds(2));
+        var second = await TestServerHost.JsonAsync(await host.PostAsync("/v1/device/poll", new { deviceCode }));
+        Assert.Equal("pending", second.GetProperty("status").GetString());
+        Assert.Equal(2, second.GetProperty("interval").GetInt32());
     }
 
     [Fact]

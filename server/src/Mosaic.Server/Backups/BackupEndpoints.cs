@@ -26,6 +26,8 @@ public static class BackupEndpoints
                     contentSha256 = result.ContentSha256,
                     sizeBytes = result.SizeBytes,
                     itemCount = result.ItemCount,
+                    serverRevision = result.ServerRevision,
+                    cursor = result.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     duplicate = result.Duplicate,
                 },
                 statusCode: result.Duplicate ? 200 : 201);
@@ -79,7 +81,9 @@ public static class BackupEndpoints
         contentSha256 = manifest.ContentSha256,
         sizeBytes = manifest.SizeBytes,
         itemCount = manifest.ItemCount,
-        items = manifest.Items.Select(item => new
+        serverRevision = manifest.ServerRevision,
+        cursor = manifest.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        items =manifest.Items.Select(item => new
         {
             kind = item.Kind,
             key = item.Key,
@@ -98,6 +102,8 @@ public static class BackupEndpoints
             contentSha256 = manifest.ContentSha256,
             sizeBytes = manifest.SizeBytes,
             itemCount = manifest.ItemCount,
+            serverRevision = manifest.ServerRevision,
+            cursor = manifest.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture),
             items = snapshot.Items.Select(item => new
             {
                 kind = item.Kind,

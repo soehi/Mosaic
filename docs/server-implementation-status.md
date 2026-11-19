@@ -52,9 +52,9 @@
 
 - 会话对象：`accessToken`、`refreshToken`、`accessTokenExpiresAt`、`refreshTokenExpiresAt`、`user{id,email,createdAt,emailVerifiedAt}`；`id` 为 32 位十六进制 GUID，客户端 `Guid.TryParse` 兼容。
 - 错误码：`auth.invalid_credentials`、`auth.invalid_code`、`auth.code_expired`、`auth.code_attempts_exceeded`、`auth.weak_password`、`auth.rate_limited`、`auth.registration_closed`、`auth.required`、`auth.session_expired`、`auth.invalid_refresh`、`auth.refresh_reused`、`device.invalid_code`、`device.rate_limited`、`backup.not_found` 等，与桌面 `HttpAuthTransport.MapCode`/`HttpSyncTransport` 的映射一致。
-- 设备授权：`verificationUri = {MOSAIC_PUBLIC_URL}/device?code=XXXX-XXXX`，`expiresIn=600`，`interval=2`；状态 `pending|approved|denied|expired|consumed`，`approved` 仅能领取一次。
+- 设备授权：`verificationUri = {MOSAIC_PUBLIC_URL}/device?code=XXXX-XXXX`，`expiresIn=600`，`interval=2`；状态 `pending|approved|denied|expired|consumed`，`approved` 仅能领取一次。（0.1.1 起 `verificationUri` 不再带 `code`，改用 `verificationUriComplete`，见下节。）
 - 备份/同步 wire DTO 见 `server/README.md` 的 API 章节。`kind` 取值为 `task`、`setting`，与 `Mosaic.Sync.Contracts.SyncItemKinds` 一致。
-- 未实现 `slow_down`；`interval` 为建议值，轮询过密由 `device.rate_limited` 兜底。
+- 未实现 `slow_down`；`interval` 为建议值，轮询过密由 `device.rate_limited` 兜底。（0.1.1 起已实现 `slow_down`。）
 
 ### 迁移与升级影响
 
@@ -81,3 +81,72 @@
 - 反向代理 HTTPS、`X-Forwarded-For/Proto` 与按真实客户端 IP 限流。
 - 手机端 Device Flow 与手机 UI（本次只预留协议）。
 - 多设备在真实网络条件下的并发同步冲突与弱网重试。
+
+## 0.1.1：会话管理、账户删除、设备信息与同步/备份协议对齐（2026-11-19）
+
+依据“计划”会话冻结的协议更新（`docs/auth-sync-server-plan.md` 3.4、4.3 与错误码约定）。服务端版本升到 0.1.1；仍只改动 `server/` 与本文件，未触碰 `src/`、`tests/`、`build/` 或 MSI。
+
+### 根因位置
+
+0.1.0 按当时的协议实现，缺少 0.1.1 冻结要求的能力，且两处语义与冻结协议不一致：
+
+- 用户无法自助查看/撤销设备：`server/src/Mosaic.Server/Auth/SessionService.cs` 只有 `LogoutAsync`/`RevokeAllAsync`，`server/src/Mosaic.Server/Auth/AuthEndpoints.cs` 没有 `GET /v1/auth/sessions` 与撤销端点；会话表也没有记录平台与最后活跃时间（`server/src/Mosaic.Server/Data/Schema.cs` 的 `Migration1` 无 `platform`/`last_seen_at` 列）。
+- 没有账户删除：`AuthEndpoints` 只有重置密码，`users` 的级联删除虽已在 schema 声明（`ON DELETE CASCADE`），但没有重新认证与去标识审计的入口，也没有 `delete-account` 验证码用途（`EmailCodeService.NormalizePurpose` 原先只接受 `register|login|reset`）。
+- 设备授权信息不完整：`DeviceFlowService.StartAsync` 只保存 `device_label`，丢弃平台与版本；`PollAsync` 没有 `slow_down`（README 0.1.0 明确写“未实现”）；`verificationUri` 直接带 `?code=`，没有独立的 `verificationUriComplete`；没有认证后的 `GET /v1/device/info`。
+- 可移植设置没有服务端白名单：`BackupService.UploadAsync` 与 `SyncService.PushAsync` 只校验 `kind`，任何 `setting` 键都能上传，与计划 4.3 的白名单不符。
+- 备份不携带同步位置：`backups` 表没有 `server_revision`/`sync_cursor` 列，恢复快照后客户端无法判断增量游标是否仍然有效。
+- 同步历史不会过期：`sync_changes` 只增不减，`server/src/Mosaic.Server/Sync/SyncService.cs` 的 `PullAsync` 对任意旧游标都返回剩余变更，缺少“历史已清理 → 410 + 需要快照”的语义。
+- 错误信封没有 `details` 对象：`server/src/Mosaic.Server/Http/ApiPipeline.cs` 只把细节平铺到根级，冻结协议要求可选 `details`。
+
+### 改动位置
+
+- `server/src/Mosaic.Server/Data/Schema.cs`：新增 `Schema.Migration2` —— `sessions`/`refresh_tokens`/`device_auth` 增加 `platform`、`last_seen_at`、`app_version`、`last_polled_at`；`backups` 增加 `server_revision`、`sync_cursor`；新建 `sync_floor(user_id, floor_seq, updated_at)`。
+- `server/src/Mosaic.Server/Data/DatabaseMigrator.cs`：迁移表追加 `(2, "session_management_and_sync_floor")`；现有 0.1.0 数据库启动时自动升级，旧行取默认值（空平台、`last_seen_at=0`、备份 `server_revision=0`/`sync_cursor=0`）。
+- `server/src/Mosaic.Server/ServerOptions.cs`：新增 `SyncHistorySeconds`（`MOSAIC_SYNC_HISTORY_DAYS`，默认 90 天）并在 `Validate` 中要求为正。
+- `server/src/Mosaic.Server/Auth/SessionService.cs`：
+  - `SessionTokens` 增加 `AccessExpiresIn`；新增 `SessionPrincipal`。
+  - `AuthenticateAsync` 区分 `auth.required`/`auth.session_revoked`/`auth.session_expired`，并在 `last_seen_at` 超过 60 秒时 `TouchAsync`。
+  - `CreateAsync`/`CreateWithinTransactionAsync`/`InsertAsync` 记录 `platform` 与 `last_seen_at`；`RefreshAsync` 读取平台并在提交后保留。
+  - 新增 `ListSessionsAsync`（按 `family_id` 聚合、`current` 标记）、`RevokeSessionAsync`（撤销指定家族的会话与刷新令牌）、`RevokeAllSessionsAsync`（可保留当前家族）、`DeleteAccountAsync`（`settings_audit` 匿名化为 `deleted:<emailHash 前 16 位>`、写入 `account.delete` 审计、清理未消费验证码、删除 `users` 触发级联）。
+- `server/src/Mosaic.Server/Auth/AuthSupport.cs`：`RequirePrincipalAsync`、`HasBody`（兼容 chunked 请求体）、`SessionJson` 增加 `expiresIn` 与 `account{userId,email,displayName}`（保留 `user`）、`AccountJson`、`SanitizeShort`，请求记录增加 `Platform`、`AccountDeleteRequest`、`RevokeAllSessionsRequest`，`ResetPasswordRequest` 兼容 `password` 字段。
+- `server/src/Mosaic.Server/Auth/AuthEndpoints.cs`：`register`/`login`/`login/code` 传递 `platform`；`/me` 返回账户字段 + `user`；新增 `GET /v1/auth/sessions`、`POST /v1/auth/sessions/{id}/revoke`、`POST /v1/auth/sessions/revoke-all`（可选 `keepCurrent`）、`POST /v1/auth/account/delete`（密码或 `delete-account` 验证码，失败 `401 auth.reauth_required`，按用户限流 5 次/15 分钟，成功后 `204`）。
+- `server/src/Mosaic.Server/Auth/EmailCodeService.cs`：新增 `PurposeDeleteAccount = "delete-account"` 并纳入 `NormalizePurpose`。
+- `server/src/Mosaic.Server/Auth/DeviceFlowService.cs`：`StartAsync` 接收并保存 `deviceLabel/platform/appVersion`，`verificationUri` 改为 `{MOSAIC_PUBLIC_URL}/device`，新增 `verificationUriComplete`；`PollAsync` 依据 `last_polled_at` 与 2 秒间隔返回 `429 slow_down`，响应带 `interval`；`ApproveAsync` 将会话的平台写入设备授权；新增 `InfoAsync`（用户码查询、越权或过期 `404 device.invalid_code`）；`DeviceSessionPayload` 增加 `AccessExpiresIn`。
+- `server/src/Mosaic.Server/Auth/DeviceEndpoints.cs`：`/v1/device/start` 解析 `platform/appVersion` 并返回 `verificationUriComplete`；`/v1/device/poll` 返回 `interval`；新增 `GET /v1/device/info`；批准/拒绝日志的耗时改用 `Stopwatch.GetTimestamp()`。
+- `server/src/Mosaic.Server/Sync/PortableSettings.cs`（新增）：计划 4.3 的 14 个可移植设置键白名单，备份与同步共用。
+- `server/src/Mosaic.Server/Backups/BackupService.cs`：`kind: "setting"` 强制白名单（`400 backup.invalid`）；上传时在同一写事务内读取 `sync_counters.revision` 与 `sync_changes` 最大 `seq` 写入快照；去重命中返回首次记录的值；`BackupUploadResult`/`BackupManifest` 增加 `ServerRevision`、`Cursor`。
+- `server/src/Mosaic.Server/Backups/BackupEndpoints.cs`：上传、`latest`、下载与恢复响应都输出 `serverRevision` 与 `cursor`（字符串）。
+- `server/src/Mosaic.Server/Sync/SyncService.cs`：注入 `ServerOptions`；`kind: "setting"` 白名单（`400 sync.invalid`）；`PushAsync` 在写入事务内调用新增的 `PruneHistoryAsync`（按保留期删除 `sync_changes` 并推进 `sync_floor`）；`PullAsync` 在 `cursor < floor` 时返回 `410 sync.cursor_invalid`（`details.requiresSnapshot=true`、`details.floor`）。
+- `server/src/Mosaic.Server/Sync/SyncEndpoints.cs`：拉取默认 `limit` 改为 200。
+- `server/src/Mosaic.Server/Http/ApiPipeline.cs`：错误信封在保留根级兼容字段的同时增加 `details` 对象。
+- `server/Directory.Build.props`：版本 `0.1.1`。
+- `server/README.md`：更新认证/设备/备份/同步表、`MOSAIC_SYNC_HISTORY_DAYS`、白名单、游标 410 语义、会话对象附加字段与账户删除后的错误码说明。
+- 测试：新增 `server/tests/Mosaic.Server.Tests/SessionManagementTests.cs`（会话列表/撤销/保留当前、账户删除密码/验证码/重新认证/级联清理/审计去标识、未知验证码用途）；扩展 `DeviceFlowTests.cs`（`verificationUriComplete`、设备信息、`slow_down`）、`BackupTests.cs`（`serverRevision`/`cursor`、设置白名单）、`SyncTests.cs`（设置白名单、历史清理后的 410）、`LoggingAndMigrationTests.cs`（迁移数为 2、`sync_floor` 存在）；`BackupTests` 的示例设置键改为白名单内键。
+
+### 协议决策与偏差（已回报“计划”会话）
+
+- `ChangeDto` 采用冻结文档的 `{cursor,serverRevision,kind,key,deleted,payload,deviceId,createdAt}`（协调消息中的 `operation`/`updatedAtUtc` 与文档冲突，以文档为准）。
+- 游标过期采用 `410 sync.cursor_invalid` + `details.requiresSnapshot=true`；格式非法仍为 `400 sync.invalid`。
+- 会话响应是超集：保留桌面 `HttpAuthTransport` 已读取的 `user`/`accessTokenExpiresAt`，同时提供 `expiresIn` 与 `account`。
+- 新增 `delete-account` 验证码用途（冻结文档只写了“重新认证”，具体用途名由服务端定义并已写入 README）。
+- 删除账户后旧令牌返回 `401 auth.required` 而非 `auth.session_revoked`：账户行随级联删除，令牌已不可解析；要保持 `auth.session_revoked` 需要保留墓碑，与“删除账户即删除数据”冲突。
+- 错误细节既平铺根级（0.1.0 兼容）又放入 `details`（冻结信封）。
+
+### 迁移与升级影响
+
+- 0.1.0 → 0.1.1 为纯追加迁移（`Migration2`），现有用户、会话、备份与同步数据保留；旧会话平台为空字符串、`last_seen_at=0`（首次请求即补写）。
+- 备份响应新增字段属兼容变更；旧客户端忽略即可。
+- 设置白名单会使此前上传过的非白名单设置键无法再推送/备份（旧快照仍可下载与恢复，不删除历史数据）。若目标部署已有此类数据，客户端应过滤后重新上传。
+
+### 验证与未验证
+
+已验证（Windows 11，.NET SDK 10.0.300）：
+
+- `dotnet build server/Mosaic.Server.sln`：0 警告 0 错误。
+- `dotnet test server/Mosaic.Server.sln`：80 个用例全部通过，新增覆盖会话列表与 `current` 标记、单会话撤销后 `auth.session_revoked`、`revoke-all` 的 `keepCurrent` 分支、账户删除的密码与验证码路径、错误密码/验证码 `auth.reauth_required`、删除后用户/备份级联为 0 且审计不含邮箱、设备 `verificationUriComplete` 与信息查询、`slow_down` 与时钟推进后的恢复、备份 `serverRevision`/`cursor`、备份与同步的设置白名单、历史清理后的 `410 sync.cursor_invalid` 以及 `cursor=floor` 可继续拉取。
+
+未验证：
+
+- 真实桌面客户端对新增 `auth.session_revoked`/`auth.reauth_required`/`slow_down`/410 的实际处理（服务端行为已测，客户端映射需桌面会话确认）。
+- 长时间运行下 `sync_floor` 水位推进与客户端“先恢复快照再增量”的完整链路（仅在小时间窗内用假时钟验证）。
+- 0.1.0 数据库升级到 0.1.1 的真实二进制启动验证（迁移由测试的幂等迁移用例覆盖，但未用 0.1.0 生成的库文件实测）。

@@ -10,7 +10,7 @@ public sealed class BackupTests
         items = new object[]
         {
             new { kind = "task", key = "task-1", revision = 3, payload = new { title = "写周报", done = false } },
-            new { kind = "setting", key = "theme", revision = 1, payload = new { mode = "dark" } },
+            new { kind = "setting", key = "appearance.theme", revision = 1, payload = new { mode = "dark" } },
         },
     };
 
@@ -89,6 +89,54 @@ public sealed class BackupTests
             items = new[] { new { kind = "task", key = "task-9", revision = 1, payload = new { title = "x" } } },
         }, intruderToken);
         Assert.Equal(HttpStatusCode.NotFound, badBase.StatusCode);
+    }
+
+    [Fact]
+    public async Task Snapshots_report_the_sync_position_they_cover()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var (_, _, session) = await host.RegisterAsync();
+        var token = TestServerHost.AccessToken(session);
+
+        var push = await host.PostAsync("/v1/sync/changes", new
+        {
+            deviceId = "device-1",
+            kind = "task",
+            key = "task-1",
+            payload = new { title = "A" },
+            deleted = false,
+            baseServerRevision = 0,
+            clientRevision = 1,
+            idempotencyKey = "key-1",
+        }, token);
+        Assert.Equal(HttpStatusCode.OK, push.StatusCode);
+
+        var upload = await TestServerHost.JsonAsync(await host.PutAsync("/v1/backups", TwoItemBackup(), token));
+        Assert.Equal(1, upload.GetProperty("serverRevision").GetInt64());
+        Assert.Equal("1", upload.GetProperty("cursor").GetString());
+
+        var snapshotId = upload.GetProperty("snapshotId").GetString()!;
+        var latest = await TestServerHost.JsonAsync(await host.GetAsync("/v1/backups/latest", token));
+        Assert.Equal(1, latest.GetProperty("serverRevision").GetInt64());
+        Assert.Equal("1", latest.GetProperty("cursor").GetString());
+        var download = await TestServerHost.JsonAsync(await host.GetAsync($"/v1/backups/{snapshotId}", token));
+        Assert.Equal("1", download.GetProperty("cursor").GetString());
+    }
+
+    [Fact]
+    public async Task Non_portable_settings_are_rejected()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var (_, _, session) = await host.RegisterAsync();
+        var token = TestServerHost.AccessToken(session);
+
+        var response = await host.PutAsync("/v1/backups", new
+        {
+            deviceId = "device-1",
+            items = new[] { new { kind = "setting", key = "machine.path", revision = 1, payload = new { value = "x" } } },
+        }, token);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("backup.invalid", TestServerHost.ErrorCode(await TestServerHost.JsonAsync(response)));
     }
 
     [Fact]

@@ -7,7 +7,7 @@ namespace Mosaic.Server.Auth;
 
 public static class AuthSupport
 {
-    public static async Task<SessionUser> RequireUserAsync(HttpContext http, SessionService sessions)
+    public static async Task<SessionPrincipal> RequirePrincipalAsync(HttpContext http, SessionService sessions)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(sessions);
@@ -18,8 +18,21 @@ public static class AuthSupport
         }
 
         var token = header["Bearer ".Length..].Trim();
-        var user = await sessions.AuthenticateAsync(token, http.RequestAborted).ConfigureAwait(false);
-        return user ?? throw new ApiException(401, "auth.required", "登录已过期，请重新登录。");
+        return await sessions.AuthenticateAsync(token, http.RequestAborted).ConfigureAwait(false);
+    }
+
+    public static async Task<SessionUser> RequireUserAsync(HttpContext http, SessionService sessions) =>
+        (await RequirePrincipalAsync(http, sessions).ConfigureAwait(false)).User;
+
+    /// <summary>
+    /// True when the request carries a body. Chunked uploads have no Content-Length,
+    /// so callers must also look at Transfer-Encoding instead of trusting the length.
+    /// </summary>
+    public static bool HasBody(HttpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return request.ContentLength is > 0
+            || request.Headers.TransferEncoding.Count > 0;
     }
 
     public static string IpHash(HttpContext http, SecretHasher hasher) =>
@@ -39,6 +52,20 @@ public static class AuthSupport
         return label.Length is 0 or > 120 ? "桌面客户端" : label;
     }
 
+    public static string SanitizeShort(string? value, int maxLength = 40)
+    {
+        var text = (value ?? string.Empty).Trim();
+        foreach (var character in text)
+        {
+            if (char.IsControl(character))
+            {
+                return string.Empty;
+            }
+        }
+
+        return text.Length > maxLength ? text[..maxLength] : text;
+    }
+
     public static object SessionJson(SessionTokens tokens)
     {
         ArgumentNullException.ThrowIfNull(tokens);
@@ -48,7 +75,10 @@ public static class AuthSupport
             refreshToken = tokens.RefreshToken,
             accessTokenExpiresAt = TimeFormat.Iso(tokens.AccessExpiresAt),
             refreshTokenExpiresAt = TimeFormat.Iso(tokens.RefreshExpiresAt),
+            expiresIn = tokens.AccessExpiresIn,
             user = UserJson(tokens.User),
+            // Compatibility view for clients that read the device-account shape.
+            account = AccountFields(tokens.User),
         };
     }
 
@@ -63,6 +93,27 @@ public static class AuthSupport
             emailVerifiedAt = TimeFormat.Iso(user.EmailVerifiedAt),
         };
     }
+
+    public static object AccountJson(SessionUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        return new
+        {
+            userId = user.Id,
+            email = user.Email,
+            displayName = (string?)null,
+            createdAt = TimeFormat.Iso(user.CreatedAt),
+            emailVerifiedAt = TimeFormat.Iso(user.EmailVerifiedAt),
+            user = UserJson(user),
+        };
+    }
+
+    private static object AccountFields(SessionUser user) => new
+    {
+        userId = user.Id,
+        email = user.Email,
+        displayName = (string?)null,
+    };
 
     public static void LogEvent(
         ILogger logger,
@@ -88,11 +139,20 @@ public static class AuthSupport
 
 public sealed record EmailCodeRequest(string? Email, string? Purpose);
 
-public sealed record RegisterRequest(string? Email, string? Password, string? Code, string? DeviceLabel);
+public sealed record RegisterRequest(
+    string? Email,
+    string? Password,
+    string? Code,
+    string? DeviceLabel,
+    string? Platform);
 
-public sealed record LoginRequest(string? Email, string? Password, string? DeviceLabel);
+public sealed record LoginRequest(string? Email, string? Password, string? DeviceLabel, string? Platform);
 
-public sealed record CodeLoginRequest(string? Email, string? Code, string? DeviceLabel);
+public sealed record CodeLoginRequest(
+    string? Email,
+    string? Code,
+    string? DeviceLabel,
+    string? Platform);
 
 public sealed record RefreshRequest(string? RefreshToken);
 
@@ -100,4 +160,12 @@ public sealed record LogoutRequest(string? RefreshToken, bool? AllDevices);
 
 public sealed record ForgotPasswordRequest(string? Email);
 
-public sealed record ResetPasswordRequest(string? Email, string? Code, string? NewPassword);
+public sealed record ResetPasswordRequest(
+    string? Email,
+    string? Code,
+    string? NewPassword,
+    string? Password);
+
+public sealed record AccountDeleteRequest(string? Password, string? Code);
+
+public sealed record RevokeAllSessionsRequest(bool? KeepCurrent);

@@ -127,10 +127,14 @@ public static class ApiPipeline
             var node = JsonSerializer.SerializeToNode(details);
             if (node is JsonObject extra)
             {
+                // Frozen envelope: details live under "details"; the same members stay
+                // at the root for clients written against the 0.1.0 shape.
                 foreach (var pair in extra)
                 {
                     payload[pair.Key] = pair.Value?.DeepClone();
                 }
+
+                payload["details"] = extra.DeepClone();
             }
         }
 
