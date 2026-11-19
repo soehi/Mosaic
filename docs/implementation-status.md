@@ -1,5 +1,17 @@
 # Mosaic：实施与验证记录
 
+## 0.16.3：安装包自带配置修复——每次启动自动补齐缺失的模块能力绑定（2026-11-19）
+
+- 根因位置：`src/Mosaic.Desktop/AppConfiguration.cs` `Load`——读取 appsettings.json 的 `modules`/`providers` 后未与内置默认绑定合并就交给装配校验。模块升级新增能力时（如 0.16.0 新增 `tasks.transfer-repository@1`），既有安装的旧配置缺这条绑定，除非恰好写了补绑定迁移，否则 `src/Mosaic.Kernel/ModuleGraph.cs` `ModuleGraph.Resolve`（:20-21）启动时抛 `Provider binding is missing or incompatible: …`（0.16.2 的 `ApplyAuthSyncMigration` 只补了那一次的两条，机制上仍依赖「每次新增能力都记得写迁移」）。
+- 改动位置：
+  - `src/Mosaic.Desktop/AppConfiguration.cs`：`Load` 在首次 `ValidateCoreConfiguration` 前调用新增的 `RepairProviderBindings`；该方法按生效层（`settings.host.modules`/`settings.host.providers` 覆盖优先，否则顶层）读取模块与绑定，对每个已启用且在内置目录（`BuiltInModuleCatalog.Definitions`）中的模块，用其 manifest `Provides` 以 `TryAdd` 补齐缺失绑定——显式绑定保留、未知模块交给既有声明校验、禁用模块不产生孤儿绑定；有覆盖层写回 `settings.host.providers`，无覆盖写回顶层；无缺失不写盘，有补齐走既有 `WriteConfiguration`（含 `.pre-migration` 备份）。MSI Repair/重装不触碰配置目录，修复后首次启动即补齐，WiX 无需改动。
+  - `tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs`：新增 `Startup_repairs_capability_bindings_missing_from_an_upgraded_configuration`（top/both/modules/providers 4 场景：全部迁移已应用、缺 transfer 两条与 `sync.api@1`，断言自愈写回正确生效层、`.pre-migration` 等于原文、进程保持运行）；新增 `Healthy_configuration_keeps_its_bindings_and_file_untouched`（健康配置 Load 后文件逐字节不变、无备份文件）；新增 `Repair_preserves_explicit_bindings_and_skips_disabled_modules`（显式绑定保留、缺失补齐、禁用模块无孤儿绑定）；更新 `Configuration_presence_migration_is_validated_persisted_and_one_time` 的 `already-migrated-disabled` 场景为「只发生自愈补齐、迁移标记不变」。
+  - `Directory.Build.props`（0.16.3）、`build/installer/Mosaic.Installer.wixproj`（ProductVersion 0.16.3）、`docs/releases/v0.16.3.md`、`docs/releases/v0.16.3-files.md`、`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`（第 29 条，`previousReleaseId=mosaic-0.16.2`）、`README.md`。
+- 安装/修复验收项：模拟旧版配置（缺新增绑定）升级启动自动补齐并成功启动（4 场景 Smoke 覆盖，含覆盖层组合）；用户自定义绑定不被覆盖；禁用模块不产生孤儿绑定；MSI Repair/重装后首次启动同样补齐（安装器本就不写配置，启动即自愈）。新模块的启用仍由迁移负责，自愈不会静默启用任何模块。
+- 验证：Release 全量测试 354 项全绿（exit 0，含 SmokeTests 42 项：新增 3 个自愈测试 + 4 场景进程级验收 + presence 迁移场景更新，针对 `artifacts/local-run` 0.16.3 构建运行）；发布核验 `release_content_verify.py` PASS（29 条索引，指纹 `ED06CAC492A0BB6D58279F6612136CDF3B9C14D1AE28748C3680B28F5E64C68D`）、`verify-published` PASS。
+- 安装包：`artifacts/installer/Mosaic-0.16.3-win-x64.msi`（52,105,588 字节，SHA-256 `42E809211788CEE2F11AC339555FE2AE679A3C2E2BFD80B5B3586B80DFD39553`）。
+- 未验证项：见 0.16.2 小节（MSI 实际安装/卸载、依赖真实指针的既有 Smoke 场景）。
+
 ## 0.16.2：修复 ≤0.15.3 升级安装无法启动——auth-sync 迁移缺任务传输绑定（2026-11-19）
 
 - 根因位置：`src/Mosaic.Desktop/AppConfiguration.cs` `ApplyAuthSyncMigration`（0.16.0 版 :207-234）——`auth-sync-v1` 迁移为既有安装注册 auth/sync 五条绑定时，遗漏了同一提交（d0ccccd）随任务传输流水线新增的 `tasks.transfer-repository@1`（`src/Modules/Storage/Mosaic.Tasks.Sqlite/TasksSqliteModule.cs:15` Provides）与 `tasks.transfer@1`（`src/Modules/Tasks/Mosaic.Tasks.Core/TasksModule.cs:40` Provides）；仓库内 `src/Mosaic.Desktop/appsettings.json` 顶层 `providers` 表同样缺这两条。`src/Mosaic.Kernel/ModuleGraph.cs` `ModuleGraph.Resolve`（:20-21）要求每个 Provides 能力都有指向该模块的绑定，因此从 ≤0.15.3 升级的既有安装（providers 仅 14 条）启动解析时抛 `Provider binding is missing or incompatible: tasks.transfer-repository@1`，以「模块依赖或能力绑定无效」弹窗退出。0.16.0 即携带该缺陷（全新安装的仓库配置也缺绑定），但 0.16.0/0.16.1 发布时桌面 Smoke 未重跑、实机安装未验证，未暴露。

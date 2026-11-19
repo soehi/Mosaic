@@ -204,8 +204,17 @@ public sealed partial class DesktopTests
             }
             if (scenario == "already-migrated-disabled")
             {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-                Assert.Equal(original, File.ReadAllText(configPath));
+                // All four migration markers are already present, so no migration may run again;
+                // the only permitted change is the startup self-heal re-adding desktop.presence@1
+                // from the enabled desktop-presence module's manifest.
+                await UntilCondition(() => File.ReadAllText(configPath).Contains("desktop.presence@1", StringComparison.Ordinal),
+                    "Startup repair did not add the desktop.presence@1 binding");
+                using var healedDocument = JsonDocument.Parse(File.ReadAllText(configPath));
+                Assert.Equal("desktop-presence",
+                    healedDocument.RootElement.GetProperty("providers").GetProperty("desktop.presence@1").GetString());
+                var applied = healedDocument.RootElement.GetProperty("appliedMigrations")
+                    .EnumerateArray().Select(item => item.GetString()).ToArray();
+                Assert.Equal(4, applied.Length);
                 return;
             }
 
@@ -307,6 +316,80 @@ public sealed partial class DesktopTests
             await UntilCondition(() => !process.HasExited && !string.IsNullOrEmpty(process.MainWindowTitle), "Process exited after auth-sync migration");
         }
         finally{Cleanup(process);}
+    }
+
+    [Theory]
+    [InlineData("top")]
+    [InlineData("both")]
+    [InlineData("modules")]
+    [InlineData("providers")]
+    public async Task Startup_repairs_capability_bindings_missing_from_an_upgraded_configuration(string scenario)
+    {
+        // The binding repair runs on every launch, independent of migration markers, so a module
+        // upgrade that adds a Provided capability can no longer brick existing installations (the
+        // 0.16.0 tasks.transfer-* incident). Every migration is already marked applied here: only
+        // the always-on repair may fill the gaps.
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        var modules=config["modules"].Deserialize<string[]>()!;
+        var providers=config["providers"].Deserialize<Dictionary<string,string>>()!;
+        providers.Remove("tasks.transfer-repository@1");providers.Remove("tasks.transfer@1");providers.Remove("sync.api@1");
+        config["providers"]=JsonSerializer.SerializeToElement(providers);
+        var settings=new Dictionary<string,object>();
+        if(scenario is "both" or "modules")settings["host.modules"]=modules;
+        if(scenario is "both" or "providers")settings["host.providers"]=providers;
+        config["settings"]=JsonSerializer.SerializeToElement(settings);
+        File.WriteAllText(path,JsonSerializer.Serialize(config));var before=File.ReadAllText(path);
+        using var process=StartExisting(root,hidden:true);
+        try
+        {
+            await UntilCondition(()=>File.ReadAllText(path).Contains("tasks.transfer-repository@1",StringComparison.Ordinal),"Provider binding repair not persisted");
+            using var doc=JsonDocument.Parse(File.ReadAllText(path));var json=doc.RootElement;
+            var effective=scenario is "both" or "modules" or "providers"
+                ? json.GetProperty("settings").GetProperty("host.providers")
+                : json.GetProperty("providers");
+            Assert.Equal("tasks-sqlite",effective.GetProperty("tasks.transfer-repository@1").GetString());
+            Assert.Equal("tasks-core",effective.GetProperty("tasks.transfer@1").GetString());
+            Assert.Equal("sync-core",effective.GetProperty("sync.api@1").GetString());
+            Assert.Equal(before,File.ReadAllText(path+".pre-migration"));
+            await UntilCondition(() => !process.HasExited && !string.IsNullOrEmpty(process.MainWindowTitle), "Process exited after provider binding repair");
+        }
+        finally{Cleanup(process);}
+    }
+
+    [Fact]
+    public void Healthy_configuration_keeps_its_bindings_and_file_untouched()
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var original=File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json"));
+        File.WriteAllText(path,original);
+        var configuration=AppConfiguration.Load(new AppPaths(root));
+        Assert.Equal("tasks-sqlite",configuration.Providers["tasks.transfer-repository@1"]);
+        Assert.Equal(original,File.ReadAllText(path));
+        Assert.False(File.Exists(path+".pre-migration"));
+    }
+
+    [Fact]
+    public void Repair_preserves_explicit_bindings_and_skips_disabled_modules()
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        var modules=config["modules"].Deserialize<string[]>()!
+            .Where(id=>id is not ("auth-http" or "auth-windows" or "auth-core" or "sync-http" or "sync-core" or "auth-ui")).ToArray();
+        var providers=config["providers"].Deserialize<Dictionary<string,string>>()!
+            .Where(item=>!item.Key.StartsWith("auth.",StringComparison.Ordinal)&&!item.Key.StartsWith("sync.",StringComparison.Ordinal)).ToDictionary();
+        providers.Remove("tasks.changes@1");
+        config["modules"]=JsonSerializer.SerializeToElement(modules);
+        config["providers"]=JsonSerializer.SerializeToElement(providers);
+        File.WriteAllText(path,JsonSerializer.Serialize(config));
+        var configuration=AppConfiguration.Load(new AppPaths(root));
+        Assert.Equal("tasks-core",configuration.Providers["tasks.changes@1"]);
+        Assert.Equal("floating-windows-sqlite",configuration.Providers["floating.repository@1"]);
+        // Capabilities of modules the user disabled must not gain orphan bindings.
+        Assert.DoesNotContain("auth.transport@1",configuration.Providers.Keys);
+        Assert.DoesNotContain("sync.api@1",configuration.Providers.Keys);
+        using var doc=JsonDocument.Parse(File.ReadAllText(path));
+        Assert.Equal("tasks-core",doc.RootElement.GetProperty("providers").GetProperty("tasks.changes@1").GetString());
     }
 
     [Theory]

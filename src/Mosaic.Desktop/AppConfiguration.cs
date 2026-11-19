@@ -39,6 +39,7 @@ internal sealed record AppConfiguration(
         if (configuration is null) throw new ConfigurationException("配置根必须是 JSON 对象。");
         var original = configuration;
         var appliedMigrations = configuration.AppliedMigrations ?? [];
+        configuration = RepairProviderBindings(configuration);
         ValidateCoreConfiguration(configuration,
             validateDependencies: KnownMigrations.All(id => appliedMigrations.Contains(id, StringComparer.Ordinal)));
 
@@ -94,6 +95,43 @@ internal sealed record AppConfiguration(
             : HostConfigurationValidator.ValidateDeclarations(modules, providers);
         if (!validation.IsSuccess)
             throw new ConfigurationException(validation.Error!.Message);
+    }
+
+    // Runs on every launch, independent of migration markers: a module upgrade that adds a Provided
+    // capability would otherwise break every existing installation until someone shipped a matching
+    // migration (0.16.0 shipped tasks.transfer-repository@1 / tasks.transfer@1 with no binding, and
+    // installs upgraded from ≤0.15.3 failed to start with "Provider binding is missing or
+    // incompatible"). Bindings are derivable from the built-in manifests, so fill in any capability
+    // of an enabled module that has no binding. Existing entries are never overwritten: a binding
+    // the user set explicitly wins even when it deliberately differs from the built-in default.
+    private static AppConfiguration RepairProviderBindings(AppConfiguration configuration)
+    {
+        // Shape errors (null lists) surface through ValidateCoreConfiguration with the usual message.
+        if (configuration is not { Modules: not null, Providers: not null }) return configuration;
+        var settings = configuration.Settings is null
+            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            : new Dictionary<string, JsonElement>(configuration.Settings, StringComparer.Ordinal);
+        var overrideModules = settings.ContainsKey("host.modules");
+        var overrideProviders = settings.ContainsKey("host.providers");
+        var modules = ReadModuleOverride(configuration) ?? configuration.Modules;
+        var providers = new Dictionary<string, string>(ReadProviderOverride(configuration) ?? configuration.Providers, StringComparer.Ordinal);
+        var changed = false;
+        foreach (var moduleId in modules)
+        {
+            // Unknown module ids are reported by declaration validation; nothing to derive here.
+            if (!BuiltInModuleCatalog.Definitions.TryGetValue(moduleId, out var definition)) continue;
+            foreach (var capability in definition.Provides)
+                changed |= providers.TryAdd(capability.ToString(), definition.Id);
+        }
+        if (!changed) return configuration;
+        if (overrideModules || overrideProviders)
+            settings["host.providers"] = JsonSerializer.SerializeToElement(providers);
+        return configuration with
+        {
+            Modules = overrideModules ? configuration.Modules : modules,
+            Providers = overrideModules || overrideProviders ? configuration.Providers : providers,
+            Settings = settings
+        };
     }
 
     private static AppConfiguration ApplyPresenceMigration(AppConfiguration configuration)
