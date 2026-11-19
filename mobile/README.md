@@ -70,5 +70,6 @@ iOS 构建需要 macOS + Xcode 签名环境。
 
 - [实施记录](docs/implementation-status.md)
 - [协议对齐与待确认项](docs/protocol-conflicts.md)
+- [Mosaic Mobile 0.1.1 发布说明](docs/releases/v0.1.1.md)
 - 共享协议：[docs/auth-sync-server-plan.md](../docs/auth-sync-server-plan.md)
 - 手机端规划：[docs/mobile-auth-sync-plan.md](../docs/mobile-auth-sync-plan.md)

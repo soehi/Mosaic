@@ -687,5 +687,5 @@ public static class MobileDeviceInfo
 
     public static string DeviceName { get; set; } = "phone";
 
-    public static string AppVersion { get; set; } = "0.1.0";
+    public static string AppVersion { get; set; } = "0.1.1";
 }

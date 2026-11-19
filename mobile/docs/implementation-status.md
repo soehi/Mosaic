@@ -102,6 +102,8 @@
 
 已在本机执行并通过：
 
+- 版本号：`mobile/Directory.Build.props`、`ApplicationDisplayVersion`、`CFBundleShortVersionString`、`MauiProgram`/`MobileDeviceInfo` 回退值统一为 `0.1.1`（构建号 2）。
+- 发布材料：`mobile/docs/releases/v0.1.1.md`；Android 打包脚本骨架 `mobile/build/package-android.ps1`（仅通过语法校验，未执行）。
 - `dotnet build mobile/Mosaic.Mobile.Core.slnf`：0 警告、0 错误。
 - `dotnet test` 四个测试工程：Wire 21、Auth 71、Sync 37、Presentation 14，共 143 项全部通过。
 - 未修改 `src/`、`tests/`、`build/`、`server/`；文档只更新 `docs/mobile-auth-sync-plan.md` 与 `mobile/docs/`。

@@ -25,7 +25,7 @@ public static class MauiProgram
 
     private static void ConfigureDeviceFacts()
     {
-        var version = "0.1.0";
+        var version = "0.1.1";
         try
         {
             version = AppInfo.Current.VersionString;
