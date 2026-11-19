@@ -105,6 +105,13 @@ public static class ServerApplication
         }
 
         var app = builder.Build();
+        if (Uri.TryCreate(options.PublicUrl, UriKind.Absolute, out var publicUri) && publicUri.IsLoopback)
+        {
+            app.Logger.LogWarning(
+                "MOSAIC_PUBLIC_URL 指向本机地址 {PublicUrl}：设备授权链接只能在服务器本机打开；公网部署请把它设置为对外可访问的 HTTPS 地址。",
+                options.PublicUrl);
+        }
+
         if (options.TrustedProxies.Length > 0)
         {
             app.UseForwardedHeaders();

@@ -3,6 +3,8 @@ namespace Mosaic.Server.Pages;
 /// <summary>
 /// Built-in browser page for the device flow. It is deliberately dependency-free
 /// (no external scripts, fonts or images) so the deployment needs no web assets.
+/// The page also hosts registration, email-code login and password reset, so the
+/// desktop client never needs to render those forms itself.
 /// </summary>
 public static class DevicePage
 {
@@ -85,8 +87,12 @@ public static class DevicePage
   .account b { color: var(--text); }
   .actions { display: flex; gap: 10px; margin-top: 18px; }
   .actions .primary { margin-top: 0; }
-  .link { background: none; border: 0; color: var(--accent-2); padding: 8px 0 0; font-size: 13px; cursor: pointer; }
+  .link { display: block; background: none; border: 0; color: var(--accent-2); padding: 8px 0 0; font-size: 13px; cursor: pointer; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .code-block { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .code-block label { margin-top: 0; }
+  .code-block .hint { margin-top: 6px; }
+  .policy { color: var(--muted); font-size: 12px; margin-top: 12px; }
   .done { text-align: center; padding: 8px 0 4px; }
   .done .tick {
     width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%;
@@ -104,12 +110,15 @@ public static class DevicePage
   </div>
 
   <div class="card">
-    <div id="authView">
-      <h1>授权桌面客户端</h1>
-      <p class="sub">登录你的 Mosaic 账号，然后确认授权。授权码只会显示在你的桌面应用窗口里。</p>
-
+    <div class="code-block" id="codeBlock">
       <label for="codeInput">授权码</label>
       <input id="codeInput" class="code-input" maxlength="9" placeholder="XXXX-XXXX" autocomplete="off" spellcheck="false">
+      <p class="hint">桌面应用窗口会显示授权码；先填写，再登录或创建账号。</p>
+    </div>
+
+    <div id="authView">
+      <h1>授权桌面客户端</h1>
+      <p class="sub">登录或创建账号，然后确认授权。注册、验证码与密码管理都在本页面完成。</p>
 
       <div class="tabs" role="tablist">
         <button id="tabLogin" class="active" type="button">登录</button>
@@ -122,6 +131,7 @@ public static class DevicePage
         <label for="loginPassword">密码</label>
         <input id="loginPassword" type="password" autocomplete="current-password" placeholder="至少 10 个字符">
         <button class="primary" id="loginButton" type="submit">登录并继续</button>
+        <button class="link" id="forgotPassword" type="button">忘记密码？</button>
         <button class="link" id="useCodeLogin" type="button">使用邮箱验证码登录</button>
       </form>
 
@@ -152,14 +162,38 @@ public static class DevicePage
         <button class="primary" id="registerButton" type="submit">创建账号并继续</button>
       </form>
 
+      <p id="policyHint" class="policy" hidden></p>
       <p id="message" class="message" aria-live="polite"></p>
+    </div>
+
+    <div id="resetView" hidden>
+      <h1>重置密码</h1>
+      <p class="sub">填写账号邮箱并获取验证码，验证后设置新密码。为保护账号，重置会退出所有已登录设备。</p>
+      <form id="resetForm">
+        <label for="resetEmail">邮箱</label>
+        <input id="resetEmail" type="email" autocomplete="username" placeholder="you@example.com">
+        <label for="resetCode">邮箱验证码</label>
+        <div class="row">
+          <input id="resetCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字">
+          <button class="ghost" id="sendResetCode" type="button">获取验证码</button>
+        </div>
+        <label for="resetPassword">新密码</label>
+        <input id="resetPassword" type="password" autocomplete="new-password" placeholder="至少 10 个字符">
+        <label for="resetConfirm">确认新密码</label>
+        <input id="resetConfirm" type="password" autocomplete="new-password" placeholder="再次输入新密码">
+        <button class="primary" id="resetButton" type="submit">重置密码</button>
+        <button class="link" id="backToLogin" type="button">返回登录</button>
+      </form>
+      <p id="resetMessage" class="message" aria-live="polite"></p>
     </div>
 
     <div id="approveView" hidden>
       <h1>确认授权</h1>
       <p class="sub">确认后，该桌面客户端会获得你的账号访问权限，可在设置中随时退出登录。</p>
       <div class="account">正在授权的账号：<b id="accountEmail">-</b></div>
+      <div class="account">应用：<b id="deviceInfo">-</b></div>
       <div class="account">授权码：<b id="approveCode">-</b></div>
+      <div class="account">剩余时间：<b id="approveExpiry">-</b></div>
       <div class="actions">
         <button class="primary" id="approveButton" type="button">确认授权</button>
         <button class="danger" id="denyButton" type="button">拒绝</button>
@@ -183,16 +217,15 @@ public static class DevicePage
 <script>
 (() => {
   "use strict";
-  const state = { token: null, email: null, code: "" };
+  const state = { token: null, email: null, code: "", policy: null, expiresAt: null };
+  let expiryTimer = null;
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
-  const initialCode = (params.get("code") || "").toUpperCase();
-  if (initialCode) { $("codeInput").value = initialCode; state.code = initialCode; }
 
-  function showMessage(text, kind) {
-    const el = $("message");
-    el.textContent = text || "";
-    el.className = "message" + (kind ? " " + kind : "");
+  function setCodeValue(raw) {
+    const clean = (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+    $("codeInput").value = clean.length > 4 ? clean.slice(0, 4) + "-" + clean.slice(4) : clean;
+    state.code = $("codeInput").value;
   }
 
   function currentCode() {
@@ -201,10 +234,32 @@ public static class DevicePage
     return value;
   }
 
-  async function request(path, body, token) {
-    const headers = { "content-type": "application/json" };
+  function showView(name) {
+    $("authView").hidden = name !== "auth";
+    $("resetView").hidden = name !== "reset";
+    $("approveView").hidden = name !== "approve";
+    $("doneView").hidden = name !== "done";
+    $("codeBlock").hidden = name === "done";
+  }
+
+  function setMessage(el, text, kind) {
+    el.textContent = text || "";
+    el.className = "message" + (kind ? " " + kind : "");
+  }
+
+  function showMessage(text, kind) { setMessage($("message"), text, kind); }
+  function showResetMessage(text, kind) { setMessage($("resetMessage"), text, kind); }
+  function showApproveMessage(text, kind) { setMessage($("approveMessage"), text, kind); }
+
+  async function request(path, body, token, method) {
+    const headers = {};
+    const init = { method: method || "POST", headers };
+    if (body !== null && body !== undefined) {
+      headers["content-type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
     if (token) headers.authorization = "Bearer " + token;
-    const response = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
+    const response = await fetch(path, init);
     let data = null;
     const text = await response.text();
     if (text) { try { data = JSON.parse(text); } catch { data = null; } }
@@ -236,18 +291,99 @@ public static class DevicePage
     tick();
   }
 
-  async function sendCode(purpose, emailInput, button) {
+  async function sendCode(purpose, emailInput, button, show) {
     const email = (emailInput.value || "").trim();
-    if (!email) { showMessage("请先填写邮箱。", "error"); return; }
+    if (!email) { show("请先填写邮箱。", "error"); return; }
     setBusy(button, true, "发送中…");
     try {
       const data = await request("/v1/auth/email-code", { email, purpose });
       const wait = data && data.resendAfterSeconds ? data.resendAfterSeconds : 60;
       countdown(button, wait);
-      showMessage("验证码已发送，请检查邮箱。", "ok");
+      show(purpose === "reset"
+        ? "如果该邮箱已注册，验证码会发送到邮箱。"
+        : "验证码已发送，请检查邮箱。", "ok");
     } catch (error) {
       setBusy(button, false);
-      showMessage(error.message, "error");
+      show(error.message, "error");
+    }
+  }
+
+  async function loadPolicy() {
+    try {
+      const policy = await request("/v1/auth/policy", null, null, "GET");
+      state.policy = policy;
+      const notes = [];
+      if (policy.serverName) notes.push("服务器：" + policy.serverName);
+      if (policy.registrationOpen === false) notes.push("注册已关闭");
+      if (policy.emailAvailable === false) notes.push("邮件验证码暂不可用，请使用密码登录");
+      if (notes.length) {
+        $("policyHint").textContent = notes.join(" · ");
+        $("policyHint").hidden = false;
+      }
+      if (policy.registrationOpen === false) {
+        $("tabRegister").hidden = true;
+        switchTab("login");
+      }
+    } catch (error) {
+      // The page keeps working when policy information is unavailable.
+    }
+  }
+
+  function renderExpiry() {
+    const el = $("approveExpiry");
+    if (!state.expiresAt) { el.textContent = "-"; return; }
+    const left = Math.max(0, Math.round((state.expiresAt - Date.now()) / 1000));
+    if (left <= 0) {
+      el.textContent = "已过期";
+      $("approveButton").disabled = true;
+      $("denyButton").disabled = true;
+      if (expiryTimer) { clearInterval(expiryTimer); expiryTimer = null; }
+      return;
+    }
+
+    const minutes = Math.floor(left / 60);
+    const seconds = left % 60;
+    el.textContent = minutes > 0 ? minutes + " 分 " + seconds + " 秒" : seconds + " 秒";
+  }
+
+  function startExpiry(expiresAt) {
+    state.expiresAt = Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : null;
+    if (expiryTimer) { clearInterval(expiryTimer); expiryTimer = null; }
+    if (state.expiresAt) {
+      $("approveButton").disabled = false;
+      $("denyButton").disabled = false;
+      renderExpiry();
+      expiryTimer = setInterval(renderExpiry, 1000);
+    } else {
+      $("approveExpiry").textContent = "-";
+    }
+  }
+
+  function stopExpiry() {
+    state.expiresAt = null;
+    if (expiryTimer) { clearInterval(expiryTimer); expiryTimer = null; }
+    $("approveExpiry").textContent = "-";
+  }
+
+  async function updateDeviceInfo() {
+    const code = currentCode();
+    if (!state.token || !code) {
+      $("deviceInfo").textContent = "-";
+      stopExpiry();
+      return;
+    }
+    $("deviceInfo").textContent = "查询中…";
+    try {
+      const info = await request(
+        "/v1/device/info?userCode=" + encodeURIComponent(code), null, state.token, "GET");
+      const label = info.deviceLabel || "未知设备";
+      const extras = [info.platform, info.appVersion].filter(Boolean).join(" / ");
+      $("deviceInfo").textContent = extras ? label + "（" + extras + "）" : label;
+      startExpiry(Date.parse(info.expiresAt));
+    } catch (error) {
+      $("deviceInfo").textContent = "-";
+      stopExpiry();
+      showApproveMessage(error.message, "error");
     }
   }
 
@@ -255,19 +391,18 @@ public static class DevicePage
     state.token = session.accessToken;
     state.email = session.user.email;
     $("accountEmail").textContent = session.user.email;
+    showView("approve");
+    stopExpiry();
     $("approveCode").textContent = currentCode() || "未填写";
-    $("authView").hidden = true;
-    $("approveView").hidden = false;
-    if (!currentCode()) { showApproveMessage("请先填写桌面应用上显示的授权码。", "error"); }
-  }
-
-  function showApproveMessage(text, kind) {
-    const el = $("approveMessage");
-    el.textContent = text || "";
-    el.className = "message" + (kind ? " " + kind : "");
+    if (!currentCode()) {
+      showApproveMessage("请先在页面上方填写桌面应用里显示的授权码。", "error");
+    } else {
+      updateDeviceInfo();
+    }
   }
 
   function switchTab(mode) {
+    if (mode === "register" && state.policy && state.policy.registrationOpen === false) mode = "login";
     $("tabLogin").classList.toggle("active", mode === "login");
     $("tabRegister").classList.toggle("active", mode === "register");
     $("loginForm").hidden = mode !== "login";
@@ -284,11 +419,22 @@ public static class DevicePage
   $("usePasswordLogin").addEventListener("click", () => {
     $("loginForm").hidden = false; $("codeLoginForm").hidden = true;
   });
+  $("forgotPassword").addEventListener("click", () => {
+    $("resetEmail").value = $("loginEmail").value || "";
+    showResetMessage("");
+    showView("reset");
+  });
+  $("backToLogin").addEventListener("click", () => {
+    showResetMessage("");
+    showView("auth");
+  });
 
   $("sendRegisterCode").addEventListener("click", () =>
-    sendCode("register", $("registerEmail"), $("sendRegisterCode")));
+    sendCode("register", $("registerEmail"), $("sendRegisterCode"), showMessage));
   $("sendLoginCode").addEventListener("click", () =>
-    sendCode("login", $("codeLoginEmail"), $("sendLoginCode")));
+    sendCode("login", $("codeLoginEmail"), $("sendLoginCode"), showMessage));
+  $("sendResetCode").addEventListener("click", () =>
+    sendCode("reset", $("resetEmail"), $("sendResetCode"), showResetMessage));
 
   $("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -339,17 +485,46 @@ public static class DevicePage
     finally { setBusy(button, false); }
   });
 
+  $("resetForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if ($("resetPassword").value !== $("resetConfirm").value) {
+      showResetMessage("两次输入的新密码不一致。", "error");
+      return;
+    }
+    const button = $("resetButton");
+    setBusy(button, true);
+    try {
+      await request("/v1/auth/reset-password", {
+        email: $("resetEmail").value,
+        code: $("resetCode").value,
+        newPassword: $("resetPassword").value,
+      });
+      state.token = null;
+      state.email = null;
+      $("loginEmail").value = $("resetEmail").value;
+      $("loginPassword").value = "";
+      $("resetCode").value = "";
+      $("resetPassword").value = "";
+      $("resetConfirm").value = "";
+      showResetMessage("");
+      showView("auth");
+      showMessage("密码已重置，请使用新密码登录。", "ok");
+    } catch (error) {
+      showResetMessage(error.message, "error");
+    } finally { setBusy(button, false); }
+  });
+
   $("approveButton").addEventListener("click", async () => {
     const code = currentCode();
-    if (!code) { showApproveMessage("请先填写授权码。", "error"); $("codeInput").focus(); return; }
+    if (!code) { showApproveMessage("请先在页面上方填写授权码。", "error"); $("codeInput").focus(); return; }
     setBusy($("approveButton"), true);
     try {
       await request("/v1/device/approve", { userCode: code }, state.token);
-      $("approveView").hidden = true;
-      $("doneView").hidden = false;
       $("doneTick").textContent = "✓";
       $("doneTitle").textContent = "授权完成";
       $("doneText").textContent = "现在可以返回桌面应用继续使用。";
+      stopExpiry();
+      showView("done");
     } catch (error) {
       showApproveMessage(error.message, "error");
     } finally { setBusy($("approveButton"), false); }
@@ -357,15 +532,15 @@ public static class DevicePage
 
   $("denyButton").addEventListener("click", async () => {
     const code = currentCode();
-    if (!code) { showApproveMessage("请先填写授权码。", "error"); return; }
+    if (!code) { showApproveMessage("请先在页面上方填写授权码。", "error"); return; }
     setBusy($("denyButton"), true);
     try {
       await request("/v1/device/deny", { userCode: code }, state.token);
-      $("approveView").hidden = true;
-      $("doneView").hidden = false;
       $("doneTick").textContent = "×";
       $("doneTitle").textContent = "已拒绝授权";
       $("doneText").textContent = "桌面客户端不会获得你的账号访问权限。";
+      stopExpiry();
+      showView("done");
     } catch (error) {
       showApproveMessage(error.message, "error");
     } finally { setBusy($("denyButton"), false); }
@@ -373,18 +548,34 @@ public static class DevicePage
 
   $("switchAccount").addEventListener("click", () => {
     state.token = null; state.email = null;
-    $("approveView").hidden = true;
-    $("authView").hidden = false;
     $("loginPassword").value = "";
+    $("deviceInfo").textContent = "-";
+    stopExpiry();
     showMessage("");
+    showView("auth");
   });
 
+  let deviceInfoTimer = null;
+  function scheduleDeviceInfo() {
+    if (deviceInfoTimer) clearTimeout(deviceInfoTimer);
+    deviceInfoTimer = setTimeout(updateDeviceInfo, 300);
+  }
+
   $("codeInput").addEventListener("input", (event) => {
-    const raw = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
-    event.target.value = raw.length > 4 ? raw.slice(0, 4) + "-" + raw.slice(4) : raw;
-    state.code = event.target.value;
-    if (state.token) $("approveCode").textContent = currentCode() || "未填写";
+    setCodeValue(event.target.value);
+    if (state.token) {
+      $("approveCode").textContent = currentCode() || "未填写";
+      if (!$("approveView").hidden) scheduleDeviceInfo();
+    }
   });
+
+  setCodeValue(params.get("code") || "");
+  if ((params.get("mode") || "").toLowerCase() === "reset") {
+    showView("reset");
+  } else {
+    showView("auth");
+  }
+  loadPolicy();
 })();
 </script>
 </body>

@@ -198,4 +198,30 @@ public sealed class DeviceFlowTests
             StringComparison.Ordinal);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
     }
+
+    [Fact]
+    public async Task Device_page_hosts_password_reset_and_shared_code_entry()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var html = await (await host.GetAsync("/device")).Content.ReadAsStringAsync();
+
+        Assert.Contains("id=\"forgotPassword\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"resetForm\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"sendResetCode\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"resetPassword\"", html, StringComparison.Ordinal);
+        Assert.Contains("/v1/auth/reset-password", html, StringComparison.Ordinal);
+        Assert.Contains("params.get(\"mode\")", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"policyHint\"", html, StringComparison.Ordinal);
+        Assert.Contains("/v1/auth/policy", html, StringComparison.Ordinal);
+        Assert.Contains("/v1/device/info?userCode=", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"deviceInfo\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"approveExpiry\"", html, StringComparison.Ordinal);
+
+        // The code entry must live outside the auth view, otherwise logging in hides it
+        // and a bare /device visit can never approve the desktop.
+        var codeBlock = html.IndexOf("id=\"codeBlock\"", StringComparison.Ordinal);
+        var authView = html.IndexOf("id=\"authView\"", StringComparison.Ordinal);
+        Assert.True(codeBlock > 0, "code block missing");
+        Assert.True(authView > codeBlock, "code entry must precede and stay outside authView");
+    }
 }

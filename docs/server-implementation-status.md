@@ -182,3 +182,50 @@
 - 真实桌面客户端对新增 `auth.session_revoked`/`auth.reauth_required`/`slow_down`/410 的实际处理（服务端行为已测，客户端映射需桌面会话确认）。
 - 长时间运行下 `sync_floor` 水位推进与客户端“先恢复快照再增量”的完整链路（仅在小时间窗内用假时钟验证）。
 - 0.1.0 数据库升级到 0.1.1 的真实二进制启动验证（迁移由测试的幂等迁移用例覆盖，但未用 0.1.0 生成的库文件实测）。
+
+## 0.1.2（尚未发布、尚未提交）：浏览器登录页补齐注册/重置与共用授权码
+
+用户裁决：桌面登录页不再保留邮箱+密码表单，「在浏览器中登录」直接用系统浏览器打开服务端 `/device`，注册、验证码、密码、忘记密码全部在网站完成。本机版本号仍为 0.1.1（未改 Directory.Build.props），线上 0.1.1 不动。
+
+### 根因位置
+
+- 旧 `/device` 页面只有「登录 / 邮箱验证码登录 / 创建账号」三个表单，没有任何密码重置入口（`server/src/Mosaic.Server/Pages/DevicePage.cs` 重写前的 authView 区块），用户忘记密码时无法在这个唯一授权的浏览器页面自助恢复。
+- 授权码输入框位于 `authView` 内部（重写前的 `DevicePage.cs` 中 `id="codeInput"` 段落），登录成功后 `showView("approve")` 会隐藏整个 `authView`，确认页只有只读文本，导致裸 `/device`（无 `code` 参数）先登录后无法补填授权码，只能点「使用其他账号」退回且丢失登录态。
+- 页面不读取 `GET /v1/auth/policy`，注册关闭时仍显示「创建账号」；确认页也不展示 `GET /v1/device/info` 返回的设备信息，用户无法核对是哪台设备在申请授权。
+- `MOSAIC_PUBLIC_URL` 默认 `http://localhost:5080`（`server/src/Mosaic.Server/ServerOptions.cs:23`），浏览器登录链接会指向服务器本机；此前没有任何提示。
+
+### 改动位置
+
+- `server/src/Mosaic.Server/Pages/DevicePage.cs`（`DevicePage.Html`）：
+  - 结构：新增共用区块 `#codeBlock`（置于 `#authView` 之前，登录前后及确认页都可见）；新增 `#resetView`（邮箱 → `#sendResetCode` → 6 位验证码 → 新密码 + 确认 → `#resetButton`）；确认页新增「应用」行 `#deviceInfo` 与「剩余时间」行 `#approveExpiry`；登录表单新增 `#forgotPassword` 与 `#policyHint`；CSS 新增 `.code-block`/`.policy`，`.link` 改为块级避免两个链接挤在一行。
+  - 脚本函数：`setCodeValue`（统一授权码格式化，供预填、输入、查询复用）、`currentCode`、`showView`（新增 reset 视图并单独控制 `#codeBlock` 显隐）、`setMessage`/`showMessage`/`showResetMessage`/`showApproveMessage`、`request`（支持 GET/POST，读取 `details` 前的 `message`）、`sendCode`（按用途切换防枚举文案，重置用途使用「如果该邮箱已注册…」）、`loadPolicy`（注册关闭隐藏「创建账号」，展示服务器名与邮件可用性）、`updateDeviceInfo`（Bearer 调用 `/v1/device/info?userCode=`，300ms 防抖）、`enterApprove`（登录/注册/验证码登录共用，无授权码时提示回到上方填写）、`renderExpiry`/`startExpiry`/`stopExpiry`（按 `expiresAt` 逐秒倒计时，到期禁用批准/拒绝）、`switchTab`。
+  - 事件：登录、验证码登录、注册、重置（校验两次密码一致；成功后清空 `state.token`/`state.email` 并回登录态）、批准/拒绝、使用其他账号（保留授权码、清除令牌）、授权码输入同步 `#approveCode` 与设备信息查询。
+  - 初始化：`?code=` 预填；`?mode=reset` 直达重置面板；调用 `loadPolicy()`。
+- `server/src/Mosaic.Server/ServerApplication.cs`（`CreateAsync`）：`PublicUrl` 为回环地址时通过 `app.Logger.LogWarning` 提示公网部署需设置对外 HTTPS 地址；仅日志，不改变启动与协议行为。
+- `server/tests/Mosaic.Server.Tests/DeviceFlowTests.cs`：新增 `Device_page_hosts_password_reset_and_shared_code_entry`，断言重置入口/表单/端点、`mode=reset` 处理、策略与设备信息调用，以及 `#codeBlock` 位于 `#authView` 之外且在其之前。
+- `server/README.md`：新增《浏览器登录（`/device` 页面）》小节（`verificationUriComplete` 打开方式、`?code=`/`?mode=reset`、策略与设备信息、`MOSAIC_PUBLIC_URL` 必需配置与启动警告），测试计数更新为 82。
+- `docs/server-implementation-status.md`：本节。
+
+无 API、schema、迁移变化；既有安装升级不需要数据迁移。
+
+### 验证与未验证
+
+已验证：
+
+- `dotnet build server/Mosaic.Server.sln`：0 警告 0 错误；`dotnet test`：82/82 通过。
+- 真实进程 + 浏览器（本地 5080）：`/device?mode=reset&code=` 直达重置面板并预填授权码；`/device` 裸页登录/注册/忘记密码切换正常，授权码区块保持可见；策略行显示「服务器：Mosaic · 邮件验证码暂不可用，请使用密码登录」；空表单登录显示服务端错误文案；未配置 SMTP 时「获取验证码」显示统一 503 文案；两次密码不一致被前端拦截；浏览器控制台无脚本错误。
+
+未验证：
+
+- 真实 SMTP 下的重置邮件投递与整条重置链路（端点本身已有测试，页面仅走同一 API）。
+- 倒计时的真实到期禁用（只做了 HTML/脚本断言与代码核对；需要有效设备码 + 登录态才能端到端观察，未用真实账号走完）。
+- 桌面端「忘记密码」按钮实际打开 `?mode=reset` 的行为（桌面侧尚未接入）。
+- 生产 HTTPS 与真实域名下的 `MOSAIC_PUBLIC_URL` 配置。
+
+### 参考实现核对
+
+对照用户提供的 `D:\Code\jiaojianbox-latest`（`internal/api/auth.go:178-239`）：其 device/start（8 位 XXXX-XXXX、600s、interval=2）、poll 状态机、网页展示应用名/用户码/剩余时间、POST approve 需登录、deviceCode 归一化（去 -/空格、转大写、校验 8 位）均已由 Mosaic 现有实现覆盖；本次仅补齐页面上的「应用名 + 剩余时间」展示与保留「使用其他账号」。未照搬其存储方式：Mosaic 仍只存令牌哈希、设备授权以 AES-GCM 加密一次性交付、`slow_down` 返回 200 状态字段，响应形状与安全增强均按本协议，不采用 Go 版的明文令牌落库与自定义响应。
+
+### 状态
+
+按协调会话要求：未提交、未打 tag、未发布；当前版本号仍为 0.1.1，线上 0.1.1 不变。

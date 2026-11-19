@@ -190,6 +190,17 @@ WantedBy=multi-user.target
 
 授权码为 8 位（`BCDFGHJKLMNPQRSTVWXZ23456789`），显示为 `XXXX-XXXX`，10 分钟有效。`interval` 固定为 2 秒；同一设备码两次 `pending` 轮询间隔小于 `interval` 时返回 `200 {status:"slow_down", interval:2}`，客户端应递增自己的轮询间隔而不是把它当作错误或重试风暴（设备码本身的限流仍由 `429 device.rate_limited` 兜底）。`approved` 后的会话只能领取一次，之后轮询返回 `consumed`。`verificationUri` 为 `{MOSAIC_PUBLIC_URL}/device`，`verificationUriComplete` 带上 `?code=...` 供二维码/链接直接打开。
 
+### 浏览器登录（`/device` 页面）
+
+桌面端「在浏览器中登录」只需调用系统默认浏览器打开服务端返回的 `verificationUriComplete`，窗口里显示授权码并轮询 `/v1/device/poll`；注册、邮箱验证码、密码与忘记密码全部在服务端页面完成，桌面端不再渲染这些表单。
+
+- `GET /device?code=XXXX-XXXX`：预填授权码并停留在登录/注册页；无 `code` 时同样可以先登录或创建账号，页面上方的授权码输入在登录前后都可见，授权码填好后再确认。
+- `GET /device?mode=reset`：直接打开「重置密码」面板（邮箱 → 获取重置验证码 → 新密码 + 确认），供桌面端「忘记密码」按钮打开。重置成功会撤销该账号的全部会话与令牌，页面切回登录态，用户用新密码重新登录。
+- 页面载入时调用 `GET /v1/auth/policy`：展示 `serverName`，注册关闭时隐藏「创建账号」，邮件不可用时提示改用密码登录。
+- 登录后进入确认页，页面用 `GET /v1/device/info?userCode=` 展示发起授权的应用名（`deviceLabel`）、`platform`/`appVersion`、规范化后的授权码与剩余时间倒计时（按 `expiresAt`，最后几十秒逐秒更新，到期禁用批准/拒绝），再批准或拒绝；「使用其他账号」保留已填授权码、只清除登录态。
+- 页面无任何外部资源，沿用 `/device` 的严格 CSP（`default-src 'none'`）与 `no-store`；令牌只保存在页面内存中，刷新即丢失。
+- **`MOSAIC_PUBLIC_URL` 必须设置为该服务器对外可访问的地址**（例如 `https://mosaic.bansonic.top`）。它决定 `verificationUri`/`verificationUriComplete`；若仍是默认 `http://localhost:5080`，浏览器登录只会打开服务器本机地址。服务端启动时会为此打印警告（仅日志，对既有安装与协议无行为影响）。
+
 ### 备份
 
 | 方法 | 路径 | 说明 |
@@ -344,7 +355,7 @@ WantedBy=multi-user.target
 dotnet test Mosaic.Server.sln
 ```
 
-81 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410 与非法游标的 400（均带 requiresSnapshot）、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2）、重启后数据与会话可用。
+82 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410 与非法游标的 400（均带 requiresSnapshot）、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2）、重启后数据与会话可用、`/device` 页面的重置入口与共用授权码区块。
 
 已验证：Windows 上 `dotnet build`/`dotnet test` 全部通过；`dotnet publish -r linux-x64 --self-contained` 产物生成；本地 Kestrel 冒烟（健康检查、策略、设备页、未配置 SMTP 的统一 503）。
 
