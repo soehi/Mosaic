@@ -9,7 +9,7 @@
     <AssemblyName>Mosaic.Mobile.App</AssemblyName>
 
     <ApplicationTitle>Mosaic</ApplicationTitle>
-    <!-- Placeholder until the user confirms the store package name. -->
+    <!-- Store package name confirmed by the user; changing it after release is not possible. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
     <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>

@@ -111,7 +111,7 @@
 - MAUI App 头未编译：本机无 MAUI 工作负载、无 Android SDK、无 Xcode；XAML、平台 Keychain/Keystore 运行时、页面导航均未在真机/模拟器上运行。
 - 未对接真实 TLS 服务端；认证/设备流/同步/写入用本地 fake HTTP 验证（服务端端点已就绪）。
 - 真实 SMTP、推送、后台同步（规划为第二阶段）未实现。
-- 应用包名 `app.mosaic.tasks` 为占位，上架渠道与合规（隐私政策、账号删除入口审核材料）待用户确认。
+- 应用包名已确认：`app.mosaic.tasks`（`Mosaic.Mobile.App.csproj` 的 `ApplicationId` 与 iOS `CFBundleIdentifier` 一致）；上架渠道与合规材料（隐私政策、账号删除入口审核材料）仍待准备。
 
 ## 5. 第二阶段预留
 

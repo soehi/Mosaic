@@ -63,7 +63,7 @@ iOS 构建需要 macOS + Xcode 签名环境。
 
 - `mobile/src/Mosaic.Mobile.App` 需要 MAUI 工作负载；本仓库的开发机未安装，未做编译与真机/模拟器验证。
 - 服务端 0.1.1 已提供会话列表/撤销、账号删除、`/v1/device/info` 与单条同步写入；手机端已按最终 wire 对齐，剩余确认项见 [协议对齐](docs/protocol-conflicts.md)。
-- 应用包名 `app.mosaic.tasks` 为占位，上架前需用户确认。
+- 应用包名已确认：`app.mosaic.tasks`（Android `applicationId` / iOS bundle identifier）；上架后不可更改。上架渠道与合规材料仍待准备。
 - 主题与语言在本机即时生效并持久化；云端的可移植设置是只读同步，本地修改会在下一次同步时被服务器值覆盖。
 
 ## 文档
