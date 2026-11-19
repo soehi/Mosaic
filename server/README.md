@@ -171,7 +171,7 @@ WantedBy=multi-user.target
 | GET | `/v1/auth/sessions` | Bearer，`{sessions:[{id,deviceLabel,platform,createdAt,lastSeenAt,expiresAt,current}]}`，`id` 为会话家族 ID |
 | POST | `/v1/auth/sessions/{id}/revoke` | Bearer，撤销指定会话（该设备的全部刷新令牌）；不存在 `404 auth.session_not_found` |
 | POST | `/v1/auth/sessions/revoke-all` | Bearer，可选 `{keepCurrent:true}`；无请求体时撤销全部，包括当前会话 |
-| POST | `/v1/auth/account/delete` | Bearer + `{password}` 或 `{code}`（`delete-account` 验证码）；重新认证失败 `401 auth.reauth_required`，成功后级联删除账户全部数据并返回 `204` |
+| POST | `/v1/auth/account/delete` | Bearer + `{password}` 或 `{code}`（`delete-account` 验证码）；重新认证失败 `401 auth.reauth_required`，成功后级联删除 `sessions`、`refresh_tokens`、`email_codes`、`device_auth`、`backups`、`backup_items`、`sync_items`、`sync_changes`、`sync_cursors`、`sync_counters`、`sync_floor` 并返回 `204`；`settings_audit` 以 `deleted:<emailHash 前 16 位>` 去标识保留 |
 
 密码规则：10–256 个 Unicode 字符；PBKDF2-HMAC-SHA256，310,000 次迭代，16 字节盐，32 字节密钥，常量时间比较。刷新令牌每次使用都轮换；已轮换的令牌再次出现视为泄露，撤销整个 family。
 
@@ -182,13 +182,13 @@ WantedBy=multi-user.target
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/v1/device/start` | 无鉴权，请求体可省略或 `{deviceLabel?, platform?, appVersion?}`；返回 `{deviceCode,userCode,verificationUri,verificationUriComplete,expiresIn,interval}` |
-| POST | `/v1/device/poll` | `{deviceCode}`；`{status,interval}` 为 `pending`/`denied`/`expired`/`consumed`，或 `{status:"approved", session}`；轮询快于 `interval` 返回 `429 slow_down` |
+| POST | `/v1/device/poll` | `{deviceCode}`；`{status,interval}` 为 `pending`/`denied`/`expired`/`consumed`/`slow_down`，或 `{status:"approved", session}`；轮询快于 `interval` 返回 `200 {status:"slow_down", interval}` |
 | POST | `/v1/device/approve` | Bearer + `{userCode}`，确认授权 |
 | POST | `/v1/device/deny` | Bearer + `{userCode}`，拒绝授权 |
 | GET | `/v1/device/info?userCode=...` | Bearer，`{deviceLabel,platform,appVersion,state,expiresAt,approvedAt}`，用于确认页展示设备信息；不存在或已过期 `404 device.invalid_code` |
 | GET | `/device?code=XXXX-XXXX` | 服务端内置的浏览器授权页（无外部资源） |
 
-授权码为 8 位（`BCDFGHJKLMNPQRSTVWXZ23456789`），显示为 `XXXX-XXXX`，10 分钟有效。`interval` 固定为 2 秒；同一设备码两次 `pending` 轮询间隔小于 `interval` 时返回 `429 slow_down`（`Retry-After: 2`），客户端应放慢轮询而不是重试风暴。`approved` 后的会话只能领取一次，之后轮询返回 `consumed`。`verificationUri` 为 `{MOSAIC_PUBLIC_URL}/device`，`verificationUriComplete` 带上 `?code=...` 供二维码/链接直接打开。
+授权码为 8 位（`BCDFGHJKLMNPQRSTVWXZ23456789`），显示为 `XXXX-XXXX`，10 分钟有效。`interval` 固定为 2 秒；同一设备码两次 `pending` 轮询间隔小于 `interval` 时返回 `200 {status:"slow_down", interval:2}`，客户端应递增自己的轮询间隔而不是把它当作错误或重试风暴（设备码本身的限流仍由 `429 device.rate_limited` 兜底）。`approved` 后的会话只能领取一次，之后轮询返回 `consumed`。`verificationUri` 为 `{MOSAIC_PUBLIC_URL}/device`，`verificationUriComplete` 带上 `?code=...` 供二维码/链接直接打开。
 
 ### 备份
 
@@ -244,7 +244,7 @@ WantedBy=multi-user.target
 - `idempotencyKey` 必填；重复提交返回首次结果并带 `replayed: true`。
 - `kind: "setting"` 的 `key` 同样受白名单约束，未知设置键返回 `400 sync.invalid`。
 - 拉取响应 `{changes:[...], nextCursor:"12", hasMore:false}`；`cursor` 为上一页 `nextCursor`，`limit` 1–500（默认 200）。附带 `deviceId` 时服务器记录该设备游标。
-- 变更日志按 `MOSAIC_SYNC_HISTORY_DAYS` 保留；推送时清理更早的行并记录清理水位。游标早于水位时返回 `410 sync.cursor_invalid`，错误信封附带 `details.requiresSnapshot=true` 与 `details.floor`，客户端应先下载最新备份快照再继续增量；`cursor` 非法（非数字/负数）返回 `400 sync.invalid`。
+- 变更日志按 `MOSAIC_SYNC_HISTORY_DAYS` 保留；推送时清理更早的行并记录清理水位。游标早于水位时返回 `410 sync.cursor_invalid`，错误信封附带 `details.requiresSnapshot=true` 与 `details.floor`，客户端应先下载最新备份快照再继续增量；`cursor` 非法（非数字/负数）返回 `400 sync.invalid`，同样带 `details.requiresSnapshot=true`。
 
 ### 管理与健康
 
@@ -280,7 +280,7 @@ WantedBy=multi-user.target
 dotnet test Mosaic.Server.sln
 ```
 
-80 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2）、重启后数据与会话可用。
+81 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410 与非法游标的 400（均带 requiresSnapshot）、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2）、重启后数据与会话可用。
 
 已验证：Windows 上 `dotnet build`/`dotnet test` 全部通过；`dotnet publish -r linux-x64 --self-contained` 产物生成；本地 Kestrel 冒烟（健康检查、策略、设备页、未配置 SMTP 的统一 503）。
 

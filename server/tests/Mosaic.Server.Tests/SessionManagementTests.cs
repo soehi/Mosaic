@@ -78,6 +78,27 @@ public sealed class SessionManagementTests
             deviceId = "device-1",
             items = new[] { new { kind = "task", key = "task-1", revision = 1, payload = new { title = "x" } } },
         }, token);
+        await host.PostAsync("/v1/sync/changes", new
+        {
+            deviceId = "device-1",
+            kind = "task",
+            key = "task-1",
+            payload = new { title = "x" },
+            deleted = false,
+            baseServerRevision = 0,
+            clientRevision = 1,
+            idempotencyKey = "key-1",
+        }, token);
+        await host.GetAsync("/v1/sync/changes?cursor=0&deviceId=device-1", token);
+        var deviceStart = await TestServerHost.JsonAsync(await host.PostAsync("/v1/device/start", new
+        {
+            deviceLabel = "phone",
+            platform = "android",
+        }));
+        await host.PostAsync("/v1/device/approve", new
+        {
+            userCode = deviceStart.GetProperty("userCode").GetString(),
+        }, token);
 
         var wrong = await host.PostAsync("/v1/auth/account/delete", new { password = "wrong password" }, token);
         Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
@@ -102,6 +123,14 @@ public sealed class SessionManagementTests
 
         Assert.Equal(0L, await CountAsync(host, "users"));
         Assert.Equal(0L, await CountAsync(host, "backups"));
+        Assert.Equal(0L, await CountAsync(host, "backup_items"));
+        Assert.Equal(0L, await CountAsync(host, "sessions"));
+        Assert.Equal(0L, await CountAsync(host, "refresh_tokens"));
+        Assert.Equal(0L, await CountAsync(host, "device_auth"));
+        Assert.Equal(0L, await CountAsync(host, "sync_changes"));
+        Assert.Equal(0L, await CountAsync(host, "sync_cursors"));
+        Assert.Equal(0L, await CountAsync(host, "sync_items"));
+        Assert.Equal(0L, await CountAsync(host, "email_codes"));
         Assert.DoesNotContain(email, string.Join('\n', await AuditUserIdsAsync(host)), StringComparison.OrdinalIgnoreCase);
     }
 

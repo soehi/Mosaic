@@ -171,10 +171,11 @@ public sealed class DeviceFlowTests
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         var tooFast = await host.PostAsync("/v1/device/poll", new { deviceCode });
-        Assert.Equal(HttpStatusCode.TooManyRequests, tooFast.StatusCode);
-        var error = await TestServerHost.JsonAsync(tooFast);
-        Assert.Equal("slow_down", TestServerHost.ErrorCode(error));
-        Assert.NotNull(tooFast.Headers.RetryAfter);
+        Assert.Equal(HttpStatusCode.OK, tooFast.StatusCode);
+        var tooFastBody = await TestServerHost.JsonAsync(tooFast);
+        Assert.Equal("slow_down", tooFastBody.GetProperty("status").GetString());
+        Assert.Equal(2, tooFastBody.GetProperty("interval").GetInt32());
+        Assert.False(tooFastBody.TryGetProperty("session", out _));
 
         host.Clock.Advance(TimeSpan.FromSeconds(2));
         var second = await TestServerHost.JsonAsync(await host.PostAsync("/v1/device/poll", new { deviceCode }));

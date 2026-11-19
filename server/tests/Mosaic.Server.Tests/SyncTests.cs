@@ -203,6 +203,20 @@ public sealed class SyncTests
     }
 
     [Fact]
+    public async Task Malformed_cursor_is_rejected_and_requires_a_snapshot()
+    {
+        await using var host = await TestServerHost.StartAsync();
+        var (_, _, session) = await host.RegisterAsync();
+        var token = TestServerHost.AccessToken(session);
+
+        var response = await host.GetAsync("/v1/sync/changes?cursor=not-a-number", token);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await TestServerHost.JsonAsync(response);
+        Assert.Equal("sync.invalid", TestServerHost.ErrorCode(error));
+        Assert.True(error.GetProperty("details").GetProperty("requiresSnapshot").GetBoolean());
+    }
+
+    [Fact]
     public async Task Pruned_history_answers_cursor_invalid_requiring_a_snapshot()
     {
         await using var host = await TestServerHost.StartAsync(options => options.SyncHistorySeconds = 1);

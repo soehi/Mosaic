@@ -187,8 +187,10 @@ public sealed class DeviceFlowService(
 
                 if (row.State is "pending" && row.LastPolledAt is { } lastPolled && now - lastPolled < Two)
                 {
-                    // RFC 8628 slow_down: the client polls faster than the advertised interval.
-                    throw new ApiException(429, "slow_down", "轮询过快，请放慢轮询频率。", retryAfterSeconds: Two);
+                    // RFC 8628 slow_down: the client polls faster than the advertised
+                    // interval. Reported as a normal status body so the client just
+                    // increases its interval instead of treating it as an error.
+                    return new DevicePollResult("slow_down", null, Two);
                 }
 
                 if (row.State is "consumed")

@@ -41,7 +41,11 @@ public static class SyncEndpoints
                 && (!long.TryParse(cursor, NumberStyles.None, CultureInfo.InvariantCulture, out parsedCursor)
                     || parsedCursor < 0))
             {
-                throw new ApiException(400, "sync.invalid", "cursor 无效。");
+                throw new ApiException(
+                    400,
+                    "sync.invalid",
+                    "cursor 无效。",
+                    new { requiresSnapshot = true });
             }
 
             var parsedLimit = 200;
