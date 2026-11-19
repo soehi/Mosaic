@@ -265,6 +265,55 @@ public sealed partial class DesktopTests
     [InlineData("both")]
     [InlineData("modules")]
     [InlineData("providers")]
+    public async Task Auth_sync_migration_binds_the_task_transfer_capabilities(string scenario)
+    {
+        // 0.16.0/0.16.1 shipped an auth-sync-v1 migration that registered the auth/sync modules but
+        // never bound tasks.transfer-repository@1 / tasks.transfer@1, so every installation upgraded
+        // from ≤0.15.3 failed to start with "Provider binding is missing or incompatible:
+        // tasks.transfer-repository@1". This replays that exact 0.15.3-shaped configuration.
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        var modules=config["modules"].Deserialize<string[]>()!
+            .Where(id=>id is not ("auth-http" or "auth-windows" or "auth-core" or "sync-http" or "sync-core" or "auth-ui"))
+            .ToArray();
+        var providers=config["providers"].Deserialize<Dictionary<string,string>>()!
+            .Where(item=>!item.Key.StartsWith("auth.",StringComparison.Ordinal)&&!item.Key.StartsWith("sync.",StringComparison.Ordinal))
+            .ToDictionary();
+        providers.Remove("tasks.transfer-repository@1");providers.Remove("tasks.transfer@1");
+        config["modules"]=JsonSerializer.SerializeToElement(modules);
+        config["providers"]=JsonSerializer.SerializeToElement(providers);
+        config["appliedMigrations"]=JsonSerializer.SerializeToElement(new[]{"desktop-presence-v1","release-summary-v1","floating-windows-v1"});
+        var settings=new Dictionary<string,object>();
+        if(scenario is "both" or "modules")settings["host.modules"]=modules;
+        if(scenario is "both" or "providers")settings["host.providers"]=providers;
+        config["settings"]=JsonSerializer.SerializeToElement(settings);
+        File.WriteAllText(path,JsonSerializer.Serialize(config));var before=File.ReadAllText(path);
+        using var process=StartExisting(root,hidden:true);
+        try
+        {
+            await UntilCondition(()=>File.ReadAllText(path).Contains("auth-sync-v1",StringComparison.Ordinal),"Auth-sync migration not persisted");
+            using var doc=JsonDocument.Parse(File.ReadAllText(path));var json=doc.RootElement;
+            var moduleScope=scenario is "both" or "modules"?json.GetProperty("settings"):json;
+            var providerScope=scenario is "both" or "modules" or "providers"?json.GetProperty("settings"):json;
+            var actual=moduleScope.GetProperty(scenario is "both" or "modules"?"host.modules":"modules").EnumerateArray().Select(item=>item.GetString()).ToArray();
+            Assert.Contains("sync-core",actual);Assert.Contains("auth-ui",actual);
+            var effective=providerScope.GetProperty(scenario is "both" or "modules" or "providers"?"host.providers":"providers");
+            Assert.Equal("tasks-sqlite",effective.GetProperty("tasks.transfer-repository@1").GetString());
+            Assert.Equal("tasks-core",effective.GetProperty("tasks.transfer@1").GetString());
+            Assert.Equal("auth-http",effective.GetProperty("auth.transport@1").GetString());
+            Assert.Equal("sync-http",effective.GetProperty("sync.transport@1").GetString());
+            Assert.Equal(before,File.ReadAllText(path+".pre-migration"));
+            // The migrated configuration must actually start: previously ModuleGraph.Resolve rejected it.
+            await UntilCondition(() => !process.HasExited && !string.IsNullOrEmpty(process.MainWindowTitle), "Process exited after auth-sync migration");
+        }
+        finally{Cleanup(process);}
+    }
+
+    [Theory]
+    [InlineData("top")]
+    [InlineData("both")]
+    [InlineData("modules")]
+    [InlineData("providers")]
     [InlineData("disabled")]
     [InlineData("empty")]
     public async Task Floating_configuration_migration_updates_effective_layer_once(string scenario)

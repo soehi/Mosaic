@@ -1,5 +1,17 @@
 # Mosaic：实施与验证记录
 
+## 0.16.2：修复 ≤0.15.3 升级安装无法启动——auth-sync 迁移缺任务传输绑定（2026-11-19）
+
+- 根因位置：`src/Mosaic.Desktop/AppConfiguration.cs` `ApplyAuthSyncMigration`（0.16.0 版 :207-234）——`auth-sync-v1` 迁移为既有安装注册 auth/sync 五条绑定时，遗漏了同一提交（d0ccccd）随任务传输流水线新增的 `tasks.transfer-repository@1`（`src/Modules/Storage/Mosaic.Tasks.Sqlite/TasksSqliteModule.cs:15` Provides）与 `tasks.transfer@1`（`src/Modules/Tasks/Mosaic.Tasks.Core/TasksModule.cs:40` Provides）；仓库内 `src/Mosaic.Desktop/appsettings.json` 顶层 `providers` 表同样缺这两条。`src/Mosaic.Kernel/ModuleGraph.cs` `ModuleGraph.Resolve`（:20-21）要求每个 Provides 能力都有指向该模块的绑定，因此从 ≤0.15.3 升级的既有安装（providers 仅 14 条）启动解析时抛 `Provider binding is missing or incompatible: tasks.transfer-repository@1`，以「模块依赖或能力绑定无效」弹窗退出。0.16.0 即携带该缺陷（全新安装的仓库配置也缺绑定），但 0.16.0/0.16.1 发布时桌面 Smoke 未重跑、实机安装未验证，未暴露。
+- 改动位置：
+  - `src/Mosaic.Desktop/AppConfiguration.cs` `ApplyAuthSyncMigration`：补 `providers.TryAdd("tasks.transfer-repository@1", "tasks-sqlite")` 与 `providers.TryAdd("tasks.transfer@1", "tasks-core")`（附缺陷成因注释）。
+  - `src/Mosaic.Desktop/appsettings.json`：顶层 `providers` 补 `"tasks.transfer-repository@1": "tasks-sqlite"` 与 `"tasks.transfer@1": "tasks-core"`。
+  - `tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs`：新增 `Auth_sync_migration_binds_the_task_transfer_capabilities`（top/both/modules/providers 4 场景），以 0.15.3 形状配置启动真实进程，断言迁移写回 transfer 两条与 auth/sync 绑定、`.pre-migration` 保留、迁移后进程保持运行。
+  - `Directory.Build.props`（0.16.2）、`build/installer/Mosaic.Installer.wixproj`（ProductVersion 0.16.2）、`docs/releases/v0.16.2.md`、`docs/releases/v0.16.2-files.md`、`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`（第 28 条，`previousReleaseId=mosaic-0.16.1`）、`README.md`。
+- 迁移验收项：0.15.3→0.16.2 启动时自动补全绑定并标记 `auth-sync-v1`、写 `.pre-migration` 备份，无需手动改配置；0.16.0/0.16.1 期间从未成功启动的安装走同一迁移路径；已成功启动（或全新安装）的安装迁移标记已存在，配置不变；`host.providers` 覆盖层同步补写。已应用过迁移的安装不受影响（迁移幂等）。
+- 验证：实机复现用户故障——以 0.15.3 形状配置（11 模块、14 绑定、无 auth-sync-v1）启动修复后的 `artifacts/local-run` 构建，进程保持运行、迁移写回 `tasks.transfer-repository@1=tasks-sqlite`、`tasks.transfer@1=tasks-core`、`sync.api@1=sync-core`、`auth.transport@1=auth-http`，`.pre-migration` 保留；Release 全量测试 317 项（Auth/Sync/Tasks/Wpf 等）全绿（exit 0），新增 4 场景 Smoke 理论用例随构建编译通过；发布核验 `verify-published` PASS（manifest `mosaic-0.16.2`）、MSI 快捷方式测试 PASS；安装包 `artifacts/installer/Mosaic-0.16.2-win-x64.msi`（52,089,204 字节，SHA-256 `CA864899BF09B715FC8F2657BE775B6975D756F2E3B524857D5334047EA08565`）。
+- 未验证项：MSI 的实际安装/卸载不在本机执行（本机存在正在运行的真实安装）；与本缺陷无关的既有 Smoke 场景（presence/summary/floating 迁移等）依赖真实指针，全量 Smoke 按惯例仅选择性运行。
+
 ## 0.16.1：对齐服务端 0.1.1 wire——备份白名单收紧、账户管理与 Device Flow 修正（2026-11-19）
 
 - 根因位置：

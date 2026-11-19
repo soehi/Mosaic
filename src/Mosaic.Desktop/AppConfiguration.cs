@@ -224,6 +224,12 @@ internal sealed record AppConfiguration(
             providers.TryAdd("auth.api@1", "auth-core");
             providers.TryAdd("sync.transport@1", "sync-http");
             providers.TryAdd("sync.api@1", "sync-core");
+            // 0.16.0 introduced the task transfer pipeline together with the auth/sync modules but
+            // never bound its two new capabilities; ModuleGraph.Resolve demands a binding for every
+            // Provided capability, so existing installs failed to start with
+            // "Provider binding is missing or incompatible: tasks.transfer-repository@1".
+            providers.TryAdd("tasks.transfer-repository@1", "tasks-sqlite");
+            providers.TryAdd("tasks.transfer@1", "tasks-core");
         }
         if (overrideModules) settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
         if (overrideModules || overrideProviders) settings["host.providers"] = JsonSerializer.SerializeToElement(providers);

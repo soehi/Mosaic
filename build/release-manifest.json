@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.16.1",
+  "currentReleaseId": "mosaic-0.16.2",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -463,6 +463,18 @@
       "fixed": [],
       "version": "0.16.1",
       "contentSha256": "7FA43099890BB77385808E69CE37A3B36431CB43D0F09F0FE4A2BA7F0CE3B4B4"
+    },
+    {
+      "releaseId": "mosaic-0.16.2",
+      "version": "0.16.2",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.16.1",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "修复从 0.15.3 或更早版本升级后无法启动的问题：启动时弹出「模块依赖或能力绑定无效：Provider binding is missing or incompatible: tasks.transfer-repository@1」。原因是 0.16.0 的配置迁移没有为任务传输流水线的两个新能力（tasks.transfer-repository@1 与 tasks.transfer@1）写入 provider 绑定，本次升级会自动补全绑定，无需手动修改配置文件；0.16.0/0.16.1 全新安装不受影响。"
+      ],
+      "contentSha256": "8157FB44CB765C412228CD89354C4415B73FB66D751B2E50F18ADD8DA92BFEE9"
     }
   ]
 }
