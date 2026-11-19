@@ -3,7 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
              xmlns:internal="clr-namespace:Mosaic.Auth.Wpf.Internal"
-             xmlns:sys="clr-namespace:System;assembly=mscorlib"
              Background="{DynamicResource {x:Static theme:MosaicTheme.CanvasBrushKey}}"
              Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"
              FontSize="14" ClipToBounds="True" UseLayoutRounding="True" SnapsToDevicePixels="True">
@@ -11,9 +10,6 @@
         <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
         <internal:LocalDateTimeConverter x:Key="LocalDateTime"/>
         <internal:CurrentSessionTagConverter x:Key="CurrentToTag"/>
-        <internal:InverseBoolConverter x:Key="InverseBool"/>
-        <internal:InverseBoolToVisibilityConverter x:Key="InverseBoolVisibility"/>
-        <internal:ActiveThemeBorderConverter x:Key="ActiveThemeBorder"/>
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
@@ -57,149 +53,10 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-
-        <!-- Welcome layout -->
-        <Style x:Key="WelcomeTitleLine" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="42"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-            <Setter Property="LineHeight" Value="54"/>
-        </Style>
-        <Style x:Key="WelcomeEyebrow" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-        </Style>
-        <Style x:Key="WelcomePrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Static theme:MosaicTheme.AccentButtonKey}}">
-            <Setter Property="MinHeight" Value="48"/>
-            <Setter Property="Padding" Value="20,0"/>
-            <Setter Property="FontSize" Value="15"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-        </Style>
-        <Style x:Key="WelcomeSecondaryButton" TargetType="Button" BasedOn="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}">
-            <Setter Property="MinHeight" Value="48"/>
-            <Setter Property="Padding" Value="20,0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-        </Style>
-        <Style x:Key="WelcomeLink" TargetType="Button" BasedOn="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}">
-            <Setter Property="Padding" Value="4,2"/>
-            <Setter Property="MinHeight" Value="28"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
-        </Style>
-        <Style x:Key="WelcomeThemeButton" TargetType="Button" BasedOn="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}">
-            <Setter Property="Width" Value="36"/>
-            <Setter Property="Height" Value="36"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="4,0,0,0"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsEnabled}" Value="False">
-                    <Setter Property="Opacity" Value="0.55"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
     </UserControl.Resources>
 
-    <Grid>
-        <!-- Top-right theme switch (always visible; live variant through the VM). -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,14,18,0"
-                    Panel.ZIndex="5">
-            <Button Style="{StaticResource WelcomeThemeButton}" ToolTip="{DynamicResource Auth.Welcome.Theme.Light}"
-                    Command="{Binding SetThemeCommand}" CommandParameter="Light"
-                    BorderBrush="{Binding ThemeVariant, Converter={StaticResource ActiveThemeBorder}, ConverterParameter={x:Static theme:MosaicThemeVariant.Light}}"
-                    AutomationProperties.AutomationId="WelcomeThemeLight">
-                <TextBlock Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Button>
-            <Button Style="{StaticResource WelcomeThemeButton}" ToolTip="{DynamicResource Auth.Welcome.Theme.Dark}"
-                    Command="{Binding SetThemeCommand}" CommandParameter="Dark"
-                    BorderBrush="{Binding ThemeVariant, Converter={StaticResource ActiveThemeBorder}, ConverterParameter={x:Static theme:MosaicThemeVariant.Dark}}"
-                    AutomationProperties.AutomationId="WelcomeThemeDark">
-                <TextBlock Text="&#xE708;" FontFamily="Segoe MDL2 Assets" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Button>
-        </StackPanel>
-
-        <!-- Welcome (first-run) two-column layout. -->
-        <Grid Visibility="{Binding ShowWelcomeLayout, Converter={StaticResource BoolVisibility}}"
-              AutomationProperties.AutomationId="AccountWelcome">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Brand column -->
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="72,40,48,40" MaxWidth="460">
-                <Border Width="84" Height="84" CornerRadius="20" Margin="0,0,0,22"
-                        Background="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}">
-                    <TextBlock Text="&#xE8F1;" FontFamily="Segoe MDL2 Assets" FontSize="40" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"/>
-                </Border>
-                <TextBlock Style="{StaticResource WelcomeEyebrow}">
-                    <Run Text="{DynamicResource Auth.Welcome.BrandName}"/><Run Text=" · "/><Run Text="{DynamicResource Auth.Welcome.BrandTag}"/>
-                </TextBlock>
-                <TextBlock Text="{DynamicResource Auth.Welcome.TitleLine1}" Style="{StaticResource WelcomeTitleLine}" Margin="0,18,0,0"/>
-                <TextBlock Text="{DynamicResource Auth.Welcome.TitleLine2}" Style="{StaticResource WelcomeTitleLine}"/>
-                <TextBlock Text="{DynamicResource Auth.Welcome.Description}" TextWrapping="Wrap" Margin="0,18,0,0" FontSize="15"
-                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                <Border Height="1" Margin="0,28,0,22" Background="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
-                <TextBlock FontSize="13" Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}">
-                    <Run Text="{DynamicResource Auth.Welcome.Feature1}"/><Run Text="  /  "/><Run Text="{DynamicResource Auth.Welcome.Feature2}"/><Run Text="  /  "/><Run Text="{DynamicResource Auth.Welcome.Feature3}"/>
-                </TextBlock>
-            </StackPanel>
-
-            <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}" VerticalAlignment="Stretch" Margin="0,64"/>
-
-            <!-- Action column -->
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="48,40,72,40" MaxWidth="420">
-                <TextBlock Text="{DynamicResource Auth.Welcome.WorkspaceEyebrow}" Style="{StaticResource WelcomeEyebrow}"/>
-                <TextBlock Text="{DynamicResource Auth.Welcome.SignInTitle}" FontSize="28" FontWeight="SemiBold" Margin="0,10,0,8"/>
-                <TextBlock Text="{DynamicResource Auth.Welcome.SignInHint}" TextWrapping="Wrap" Margin="0,0,0,26"
-                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-
-                <Border Style="{StaticResource MessageBar}"
-                        Visibility="{Binding HasMessage, Converter={StaticResource BoolVisibility}}">
-                    <TextBlock Text="{Binding Message}" TextWrapping="Wrap"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-                </Border>
-
-                <Button Content="{DynamicResource Auth.Welcome.SignIn}" Command="{Binding StartDeviceCommand}"
-                        Style="{StaticResource WelcomePrimaryButton}" IsEnabled="{Binding CanUseAccount}"
-                        AutomationProperties.AutomationId="WelcomeSignIn"/>
-
-                <Button Content="{DynamicResource Auth.Welcome.ConnectServer}" Command="{Binding ToggleServerPanelCommand}"
-                        Style="{StaticResource WelcomeLink}" Margin="0,12,0,0" HorizontalAlignment="Center"
-                        AutomationProperties.AutomationId="WelcomeConnectServer"/>
-
-                <StackPanel Visibility="{Binding ShowServerPanel, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0">
-                    <TextBlock Text="{DynamicResource Auth.Server.Label}" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding ServerInput, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource FieldBox}"
-                             AutomationProperties.AutomationId="WelcomeServerUrlInput"/>
-                    <TextBlock Text="{DynamicResource Auth.Server.Hint}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="{DynamicResource Auth.Server.Save}" Command="{Binding SaveServerCommand}"
-                                Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}" MinHeight="36"
-                                AutomationProperties.AutomationId="WelcomeSaveServer"/>
-                        <Button Content="{DynamicResource Auth.Server.Cancel}" Command="{Binding ToggleServerPanelCommand}"
-                                Style="{StaticResource WelcomeLink}" Margin="10,0,0,0"/>
-                    </StackPanel>
-                </StackPanel>
-
-                <Button Content="{DynamicResource Auth.Welcome.Offline}" Command="{Binding UseOfflineCommand}"
-                        Style="{StaticResource WelcomeSecondaryButton}" Margin="0,26,0,0" IsEnabled="{Binding CanUseAccount}"
-                        AutomationProperties.AutomationId="WelcomeOffline"/>
-
-                <Button Content="{DynamicResource Auth.Welcome.Forgot}" Command="{Binding ShowForgotCommand}"
-                        Style="{StaticResource WelcomeLink}" Margin="0,14,0,0" HorizontalAlignment="Center"/>
-            </StackPanel>
-        </Grid>
-
-        <!-- Regular (non-welcome) page. -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      Visibility="{Binding ShowWelcomeLayout, Converter={StaticResource InverseBoolVisibility}}"
-                      AutomationProperties.AutomationId="AccountPage">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                  AutomationProperties.AutomationId="AccountPage">
         <StackPanel Margin="32,28,32,40" MaxWidth="720" HorizontalAlignment="Left">
             <TextBlock Text="{DynamicResource Auth.Title}"
                        Style="{DynamicResource {x:Static theme:MosaicTheme.HeaderTextKey}}"/>
@@ -250,8 +107,15 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Login -->
-                        <StackPanel Visibility="{Binding IsLoginMode, Converter={StaticResource BoolVisibility}}">
+                        <!-- Login: the account-choice screen (browser, existing account, offline,
+                             or a self-hosted server below). Nothing runs until the user acts. -->
+                        <StackPanel Visibility="{Binding IsLoginMode, Converter={StaticResource BoolVisibility}}"
+                                    AutomationProperties.AutomationId="AccountChoice"
+                                    AutomationProperties.Name="{DynamicResource Auth.Choice.Title}">
+                            <Button Content="{DynamicResource Auth.Login.Browser}" Command="{Binding StartDeviceCommand}"
+                                    Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
+                                    HorizontalAlignment="Left" MinWidth="180" MinHeight="38" Margin="0,0,0,18"
+                                    AutomationProperties.AutomationId="BrowserLoginButton"/>
                             <TextBlock Text="{DynamicResource Auth.Email}" Style="{StaticResource FieldLabel}"/>
                             <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource FieldBox}"
@@ -264,12 +128,10 @@
                                     Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
                                     HorizontalAlignment="Left" MinWidth="140" MinHeight="38"/>
                             <WrapPanel Margin="0,16,0,0">
-                                <Button Content="{DynamicResource Auth.Login.Browser}" Command="{Binding StartDeviceCommand}"
-                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="BrowserLoginButton"/>
-                                <Button Content="{DynamicResource Auth.Server.Change}" Command="{Binding ToggleServerPanelCommand}"
-                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="ServerPanelButton"/>
                                 <Button Content="{DynamicResource Auth.Login.Offline}" Command="{Binding UseOfflineCommand}"
                                         Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="OfflineButton"/>
+                                <Button Content="{DynamicResource Auth.Server.Change}" Command="{Binding ToggleServerPanelCommand}"
+                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="ServerPanelButton"/>
                                 <Button Content="{DynamicResource Auth.Login.Forgot}" Command="{Binding ShowForgotCommand}"
                                         Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="ForgotButton"/>
                             </WrapPanel>
@@ -564,6 +426,5 @@
                 </Border>
             </StackPanel>
         </StackPanel>
-        </ScrollViewer>
-    </Grid>
+    </ScrollViewer>
 </UserControl>

@@ -51,7 +51,8 @@ public sealed class AccountViewModelTests
         public Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Pending, null)));
         public Task<OperationResult> CancelDeviceAuthorizationAsync() { CancelDeviceCalls++; return Task.FromResult(OperationResult.Success()); }
-        public Task<OperationResult> LogoutAsync(CancellationToken cancellationToken = default) { LogoutCalls++; return Task.FromResult(OperationResult.Success()); }
+        public Task<OperationResult> LogoutAsync(CancellationToken cancellationToken = default)
+        { LogoutCalls++; State = AuthState.SignedOut(State.Server); return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<string>.Success("access"));
         public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default)
@@ -353,16 +354,23 @@ public sealed class AccountViewModelTests
     });
 
     [Fact]
-    public Task Status_item_reports_the_account_and_switches_between_offline_and_signed_in() => Run(() =>
+    public Task Status_item_reports_the_account_and_switches_between_offline_and_signed_in() => Run(async () =>
     {
         var auth = new FakeAuth();
-        using var item = new AccountStatusItem(auth, new Dispatcher());
+        var settings = new FakeSettings();
+        var dialogs = new Dialogs();
+        using var item = new AccountStatusItem(auth, settings, dialogs, new Dispatcher(), new Diagnostics());
 
         Assert.Equal("account.status", item.Id);
         Assert.Equal("account.home", item.TargetViewId);
+        Assert.Equal(StatusPlacement.Bottom, item.SidebarPlacement);
         Assert.Equal("\uE77B", item.Glyph);
         Assert.Equal("未登录", item.Text);
         Assert.Equal("离线", item.Detail);
+        Assert.False(item.CanAct); // signed out: no sign-out button in the sidebar
+
+        object? requested = null;
+        item.ActionRequested += (_, e) => requested = e;
 
         var userId = Guid.NewGuid();
         auth.State = new AuthState(AuthStatus.SignedIn,
@@ -372,13 +380,21 @@ public sealed class AccountViewModelTests
 
         Assert.Equal("小明", item.Text);
         Assert.Equal("demo@example.com", item.Detail);
+        Assert.True(item.CanAct); // signed in: the sidebar offers sign-out
+
+        // Sign-out runs the module flow: confirm, revoke the server session, clear the
+        // first-run choice flag, then ask the shell to open the account choice again.
+        await item.RequestActionAndWaitForIdleAsync();
+        Assert.Equal(1, dialogs.Confirms);
+        Assert.Equal(1, auth.LogoutCalls);
+        Assert.Contains(settings.Commits, draft => draft.TryGetValue("auth.accountChoiceMade", out var v) && v is null);
+        Assert.NotNull(requested);
 
         auth.State = new AuthState(AuthStatus.SignedIn,
             new AuthAccountDto(userId, "demo@example.com", null),
             new Uri("https://sync.example.com"));
         Assert.Equal("demo@example.com", item.Text);
         Assert.Null(item.Detail);
-        return Task.CompletedTask;
     });
 
     [Fact]
@@ -546,60 +562,71 @@ public sealed class AccountViewModelTests
     });
 
     [Fact]
-    public Task A_fresh_install_opens_the_welcome_layout_until_the_first_choice_is_made() => RunFixture(async fixture =>
+    public Task A_fresh_install_stays_offline_until_the_user_chooses() => RunFixture(async fixture =>
     {
         await fixture.ViewModel.InitializeAsync();
 
         Assert.True(fixture.ViewModel.IsSignedOut);
-        Assert.True(fixture.ViewModel.ShowWelcomeLayout);
+        Assert.True(fixture.ViewModel.ShowAccountChoice);
+        Assert.True(fixture.ViewModel.IsLoginMode);
+        Assert.True(fixture.ViewModel.ShowLoginCard);
+        Assert.Equal(0, fixture.Auth.LoginCalls);
+        Assert.Equal(0, fixture.Sync.RefreshCalls);
     });
 
     [Fact]
-    public Task Choosing_offline_records_the_choice_and_hides_the_welcome_layout() => RunFixture(async fixture =>
+    public Task Choosing_offline_records_the_choice_and_shows_the_offline_note() => RunFixture(async fixture =>
     {
         await fixture.ViewModel.InitializeAsync();
-        Assert.True(fixture.ViewModel.ShowWelcomeLayout);
+        Assert.True(fixture.ViewModel.ShowAccountChoice);
 
         fixture.ViewModel.UseOfflineCommand.Execute(null);
         await Task.Delay(50);
 
-        Assert.False(fixture.ViewModel.ShowWelcomeLayout);
+        Assert.False(fixture.ViewModel.ShowAccountChoice);
         Assert.True(fixture.ViewModel.ShowOfflineNote);
+        Assert.False(fixture.ViewModel.ShowLoginCard);
         Assert.Contains(fixture.Settings.Commits, draft => draft.TryGetValue("auth.accountChoiceMade", out var v) && v is true);
         Assert.True(fixture.Settings.Values.TryGetValue("auth.accountChoiceMade", out var saved) && saved is true);
     });
 
     [Fact]
-    public Task An_install_that_already_chose_never_shows_the_welcome_layout() => RunFixture(async fixture =>
-    {
-        fixture.Settings.Values["auth.accountChoiceMade"] = true;
-        await fixture.ViewModel.InitializeAsync();
-
-        Assert.False(fixture.ViewModel.ShowWelcomeLayout);
-        Assert.True(fixture.ViewModel.ShowLoginCard);
-    });
-
-    [Fact]
-    public Task A_signed_in_install_never_shows_the_welcome_layout() => RunFixture(async _ =>
+    public Task A_signed_in_install_never_shows_the_account_choice() => RunFixture(async _ =>
     {
         await using var signedIn = await new Fixture().StartAsync(signedIn: true);
         await signedIn.ViewModel.InitializeAsync();
 
         Assert.True(signedIn.ViewModel.IsSignedIn);
-        Assert.False(signedIn.ViewModel.ShowWelcomeLayout);
+        Assert.False(signedIn.ViewModel.ShowAccountChoice);
     });
 
     [Fact]
-    public Task A_configured_server_alone_still_shows_the_welcome_until_the_user_acts() => RunFixture(async fixture =>
+    public Task Configuring_a_server_alone_records_no_first_run_choice() => RunFixture(async fixture =>
     {
         await fixture.ViewModel.SaveServerCommand.ExecuteAsync(null); // configures server, no choice flag yet
         Assert.True(fixture.ViewModel.IsServerConfigured);
 
-        await fixture.ViewModel.InitializeAsync();
+        await Task.Delay(50);
 
         // Configuring a server is not a first-run choice by itself.
-        Assert.True(fixture.ViewModel.ShowWelcomeLayout);
-        await Task.Delay(50);
+        Assert.True(fixture.ViewModel.ShowAccountChoice);
         Assert.DoesNotContain(fixture.Settings.Commits, draft => draft.ContainsKey("auth.accountChoiceMade"));
+    });
+
+    [Fact]
+    public Task Signing_out_clears_the_first_run_choice_and_returns_to_the_account_choice() => RunFixture(async _ =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        signedIn.Settings.Values["auth.accountChoiceMade"] = true;
+        await signedIn.ViewModel.InitializeAsync();
+
+        await signedIn.ViewModel.LogoutCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, signedIn.Auth.LogoutCalls);
+        Assert.True(signedIn.ViewModel.IsSignedOut);
+        Assert.True(signedIn.ViewModel.ShowAccountChoice);
+        // The choice flag is cleared through the settings journal so the account-choice flow returns.
+        Assert.Contains(signedIn.Settings.Commits, draft => draft.TryGetValue("auth.accountChoiceMade", out var v) && v is null);
+        Assert.True(signedIn.Settings.Values.TryGetValue("auth.accountChoiceMade", out var saved) && saved is null);
     });
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.16.4",
+  "currentReleaseId": "mosaic-0.16.5",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -502,6 +502,21 @@
       ],
       "fixed": [],
       "contentSha256": "30BEE9458037456D3755AE3E0A18DECE7DEBC7FB0C719D1D669331B5DD2E5559"
+    },
+    {
+      "releaseId": "mosaic-0.16.5",
+      "version": "0.16.5",
+      "releasedOn": "2026-11-19",
+      "previousReleaseId": "mosaic-0.16.4",
+      "added": [
+        "登录/账号选择流程重构为四选一页面：在浏览器中登录（Device Flow，默认官方服务器）、登录已有账号（邮箱+密码）、离线使用、连接自建服务器；首次打开应用或退出登录后都会进入该页面重新选择，忘记密码入口保留。",
+        "窗口左下角新增账号卡片，与「本机工作空间」状态区整合显示登录账号（或未登录·离线），已登录时提供「退出登录」按钮：确认后撤销服务器会话、保留本机任务并立即回到账号选择页。"
+      ],
+      "improved": [
+        "左侧导航栏移除「账户」入口，账号管理统一收敛到左下角账号卡片与右下角状态栏，深色两栏首启欢迎页移除，界面与既有浅色导航风格一致。"
+      ],
+      "fixed": [],
+      "contentSha256": "435359A7C8E6037DAA674054E7567DA1DD830791A7A8482074171D738DE8D526"
     }
   ]
 }

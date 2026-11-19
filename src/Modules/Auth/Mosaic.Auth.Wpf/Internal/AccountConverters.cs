@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Windows.Data;
 using Mosaic.Contracts;
-using Mosaic.Presentation.Wpf;
 
 namespace Mosaic.Auth.Wpf.Internal;
 
@@ -27,32 +26,4 @@ internal sealed class CurrentSessionTagConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Binding.DoNothing;
-}
-
-/// <summary>Inverts a boolean, used to hide the compact page while the welcome layout shows.</summary>
-internal sealed class InverseBoolConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not true;
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not true;
-}
-
-/// <summary>Inverted boolean→visibility so the compact page collapses while the welcome layout shows.</summary>
-internal sealed class InverseBoolToVisibilityConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is true ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => Binding.DoNothing;
-}
-
-/// <summary>Accent border for the theme-switch button matching the active variant, transparent otherwise.</summary>
-internal sealed class ActiveThemeBorderConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        var active = value is MosaicThemeVariant variant && parameter is MosaicThemeVariant wanted && variant == wanted;
-        if (!active) return System.Windows.Media.Brushes.Transparent;
-        var res = System.Windows.Application.Current?.TryFindResource(MosaicTheme.AccentBrushKey);
-        return res as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent;
-    }
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => Binding.DoNothing;
 }

@@ -25,13 +25,9 @@ internal enum AccountMode
 /// Drives the account page: optional sign-in, email-code registration, browser (device flow)
 /// sign-in, password reset and explicit backup upload/restore. Nothing here runs at startup unless
 /// the page is opened, and no state-changing action contacts the network before the user acts.
+/// The signed-out login mode is the account-choice screen: browser sign-in, the existing
+/// email+password form, offline use, or connecting a self-hosted server.
 /// </summary>
-internal enum StartView
-{
-    Default,
-    Welcome
-}
-
 internal sealed class AccountViewModel : ObservableObject, IPageController
 {
     private const string SyncEnabledId = "sync.enabled";
@@ -82,7 +78,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private bool _deleteDialogVisible;
     private bool _deleteUseCode;
     private string _deleteCredential = "";
-    private StartView _startView = StartView.Default;
 
     public AccountViewModel(
         IAuthApi auth,
@@ -123,7 +118,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         BackToLoginCommand = new RelayCommand(() => SetMode(AccountMode.Login));
         UseOfflineCommand = new RelayCommand(UseOffline);
         ConnectCommand = new RelayCommand(Connect);
-        SetThemeCommand = new RelayCommand<string>(SetTheme);
         ToggleServerPanelCommand = new RelayCommand(() => ShowServerPanel = !ShowServerPanel);
         RefreshSessionsCommand = Async(RefreshSessionsAsync, () => _auth.State.Status == AuthStatus.SignedIn && !SessionsBusy);
         RevokeSessionCommand = new AsyncRelayCommand<string>(RevokeSessionAsync);
@@ -136,7 +130,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _auth.StateChanged += OnAuthChanged;
         _sync.StateChanged += OnSyncChanged;
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
-        MosaicThemeManager.ThemeChanged += OnThemeChanged;
         _serverInput = DefaultServerInput;
     }
 
@@ -161,7 +154,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public IRelayCommand BackToLoginCommand { get; }
     public IRelayCommand UseOfflineCommand { get; }
     public IRelayCommand ConnectCommand { get; }
-    public IRelayCommand<string> SetThemeCommand { get; }
     public IRelayCommand ToggleServerPanelCommand { get; }
     public IAsyncRelayCommand RefreshSessionsCommand { get; }
     public IAsyncRelayCommand<string> RevokeSessionCommand { get; }
@@ -196,14 +188,11 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public bool IsDeviceMode => Mode == AccountMode.Device;
     public bool IsFormMode => Mode != AccountMode.Device;
 
-    /// <summary>Welcome layout is only entered from a fresh first run and leaves the moment the
-    /// user signs in or chooses offline; the regular page stays compact.</summary>
-    public bool ShowWelcomeLayout => IsSignedOut && _startView == StartView.Welcome && !_offlineChosen && Mode == AccountMode.Login;
+    /// <summary>The signed-out login mode is the account-choice screen: browser sign-in, the
+    /// existing email+password form, offline use or a self-hosted server.</summary>
+    public bool ShowAccountChoice => IsSignedOut && !_offlineChosen && Mode == AccountMode.Login;
 
-    /// <summary>Live theme variant for the welcome layout's theme switch (tracks app resources).</summary>
-    public MosaicThemeVariant ThemeVariant => MosaicThemeManager.Current;
-
-    /// <summary>Primary/secondary welcome actions stay disabled while another account op runs.</summary>
+    /// <summary>Form fields stay disabled while another account op runs.</summary>
     public bool CanUseAccount => !IsBusy && IsSignedOut;
 
     public bool IsSignedIn => _auth.State.Status == AuthStatus.SignedIn;
@@ -246,7 +235,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         AccountMode.Forgot => L("Auth.Forgot.Title", "找回密码"),
         AccountMode.Reset => L("Auth.Reset.Title", "重置密码"),
         AccountMode.Device => L("Auth.Device.Title", "在浏览器中登录"),
-        _ => L("Auth.SignedOut.Title", "登录账户")
+        _ => L("Auth.Choice.Title", "选择如何开始")
     };
 
     public string ModeDescription => Mode switch
@@ -255,7 +244,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         AccountMode.Forgot => L("Auth.Forgot.Description", "输入注册邮箱，我们会发送 6 位验证码用于重置密码。"),
         AccountMode.Reset => L("Auth.Reset.Description", "输入收到的验证码并设置新密码。"),
         AccountMode.Device => L("Auth.Device.Description", "在浏览器或手机上打开下面的地址，输入授权码完成确认。"),
-        _ => L("Auth.SignedOut.Description", "登录后可备份任务并在其他设备上恢复；不登录也可以完全离线使用。")
+        _ => L("Auth.Choice.Description", "登录后可备份任务并在其他设备上恢复；不登录也可以完全离线使用。")
     };
 
     public string Email
@@ -491,23 +480,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public async Task InitializeAsync()
     {
         await LoadSyncOptionsAsync().ConfigureAwait(true);
-        // First run with no account choice recorded: show the welcome layout. Signed-in installs
-        // never reach this branch; installs that already made the choice (sign-in or offline) have
-        // auth.accountChoiceMade persisted, so a merely-configured server address does not by
-        // itself count as a first-run choice and still shows the welcome screen until the user acts.
-        if (IsSignedOut && !_offlineChosen)
-        {
-            var values = await _settings.GetValuesAsync().ConfigureAwait(true);
-            if (values.IsSuccess && values.Value is { } current)
-            {
-                var made = current.TryGetValue(AccountChoiceMadeId, out var raw) && raw is true;
-                if (!made)
-                {
-                    _startView = StartView.Welcome;
-                    OnPropertyChanged(nameof(ShowWelcomeLayout));
-                }
-            }
-        }
         RefreshSummaries();
         if (IsSignedIn && SyncEnabled)
         {
@@ -533,7 +505,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _auth.StateChanged -= OnAuthChanged;
         _sync.StateChanged -= OnSyncChanged;
         MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
-        MosaicThemeManager.ThemeChanged -= OnThemeChanged;
         _devicePolling?.Cancel();
         _devicePolling?.Dispose();
         _devicePolling = null;
@@ -637,7 +608,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             Fail(L("Auth.Error.ServerRequired", "请先填写服务器地址。"));
             return;
         }
-        // Starting a sign-in is itself a first-run choice, so the welcome screen never returns.
+        // Starting a sign-in is itself a first-run choice, recorded through the settings journal.
         await MarkAccountChoiceMadeAsync(null).ConfigureAwait(true);
         var started = await _auth.StartDeviceAuthorizationAsync(_lifetime.Token).ConfigureAwait(true);
         if (!started.IsSuccess)
@@ -697,6 +668,9 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             return;
         }
         _snapshotSummary = null;
+        // Signing out re-arms the account-choice flow: clearing the flag through the
+        // settings journal brings the choice back on this page and on the next launch.
+        await ClearAccountChoiceAsync().ConfigureAwait(true);
         SetMode(AccountMode.Login);
         SetMessage(L("Auth.Logout.Done", "已退出登录。"), isError: false);
     }
@@ -1086,7 +1060,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             OnPropertyChanged(nameof(ShowServerPanel));
             OnPropertyChanged(nameof(ShowOfflineNote));
             OnPropertyChanged(nameof(ShowLoginCard));
-            OnPropertyChanged(nameof(ShowWelcomeLayout));
+            OnPropertyChanged(nameof(ShowAccountChoice));
             ClearMessage();
         });
     }
@@ -1097,6 +1071,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         SetMode(AccountMode.Login);
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
+        OnPropertyChanged(nameof(ShowAccountChoice));
     }
 
     private void SetMode(AccountMode mode)
@@ -1106,37 +1081,8 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         ClearMessage();
     }
 
-    // Welcome-layout theme switch: writes through the same appearance.theme user setting the
-    // settings page edits, so the choice stays consistent everywhere (ShellSettingsApplier reacts).
-    private async void SetTheme(string? theme)
-    {
-        if (_disposed) return;
-        var variant = theme switch
-        {
-            "Light" => MosaicThemeVariant.Light,
-            "Dark" => MosaicThemeVariant.Dark,
-            _ => MosaicThemeVariant.Light
-        };
-        var value = theme is "Light" or "Dark" ? theme : null;
-        if (value is not null && Application.Current?.Resources is { } resources)
-            MosaicThemeManager.Apply(resources, variant); // immediate visual feedback
-        try
-        {
-            var session = await _settings.BeginEditSessionAsync().ConfigureAwait(true);
-            if (!session.IsSuccess || session.Value is not { } edit) return;
-            await using (edit.ConfigureAwait(true))
-            {
-                var preview = await edit.PreviewAsync(
-                    new Dictionary<string, object?> { ["appearance.theme"] = value }, 1, _lifetime.Token).ConfigureAwait(true);
-                if (preview.IsSuccess)
-                    await edit.CommitAsync(1, _lifetime.Token).ConfigureAwait(true);
-            }
-        }
-        catch (Exception ex) { _diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
-    }
-
-    // Records the first-run account choice through a normal settings commit so upgraded installs
-    // migrate (server configured but no flag) and fresh installs never see the welcome screen again.
+    // Records the first-run account choice through a normal settings commit. A merely configured
+    // server address does not count; the choice flag exists only because the user acted.
     private async Task MarkAccountChoiceMadeAsync(Action? onDone)
     {
         try
@@ -1154,6 +1100,27 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         }
         catch (Exception ex) { _diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
         finally { onDone?.Invoke(); }
+    }
+
+    /// <summary>Clears the first-run choice flag (a null value removes it) so the
+    /// account-choice screen returns after sign-out; mirrors the status item's sign-out
+    /// path so both entry points leave the same journal state.</summary>
+    private async Task ClearAccountChoiceAsync()
+    {
+        try
+        {
+            var session = await _settings.BeginEditSessionAsync().ConfigureAwait(true);
+            if (session.IsSuccess && session.Value is { } edit)
+            {
+                await using (edit.ConfigureAwait(true))
+                {
+                    var preview = await edit.PreviewAsync(
+                        new Dictionary<string, object?> { [AccountChoiceMadeId] = null }, 1, _lifetime.Token).ConfigureAwait(true);
+                    if (preview.IsSuccess) await edit.CommitAsync(1, _lifetime.Token).ConfigureAwait(true);
+                }
+            }
+        }
+        catch (Exception ex) { _diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
     }
 
     private bool Complete(OperationResult result, string successMessage)
@@ -1243,6 +1210,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         OnPropertyChanged(nameof(AccountInitials));
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
+        OnPropertyChanged(nameof(ShowAccountChoice));
         OnPropertyChanged(nameof(CanSync));
         NotifyCommands();
     }
@@ -1276,7 +1244,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         {
             _offlineChosen = false;
             if (Mode == AccountMode.Device) Mode = AccountMode.Login;
-            OnPropertyChanged(nameof(ShowWelcomeLayout));
         }
     });
 
@@ -1287,8 +1254,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _serverInput = DefaultServerInput;
         OnPropertyChanged(string.Empty);
     });
-
-    private void OnThemeChanged(object? sender, EventArgs e) => OnUi(() => OnPropertyChanged(nameof(ThemeVariant)));
 
     private void OnUi(Action action)
     {

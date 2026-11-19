@@ -5,27 +5,10 @@
     <sys:String x:Key="Auth.Title">Account and backups</sys:String>
     <sys:String x:Key="Auth.Subtitle">Sign in to back up tasks and portable settings to your server and restore them on other devices. Signing in is optional; Mosaic works fully offline and local data is unaffected.</sys:String>
 
-    <!-- Welcome (first-run) layout -->
-    <sys:String x:Key="Auth.Welcome.BrandName">Mosaic</sys:String>
-    <sys:String x:Key="Auth.Welcome.BrandTag">MOSAIC</sys:String>
-    <sys:String x:Key="Auth.Welcome.TitleLine1">Notifications in order,</sys:String>
-    <sys:String x:Key="Auth.Welcome.TitleLine2">todos accounted for.</sys:String>
-    <sys:String x:Key="Auth.Welcome.Description">Extract todos and deadlines from chat, keeping related files and notifications linked.</sys:String>
-    <sys:String x:Key="Auth.Welcome.Feature1">Receive notifications</sys:String>
-    <sys:String x:Key="Auth.Welcome.Feature2">Organize todos</sys:String>
-    <sys:String x:Key="Auth.Welcome.Feature3">Archive files</sys:String>
-    <sys:String x:Key="Auth.Welcome.WorkspaceEyebrow">Your workspace</sys:String>
-    <sys:String x:Key="Auth.Welcome.SignInTitle">Sign in to Mosaic</sys:String>
-    <sys:String x:Key="Auth.Welcome.SignInHint">Confirm your account in the browser; you'll return here automatically when done.</sys:String>
-    <sys:String x:Key="Auth.Welcome.SignIn">Sign in with your browser</sys:String>
-    <sys:String x:Key="Auth.Welcome.ConnectServer">Connect another self-hosted server</sys:String>
-    <sys:String x:Key="Auth.Welcome.Offline">Use offline without a server</sys:String>
-    <sys:String x:Key="Auth.Welcome.Forgot">Forgot password</sys:String>
-    <sys:String x:Key="Auth.Welcome.Theme.Light">Light theme</sys:String>
-    <sys:String x:Key="Auth.Welcome.Theme.Dark">Dark theme</sys:String>
-
     <sys:String x:Key="Auth.SignedOut.Title">Sign in</sys:String>
     <sys:String x:Key="Auth.SignedOut.Description">Sign in to back up tasks and restore them on other devices, or keep using Mosaic fully offline.</sys:String>
+    <sys:String x:Key="Auth.Choice.Title">Choose how to start</sys:String>
+    <sys:String x:Key="Auth.Choice.Description">Sign in to back up tasks and restore them on other devices, or keep using Mosaic fully offline.</sys:String>
     <sys:String x:Key="Auth.Server.Label">Server address</sys:String>
     <sys:String x:Key="Auth.Server.Hint">Defaults to https://mosaic.bansonic.top (our hosted server); use another HTTPS self-hosted server if you prefer, or leave it empty to stay disconnected.</sys:String>
     <sys:String x:Key="Auth.Server.None">Not connected to a server</sys:String>
@@ -38,6 +21,8 @@
     <sys:String x:Key="Auth.Status.Offline">Offline</sys:String>
     <sys:String x:Key="Auth.Status.Tooltip">{0} · Open the account page</sys:String>
     <sys:String x:Key="Auth.Status.Tooltip.SignedOut">Offline: not signed in · Open the account page</sys:String>
+    <sys:String x:Key="Auth.Status.SignOut">Sign out</sys:String>
+    <sys:String x:Key="Auth.Status.SignOut.Tooltip">Sign out and choose the account option again</sys:String>
 
     <sys:String x:Key="Auth.Email">Email</sys:String>
     <sys:String x:Key="Auth.Password">Password</sys:String>

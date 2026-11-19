@@ -38,3 +38,27 @@ internal sealed class NavigationItemEqualsConverter : IMultiValueConverter
     public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
+
+// A sidebar status action renders only when the contribution reports it available (CanAct) and
+// supplies at least a label or a glyph; the shell never inspects what the action does.
+internal sealed class StatusActionAvailableConverter : IMultiValueConverter
+{
+    public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture) =>
+        values.Length == 3 &&
+        values[0] is true &&
+        (!string.IsNullOrWhiteSpace(values[1] as string) || !string.IsNullOrWhiteSpace(values[2] as string))
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
+
+    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+internal sealed class StatusActionHiddenConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        System.Windows.Data.Binding.DoNothing;
+}

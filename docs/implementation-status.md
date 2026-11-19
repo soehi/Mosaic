@@ -1,5 +1,25 @@
 # Mosaic：实施与验证记录
 
+## 0.16.5：账号入口移入左下角、四选一登录流程、退出登录回到账号选择（2026-11-19）
+
+- 根因位置：
+  - 账号入口位置：`src/Modules/Auth/Mosaic.Auth.Wpf/AuthUiModule.cs`（0.16.4 版）`Navigation` 属性注册 `account.navigation`，账号入口占据左侧导航栏。
+  - 第二套首启机制：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`（616d9eb 版）以 `StartView`/`ShowWelcomeLayout`/`SetThemeCommand` 实现深色两栏首启欢迎布局，与主内容区浅色视觉规范割裂。
+  - 左下角无账号状态与退出入口：`src/Mosaic.Shell.Wpf/ShellWindow.xaml`（0.16.4 版）状态面板只渲染右下角横向状态项；`IStatusContribution` 无「侧栏放置」与「动作按钮」概念，模块无法在左下角呈现账号卡片或提供退出登录。
+  - 退出登录不清首启选择：`AccountViewModel.LogoutAsync`（0.16.4 版 :658）与 `AccountStatusItem.SignOutAsync` 只撤销服务器会话，不清理 `auth.accountChoiceMade`。
+- 改动位置：
+  - 契约扩展：`src/Mosaic.Presentation.Contracts/PresentationContracts.cs`（新增 `StatusPlacement { None, Bottom }`；`IStatusContribution` 新增 `SidebarPlacement`/`CanAct`/`ActionGlyph`/`ActionLabel`/`ActionToolTip`/`ActionRequested`/`RequestAction()`，均带默认实现，二进制兼容）；`build/public-api.txt`（登记 `StatusPlacement`）。
+  - 账号入口与退出登录：`src/Modules/Auth/Mosaic.Auth.Wpf/AuthUiModule.cs`（`Navigation => []`；`_statusItem` 5 参构造）；`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountStatusItem.cs`（全量重写：`SidebarPlacement=Bottom`、`CanAct`、MDL2 Leave 动作按钮、`SignOutAsync` = 确认→`IAuthApi.LogoutAsync`→清 `auth.accountChoiceMade`→`ActionRequested`，新增 `RequestActionAndWaitForIdleAsync`）。
+  - 四选一流程：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`（删除 `StartView`/welcome/主题切换；新增 `ShowAccountChoice`；`LogoutAsync` 增加 `ClearAccountChoiceAsync`；`ModeTitle`/`ModeDescription` 改用 `Auth.Choice.*`；`InitializeAsync` 简化）；`src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml`（登录区重排为浏览器登录/邮箱密码/离线/自建服务器四选一，`AutomationId="AccountChoice"`）；`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountConverters.cs`（随回退清理）；`src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml`/`en.xaml`（新增 5 个键）。
+  - Shell 通用渲染：`src/Mosaic.Shell.Wpf/ShellViewModel.cs`（`NavigateDirectAsync` 回退、首启重定向条件、`SidebarStatusItems` 与 `ActionRequested` 订阅、`StatusActionCommand`、`DisposeAsync` 退订）；`src/Mosaic.Shell.Wpf/ShellWindow.xaml`（左下角账号卡片按 `SidebarStatusItems` 通用渲染）；`src/Mosaic.Shell.Wpf/NavigationConverters.cs`（`StatusActionAvailableConverter`/`StatusActionHiddenConverter`）。
+  - 测试：`tests/Mosaic.Wpf.Tests/AccountViewModelTests.cs`（删除 5 个 welcome 测试；新增首启选择态、离线写标记、已登录不显示选择、仅配置服务器不算选择、退出清标记共 5 个；`Status_item_...` 改 5 参构造并覆盖 `SidebarPlacement`/`CanAct`/退出流程）。
+  - 发布元数据：`Directory.Build.props`（0.16.5）、`build/installer/Mosaic.Installer.wixproj`（ProductVersion 0.16.5）、`docs/releases/v0.16.5.md`、`docs/releases/v0.16.5-files.md`、`build/release-content.json`、`build/release-manifest.json`、`build/published-release-index.json`（第 31 条，`previousReleaseId=mosaic-0.16.4`）、`README.md`。
+- 对已有安装的影响：无数据目录、配置文件、安装升级或模块装配改动，无需迁移逻辑与迁移验收项；首启重定向要求 `auth.serverUrl` 空白，0.16.4 及更早已配置服务器的安装行为不变；退出登录清 `auth.accountChoiceMade` 但保留服务器地址，当次立即回到账号选择，下次启动不强制重定向；`IStatusContribution` 新成员均为默认实现，其他模块无需改动。
+- 验证：全量测试 372 项全绿（15 个测试工程：Wpf.Tests 119、SmokeTests 42、Architecture 4、Auth.Core 25、Auth.Http 36、Sync.Core 14、Settings.Core 25、Kernel 5 等），Debug/Release 构建均 0 警告 0 错误；发布核验 `release_content_verify.py` PASS（31 条索引，指纹 `435359A7C8E6037DAA674054E7567DA1DD830791A7A8482074171D738DE8D526`）、`verify-published` PASS、`test-package-shortcuts` PASS。
+- 安装包：`artifacts/installer/Mosaic-0.16.5-win-x64.msi`（52,089,204 字节，SHA-256 `73A69D6DA4A000DB425B08A4C6E7A8C81B28F715C14E2FD0DD51F16EE19E77D9`）。
+- 已修复的发布前缺陷：`src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml:41` 与 `en.xaml:41` 的 `Auth.Logout.Confirm` 重复定义导致 XAML 解析失败（启动弹「无法启动」），已删除重复 key。
+- 未验证项：363 项全量测试中 2 项真实指针 Smoke 场景（`Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds`、`Floating_header_buttons_move_on_drag_and_still_click_on_short_press`）在打包环境失败，属历史已知环境依赖（见 0.16.2 小节未验证项），与本次改动无关；MSI 实际安装/卸载不在本机执行。
+
 ## 0.16.4：默认服务器建议官方实例、右下角账号状态栏、导航图标统一（2026-11-19）
 
 - 根因位置：

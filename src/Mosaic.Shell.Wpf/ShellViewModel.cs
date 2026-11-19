@@ -24,12 +24,18 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private Mosaic.Settings.Contracts.ISettingsApi? _settings;
     private readonly ObservableCollection<NavigationItem> _navigationItems = [];
     private readonly ObservableCollection<IStatusContribution> _statusItems = [];
+    // Contributions that opt into the sidebar's bottom area; the same items stay in the
+    // status bar and keep their TargetViewId navigation. Modules declare placement, the shell
+    // never inspects what a contribution means.
+    private readonly ObservableCollection<IStatusContribution> _sidebarStatusItems = [];
+    private readonly Dictionary<IStatusContribution, EventHandler> _statusActionHandlers = new(ReferenceEqualityComparer.Instance);
     internal IReadOnlyDictionary<string, object?>? InitialValues { get; private set; }
     internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings)
     {
         _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs;
         NavigateCommand = new AsyncRelayCommand<NavigationItem>(NavigateAsync);
         NavigateToViewCommand = new AsyncRelayCommand<string?>(NavigateToViewAsync);
+        StatusActionCommand = new RelayCommand<IStatusContribution>(item => item?.RequestAction());
         registry.Changed += OnContributionsChanged;
         _settings = settings;
         _localizationRegistration = Application.Current is null ? null : MosaicLocalizationManager.Register(
@@ -37,17 +43,22 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
             language => ShellLocalization.Dictionary(language == MosaicLanguage.English));
         Navigation = new ReadOnlyObservableCollection<NavigationItem>(_navigationItems);
         StatusItems = new ReadOnlyObservableCollection<IStatusContribution>(_statusItems);
+        SidebarStatusItems = new ReadOnlyObservableCollection<IStatusContribution>(_sidebarStatusItems);
         RebuildNavigationItems();
         RebuildStatusItems();
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
     public IReadOnlyList<NavigationItem> Navigation { get; }
     public IReadOnlyList<IStatusContribution> StatusItems { get; }
+    public IReadOnlyList<IStatusContribution> SidebarStatusItems { get; }
     public FrameworkElement? Content { get => _content; private set => SetProperty(ref _content, value); }
     public string PageTitle { get => _pageTitle; private set => SetProperty(ref _pageTitle, value); }
     public string? CurrentNavigationId { get => _currentNavigationId; private set => SetProperty(ref _currentNavigationId, value); }
     public IAsyncRelayCommand<NavigationItem> NavigateCommand { get; }
     public IAsyncRelayCommand<string?> NavigateToViewCommand { get; }
+    // Forwards a sidebar status action back to the owning contribution; the shell never learns
+    // what the action means.
+    public IRelayCommand<IStatusContribution> StatusActionCommand { get; }
     internal async Task InitializeAsync()
     {
         if (_settings is { } settings)
@@ -61,18 +72,17 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         }
         if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
 
-        // First run: no server configured yet and the user has never made the account choice —
-        // open the account page so the welcome layout shows. Signed-in installs and those that
-        // already chose (or upgraded with a configured server) keep the default first page. The
-        // account module owns the auth.accountChoiceMade flag; the shell only reads it.
+        // First run: the account module owns the auth.accountChoiceMade flag; the shell only
+        // reads it. With no choice made and no server configured, the account page opens so the
+        // user can pick how to start. The view id is looked up in the registry — the account
+        // page is no longer a navigation entry, so navigation items are not consulted.
         if (_settings is { } settings2 &&
             _registry.Find("account.home") is not null &&
             InitialValues is { } initial &&
             !IsAccountChoiceMade(initial) &&
-            string.IsNullOrWhiteSpace(ReadString(initial, "auth.serverUrl")) &&
-            Navigation.FirstOrDefault(candidate => candidate.ViewId == "account.home") is { } accountItem)
+            string.IsNullOrWhiteSpace(ReadString(initial, "auth.serverUrl")))
         {
-            await NavigateAsync(accountItem);
+            await NavigateToViewAsync("account.home");
         }
     }
     internal static bool IsAccountChoiceMade(IReadOnlyDictionary<string, object?> values) =>
@@ -103,6 +113,28 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         if (string.IsNullOrWhiteSpace(viewId)) return;
         var item = Navigation.FirstOrDefault(candidate => string.Equals(candidate.ViewId, viewId, StringComparison.Ordinal));
         if (item is not null) await NavigateAsync(item);
+        else await NavigateDirectAsync(viewId);
+    }
+
+    // Opens a view that has no navigation entry (e.g. the account page). The page content swaps
+    // in without a navigation highlight; the title falls back to the shell default.
+    private async Task NavigateDirectAsync(string viewId)
+    {
+        try
+        {
+            if (!await _navigation.NavigateAsync(viewId)) return;
+            Content = _navigation.Current!.View;
+            _currentViewId = viewId;
+            _currentNavigationLabel = null;
+            _currentNavigationLabelKey = null;
+            PageTitle = ShellLocalization.Localize("Shell.PageTitle", "工作空间");
+            CurrentNavigationId = null;
+        }
+        catch (Exception)
+        {
+            await _dialogs.ShowErrorAsync(ShellLocalization.Localize(
+                "Shell.Error.PageLoad", "页面加载失败，请重新启动应用。"));
+        }
     }
     private void OnContributionsChanged(object? sender, EventArgs e)
     {
@@ -139,6 +171,9 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         _registry.Changed -= OnContributionsChanged;
         MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
+        foreach (var (item, handler) in _statusActionHandlers)
+            item.ActionRequested -= handler;
+        _statusActionHandlers.Clear();
         _localizationRegistration?.Dispose();
         await _removePage;
         await _navigation.DisposeAsync();
@@ -166,9 +201,28 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
 
     private void RebuildStatusItems()
     {
+        foreach (var (item, handler) in _statusActionHandlers)
+            item.ActionRequested -= handler;
+        _statusActionHandlers.Clear();
         _statusItems.Clear();
+        _sidebarStatusItems.Clear();
         foreach (var item in _registry.Status)
+        {
             _statusItems.Add(item);
+            if (item.SidebarPlacement == StatusPlacement.Bottom)
+            {
+                _sidebarStatusItems.Add(item);
+                // A completed action (e.g. sign-out finished) may want the sidebar's target
+                // page on screen; the contribution only signals, the shell navigates generically.
+                EventHandler handler = (_, _) =>
+                {
+                    if (item.TargetViewId is { } target && !string.Equals(_navigation.CurrentViewId, target, StringComparison.Ordinal))
+                        _ = NavigateToViewAsync(target);
+                };
+                _statusActionHandlers[item] = handler;
+                item.ActionRequested += handler;
+            }
+        }
     }
 
     private static string TranslateNavigationLabel(string? labelKey, string label) =>

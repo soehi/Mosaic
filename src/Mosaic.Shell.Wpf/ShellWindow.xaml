@@ -21,6 +21,8 @@
         <local:NullToVisibilityConverter x:Key="NullToVisibility"/>
         <local:NavigationIconConverter x:Key="NavigationIcon"/>
         <local:NavigationItemEqualsConverter x:Key="NavigationItemEquals"/>
+        <local:StatusActionAvailableConverter x:Key="StatusActionAvailable"/>
+        <local:StatusActionHiddenConverter x:Key="StatusActionHidden"/>
     </Window.Resources>
 
     <Grid>
@@ -66,6 +68,120 @@
                 </StackPanel>
 
                 <StackPanel x:Name="StatusPanel" DockPanel.Dock="Bottom">
+                    <ItemsControl x:Name="SidebarStatusItems" ItemsSource="{Binding SidebarStatusItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                                        BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                                        BorderThickness="1"
+                                        CornerRadius="9"
+                                        Padding="12,10"
+                                        Margin="0,0,0,10"
+                                        ToolTip="{Binding ToolTip}"
+                                        AutomationProperties.AutomationId="SidebarStatusItem"
+                                        AutomationProperties.Name="{Binding Text}">
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right"
+                                                Command="{Binding DataContext.StatusActionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="{Binding ActionToolTip}"
+                                                AutomationProperties.AutomationId="SidebarStatusAction"
+                                                AutomationProperties.Name="{Binding ActionToolTip}"
+                                                Style="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                                MinHeight="28"
+                                                MinWidth="28"
+                                                Padding="6,2"
+                                                VerticalAlignment="Center">
+                                            <Button.Visibility>
+                                                <MultiBinding Converter="{StaticResource StatusActionAvailable}">
+                                                    <Binding Path="CanAct"/>
+                                                    <Binding Path="ActionLabel"/>
+                                                    <Binding Path="ActionGlyph"/>
+                                                </MultiBinding>
+                                            </Button.Visibility>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding ActionGlyph}"
+                                                           FontFamily="Segoe MDL2 Assets"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                                <TextBlock Text="{Binding ActionLabel}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Margin" Value="6,0,0,0"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ActionLabel}" Value="">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding ActionLabel}" Value="{x:Null}">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                             Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{Binding DataContext.NavigateToViewCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding TargetViewId}"
+                                                ToolTip="{Binding ToolTip}"
+                                                AutomationProperties.Name="{Binding ToolTip}"
+                                                Style="{StaticResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Left"
+                                                MinHeight="28"
+                                                Padding="0,2">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Glyph}"
+                                                           FontFamily="Segoe MDL2 Assets"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                                <TextBlock x:Name="SidebarStatusText"
+                                                           Text="{Binding Text}"
+                                                           Margin="8,0,0,0"
+                                                           FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                                <TextBlock x:Name="SidebarStatusDetail"
+                                                           Text="{Binding Detail}"
+                                                           FontSize="11"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Margin" Value="7,0,0,0"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Detail}" Value="">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding Detail}" Value="{x:Null}">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsSidebarCompact, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                             Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Button>
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <Border x:Name="WorkspaceStatusCard"
                             Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
                             BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"

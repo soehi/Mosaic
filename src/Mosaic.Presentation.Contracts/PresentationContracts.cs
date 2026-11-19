@@ -28,8 +28,13 @@ public interface ICompanionViewSession : IAsyncDisposable
 public interface INavigationGuard { Task<bool> CanLeaveAsync(); }
 public interface IPageController : INavigationGuard, IAsyncDisposable { Task InitializeAsync(); }
 
+// Where a status contribution may render. The bar is the default; Bottom opts the same
+// contribution into the sidebar's bottom area as well, rendered generically by the shell.
+public enum StatusPlacement { None, Bottom }
+
 // A module-owned entry for the window status bar. The shell renders it generically and never
-// looks at what it means; the owning module updates the observable text itself.
+// looks at what it means; the owning module updates the observable text itself. Optional
+// members keep existing contributors source-compatible without recompilation concerns.
 public interface IStatusContribution : System.ComponentModel.INotifyPropertyChanged
 {
     string Id { get; }
@@ -39,6 +44,16 @@ public interface IStatusContribution : System.ComponentModel.INotifyPropertyChan
     string? ToolTip { get; }
     string? TargetViewId { get; }
     int Order { get; }
+    // Optional sidebar placement; None keeps the contribution in the bottom status bar only.
+    StatusPlacement SidebarPlacement => StatusPlacement.None;
+    // Optional action the shell renders next to the sidebar entry when the module says it is
+    // available (e.g. sign-out). The shell never names the action; it forwards the request.
+    bool CanAct => false;
+    string? ActionGlyph => null;
+    string? ActionLabel => null;
+    string? ActionToolTip => null;
+    event EventHandler? ActionRequested { add { } remove { } }
+    void RequestAction() { }
 }
 
 public interface IUiModule

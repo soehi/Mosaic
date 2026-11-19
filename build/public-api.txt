@@ -84,6 +84,7 @@ Mosaic.Presentation.Contracts.NavigationItem
 Mosaic.Presentation.Contracts.UnsavedChoice
 Mosaic.Presentation.Contracts.ViewContribution
 Mosaic.Presentation.Contracts.ViewPage
+Mosaic.Presentation.Contracts.StatusPlacement
 Mosaic.Presentation.Wpf.MosaicLanguage
 Mosaic.Presentation.Wpf.MosaicLocalizationManager
 Mosaic.Presentation.Wpf.MosaicTheme
