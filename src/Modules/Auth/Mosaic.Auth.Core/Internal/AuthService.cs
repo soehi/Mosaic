@@ -1,6 +1,7 @@
 using Mosaic.Auth.Contracts;
 using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
+using System.Reflection;
 
 namespace Mosaic.Auth.Core.Internal;
 
@@ -23,6 +24,8 @@ internal sealed class AuthService(
         [AuthErrorCodes.TokenExpired] = "登录状态已过期，请重新登录。",
         [AuthErrorCodes.TokenInvalid] = "登录状态无效，请重新登录。",
         [AuthErrorCodes.DeviceCodeInvalid] = "设备授权码无效或已过期。",
+        [AuthErrorCodes.ReauthRequired] = "需要重新验证身份后才能继续。",
+        [AuthErrorCodes.SessionRevoked] = "会话已被撤销，请重新登录。",
         [AuthErrorCodes.NetworkUnavailable] = "无法连接服务器，请检查网络与服务器地址。",
         [AuthErrorCodes.ServerUntrusted] = "服务器地址必须使用 HTTPS。"
     };
@@ -194,7 +197,7 @@ internal sealed class AuthService(
     public async Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(CancellationToken cancellationToken = default)
     {
         if (State.Server is not { } server) return Failure<DeviceAuthorizationDto>(AuthErrorCodes.ServerRequired, "请先填写服务器地址。", "Server");
-        var started = await transport.StartDeviceAuthorizationAsync(server, cancellationToken).ConfigureAwait(false);
+        var started = await transport.StartDeviceAuthorizationAsync(server, AppVersion, cancellationToken).ConfigureAwait(false);
         if (!started.IsSuccess) return OperationResult<DeviceAuthorizationDto>.Failure(Map(started.Error!));
         var authorization = started.Value;
         if (string.IsNullOrWhiteSpace(authorization.DeviceCode) || string.IsNullOrWhiteSpace(authorization.UserCode))
@@ -209,30 +212,35 @@ internal sealed class AuthService(
         finally { _operations.Release(); }
     }
 
-    public async Task<OperationResult<DeviceAuthorizationStatus>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default)
+    public async Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default)
     {
         var pending = _device;
-        if (pending is null) return Failure<DeviceAuthorizationStatus>(AuthErrorCodes.DeviceFlowNotStarted, "当前没有等待确认的设备授权。");
+        if (pending is null) return Failure<DevicePollDto>(AuthErrorCodes.DeviceFlowNotStarted, "当前没有等待确认的设备授权。");
         if (clock.GetUtcNow() >= _deviceExpiresAtUtc)
         {
             _device = null;
-            return OperationResult<DeviceAuthorizationStatus>.Success(DeviceAuthorizationStatus.Expired);
+            return OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Expired, null));
         }
-        if (State.Server is not { } server) return Failure<DeviceAuthorizationStatus>(AuthErrorCodes.ServerRequired, "请先填写服务器地址。");
+        if (State.Server is not { } server) return Failure<DevicePollDto>(AuthErrorCodes.ServerRequired, "请先填写服务器地址。");
         var polled = await transport.PollDeviceAuthorizationAsync(server, pending.DeviceCode, cancellationToken).ConfigureAwait(false);
-        if (!polled.IsSuccess) return OperationResult<DeviceAuthorizationStatus>.Failure(Map(polled.Error!));
+        if (!polled.IsSuccess) return OperationResult<DevicePollDto>.Failure(Map(polled.Error!));
         var status = polled.Value.Status;
+        if (polled.Value.SlowDownIntervalSeconds is int slowDown)
+        {
+            // The server asked us to back off; keep waiting with the longer interval.
+            return OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Pending, null, slowDown));
+        }
         if (status == DeviceAuthorizationStatus.Approved)
         {
             if (polled.Value.Session is null)
-                return Failure<DeviceAuthorizationStatus>(ErrorCodes.InternalError, "服务器未返回登录凭据。");
+                return Failure<DevicePollDto>(ErrorCodes.InternalError, "服务器未返回登录凭据。");
             var signedIn = await CompleteSignInAsync(OperationResult<AuthSessionDto>.Success(polled.Value.Session), cancellationToken).ConfigureAwait(false);
-            if (!signedIn.IsSuccess) return OperationResult<DeviceAuthorizationStatus>.Failure(signedIn.Error!);
+            if (!signedIn.IsSuccess) return OperationResult<DevicePollDto>.Failure(signedIn.Error!);
             _device = null;
-            return OperationResult<DeviceAuthorizationStatus>.Success(DeviceAuthorizationStatus.Approved);
+            return OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Approved, polled.Value.Session));
         }
         if (status != DeviceAuthorizationStatus.Pending) _device = null;
-        return OperationResult<DeviceAuthorizationStatus>.Success(status);
+        return OperationResult<DevicePollDto>.Success(new(status, null));
     }
 
     public async Task<OperationResult> CancelDeviceAuthorizationAsync()
@@ -254,6 +262,83 @@ internal sealed class AuthService(
                 // Revocation is best effort: a network failure must not keep the local credential.
                 await transport.LogoutAsync(server, session.AccessToken, session.RefreshToken, cancellationToken).ConfigureAwait(false);
             }
+            var cleared = await secrets.ClearAsync(cancellationToken).ConfigureAwait(false);
+            _session = null;
+            _stored = null;
+            _device = null;
+            UpdateState(AuthState.SignedOut(server));
+            return cleared.IsSuccess ? OperationResult.Success() : Failure(AuthErrorCodes.SecretsUnavailable, "无法清除本机保存的登录凭据。");
+        }
+        finally { _operations.Release(); }
+    }
+
+    private static string AppVersion
+    {
+        get
+        {
+            var assembly = System.Reflection.Assembly.GetEntryAssembly() ?? typeof(AuthService).Assembly;
+            var informational = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(informational))
+            {
+                var plus = informational.IndexOf('+');
+                return plus > 0 ? informational[..plus] : informational;
+            }
+            return assembly.GetName().Version?.ToString() ?? "0.0.0";
+        }
+    }
+
+    private async Task<OperationResult<string>> AccessTokenOrFailureAsync(CancellationToken cancellationToken)
+    {
+        if (State.Status is not AuthStatus.SignedIn)
+            return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
+        return await GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        if (State.Server is not { } server) return Failure<IReadOnlyList<AuthSessionInfoDto>>(AuthErrorCodes.ServerRequired, "请先填写服务器地址。");
+        var token = await AccessTokenOrFailureAsync(cancellationToken).ConfigureAwait(false);
+        if (!token.IsSuccess) return OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Failure(token.Error!);
+        var listed = await transport.ListSessionsAsync(server, token.Value, cancellationToken).ConfigureAwait(false);
+        return listed.IsSuccess
+            ? OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success(listed.Value)
+            : OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Failure(Map(listed.Error!));
+    }
+
+    public async Task<OperationResult> RevokeSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (State.Server is not { } server) return Failure(AuthErrorCodes.ServerRequired, "请先填写服务器地址。");
+        var token = await AccessTokenOrFailureAsync(cancellationToken).ConfigureAwait(false);
+        if (!token.IsSuccess) return OperationResult.Failure(token.Error!);
+        var revoked = await transport.RevokeSessionAsync(server, token.Value, sessionId, cancellationToken).ConfigureAwait(false);
+        return revoked.IsSuccess ? OperationResult.Success() : OperationResult.Failure(Map(revoked.Error!));
+    }
+
+    public async Task<OperationResult> RevokeAllSessionsAsync(bool keepCurrent, CancellationToken cancellationToken = default)
+    {
+        if (State.Server is not { } server) return Failure(AuthErrorCodes.ServerRequired, "请先填写服务器地址。");
+        var token = await AccessTokenOrFailureAsync(cancellationToken).ConfigureAwait(false);
+        if (!token.IsSuccess) return OperationResult.Failure(token.Error!);
+        var revoked = await transport.RevokeAllSessionsAsync(server, token.Value, keepCurrent, cancellationToken).ConfigureAwait(false);
+        return revoked.IsSuccess ? OperationResult.Success() : OperationResult.Failure(Map(revoked.Error!));
+    }
+
+    public async Task<OperationResult> DeleteAccountAsync(string? password, string? code, CancellationToken cancellationToken = default)
+    {
+        if (State.Server is not { } server) return Failure(AuthErrorCodes.ServerRequired, "请先填写服务器地址。");
+        var hasPassword = !string.IsNullOrEmpty(password);
+        var hasCode = !string.IsNullOrWhiteSpace(code);
+        if (hasPassword == hasCode)
+            return Failure(ErrorCodes.ValidationFailed, "请输入密码或 6 位验证码其中一项。");
+        if (hasCode && !AuthValidation.IsValidEmailCode(code!))
+            return ValidationFailure("Code");
+        var token = await AccessTokenOrFailureAsync(cancellationToken).ConfigureAwait(false);
+        if (!token.IsSuccess) return OperationResult.Failure(token.Error!);
+        var deleted = await transport.DeleteAccountAsync(server, token.Value, hasPassword ? password : null, hasCode ? code!.Trim() : null, cancellationToken).ConfigureAwait(false);
+        if (!deleted.IsSuccess) return OperationResult.Failure(Map(deleted.Error!));
+        await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
             var cleared = await secrets.ClearAsync(cancellationToken).ConfigureAwait(false);
             _session = null;
             _stored = null;

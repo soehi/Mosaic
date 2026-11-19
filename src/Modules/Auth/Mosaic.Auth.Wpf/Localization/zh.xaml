@@ -104,6 +104,8 @@
     <sys:String x:Key="Auth.Error.PasswordTooWeak">密码强度不足，请使用至少 10 个字符。</sys:String>
     <sys:String x:Key="Auth.Error.TokenExpired">登录状态已过期，请重新登录。</sys:String>
     <sys:String x:Key="Auth.Error.TokenInvalid">登录状态无效，请重新登录。</sys:String>
+    <sys:String x:Key="Auth.Error.ReauthRequired">需要重新验证身份后才能继续。</sys:String>
+    <sys:String x:Key="Auth.Error.SessionRevoked">会话已被撤销，请重新登录。</sys:String>
     <sys:String x:Key="Auth.Error.DeviceCodeInvalid">设备授权码无效或已过期。</sys:String>
     <sys:String x:Key="Auth.Error.DeviceFlowNotStarted">当前没有等待确认的设备授权。</sys:String>
     <sys:String x:Key="Auth.Error.SecretsUnavailable">无法访问本机凭据存储。</sys:String>
@@ -113,4 +115,30 @@
     <sys:String x:Key="Auth.Error.Unavailable">模块当前不可用，请稍后再试。</sys:String>
     <sys:String x:Key="Auth.Error.Canceled">操作已取消。</sys:String>
     <sys:String x:Key="Auth.Error.Validation">输入内容无效，请检查后重试。</sys:String>
+    <sys:String x:Key="Auth.Sessions.Title">已登录会话</sys:String>
+    <sys:String x:Key="Auth.Sessions.Loading">正在加载会话…</sys:String>
+    <sys:String x:Key="Auth.Sessions.CurrentTag">（本设备）</sys:String>
+    <sys:String x:Key="Auth.Sessions.Revoke">撤销</sys:String>
+    <sys:String x:Key="Auth.Sessions.Revoked">会话已撤销。</sys:String>
+    <sys:String x:Key="Auth.Sessions.Refresh">刷新会话</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers">登出其他设备</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers.Title">登出其他设备</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers.Message">除当前设备外，其他所有设备都会被登出，需要重新登录。是否继续？</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers.Done">其他会话已撤销。</sys:String>
+
+    <sys:String x:Key="Auth.Delete.Title">删除账号</sys:String>
+    <sys:String x:Key="Auth.Delete.Description">永久删除账号及云端保存的全部备份；本机数据保留。</sys:String>
+    <sys:String x:Key="Auth.Delete.Action">删除账号…</sys:String>
+    <sys:String x:Key="Auth.Delete.Verify">此操作无法撤销。请使用账户密码或新获取的邮箱验证码确认。</sys:String>
+    <sys:String x:Key="Auth.Delete.UsePassword">密码</sys:String>
+    <sys:String x:Key="Auth.Delete.UseCode">邮箱验证码</sys:String>
+    <sys:String x:Key="Auth.Delete.PasswordLabel">账户密码</sys:String>
+    <sys:String x:Key="Auth.Delete.CodeLabel">邮箱验证码</sys:String>
+    <sys:String x:Key="Auth.Delete.PasswordPlaceholder">输入当前账户密码</sys:String>
+    <sys:String x:Key="Auth.Delete.CodePlaceholder">输入收到的 6 位验证码</sys:String>
+    <sys:String x:Key="Auth.Delete.Confirm">永久删除</sys:String>
+    <sys:String x:Key="Auth.Delete.Cancel">取消</sys:String>
+    <sys:String x:Key="Auth.Delete.Confirm.Title">永久删除账号</sys:String>
+    <sys:String x:Key="Auth.Delete.Confirm.Message">账号与云端全部数据将被永久删除且无法恢复，本机数据保留。是否继续？</sys:String>
+    <sys:String x:Key="Auth.Delete.Done">账号已删除。</sys:String>
 </ResourceDictionary>

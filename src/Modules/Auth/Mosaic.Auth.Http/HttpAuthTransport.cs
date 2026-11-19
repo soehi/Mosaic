@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -23,6 +24,9 @@ public sealed class HttpAuthTransport : IAuthTransport
     private const string PolicyPath = "v1/auth/policy";
     private const string EmailCodePath = "v1/auth/email-code";
     private const string MePath = "v1/auth/me";
+    private const string SessionsPath = "v1/auth/sessions";
+    private const string SessionsRevokeAllPath = "v1/auth/sessions/revoke-all";
+    private const string AccountDeletePath = "v1/auth/account/delete";
     private const string DeviceStartPath = "v1/device/start";
     private const string DevicePollPath = "v1/device/poll";
     private const string DeviceLabel = "Mosaic 桌面客户端";
@@ -54,7 +58,7 @@ public sealed class HttpAuthTransport : IAuthTransport
 
     public async Task<OperationResult> SendEmailCodeAsync(Uri server, string email, AuthEmailCodePurpose purpose, CancellationToken cancellationToken = default)
     {
-        var body = new { email, purpose = purpose.ToString().ToLowerInvariant() };
+        var body = new { email, purpose = PurposeWire(purpose) };
         return await WriteAsync(HttpMethod.Post, server, EmailCodePath, body, null, cancellationToken).ConfigureAwait(false);
     }
 
@@ -108,9 +112,9 @@ public sealed class HttpAuthTransport : IAuthTransport
                 : Invalid<AuthAccountDto>("服务器返回的账号信息无效。"), cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(Uri server, CancellationToken cancellationToken = default)
+    public async Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(Uri server, string appVersion, CancellationToken cancellationToken = default)
     {
-        var body = new { deviceLabel = DeviceLabel };
+        var body = new { deviceLabel = DeviceLabel, platform = "windows", appVersion };
         return await ReadAsync(HttpMethod.Post, server, DeviceStartPath, body, null, root =>
         {
             var deviceCode = Text(root, "deviceCode");
@@ -121,11 +125,17 @@ public sealed class HttpAuthTransport : IAuthTransport
             var baseUri = !string.IsNullOrWhiteSpace(verification) && Uri.TryCreate(verification, UriKind.Absolute, out var parsed)
                 ? parsed
                 : new Uri(server, "device");
+            var completeText = Text(root, "verificationUriComplete");
+            Uri? complete = null;
+            if (!string.IsNullOrWhiteSpace(completeText) && Uri.TryCreate(completeText, UriKind.Absolute, out var parsedComplete))
+                complete = parsedComplete;
+            else if (Uri.TryCreate(server, "device?user_code=" + Uri.EscapeDataString(userCode), out var constructed))
+                complete = constructed;
             return OperationResult<DeviceAuthorizationDto>.Success(new(
                 deviceCode,
                 userCode,
                 baseUri,
-                null,
+                complete,
                 Math.Max(30, Integer(root, "expiresIn", 600)),
                 Math.Max(2, Integer(root, "interval", 5))));
         }, cancellationToken).ConfigureAwait(false);
@@ -136,13 +146,67 @@ public sealed class HttpAuthTransport : IAuthTransport
         var body = new { deviceCode };
         return await ReadAsync(HttpMethod.Post, server, DevicePollPath, body, null, root =>
         {
-            var status = ReadStatus(Text(root, "status"));
+            var statusText = Text(root, "status");
+            if (string.Equals(statusText, "slow_down", StringComparison.Ordinal))
+            {
+                var interval = Integer(root, "interval", 2);
+                return OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Pending, null, Math.Max(2, interval)));
+            }
+            var status = ReadStatus(statusText);
             if (status != DeviceAuthorizationStatus.Approved)
                 return OperationResult<DevicePollDto>.Success(new(status, null));
             if (!root.TryGetProperty("session", out var session) || !TryReadSession(session, out var signedIn))
                 return Invalid<DevicePollDto>("服务器返回的登录信息无效。");
             return OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Approved, signedIn));
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(Uri server, string accessToken, CancellationToken cancellationToken = default)
+    {
+        return await ReadAsync(HttpMethod.Get, server, SessionsPath, null, accessToken, root =>
+        {
+            var sessions = new List<AuthSessionInfoDto>();
+            JsonElement array;
+            if (root.ValueKind == JsonValueKind.Array)
+                array = root;
+            else if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("sessions", out var listed) && listed.ValueKind == JsonValueKind.Array)
+                array = listed;
+            else
+                return Invalid<IReadOnlyList<AuthSessionInfoDto>>("服务器返回的会话列表无效。");
+            foreach (var entry in array.EnumerateArray())
+            {
+                var id = Text(entry, "id");
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                var createdAt = DateTimeOffset.TryParse(Text(entry, "createdAt"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var created)
+                    ? created : DateTimeOffset.MinValue;
+                var lastSeenAt = DateTimeOffset.TryParse(Text(entry, "lastSeenAt"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var seen)
+                    ? seen : createdAt;
+                var expiresAt = DateTimeOffset.TryParse(Text(entry, "expiresAt"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var expires)
+                    ? expires : DateTimeOffset.MinValue;
+                sessions.Add(new(id, Text(entry, "deviceLabel"), Text(entry, "platform"), createdAt, lastSeenAt, expiresAt, Flag(entry, "current")));
+            }
+            return OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success(sessions);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult> RevokeSessionAsync(Uri server, string accessToken, string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return OperationResult.Failure(new(ErrorCodes.ValidationFailed, "会话标识无效。"));
+        var path = SessionsPath + "/" + Uri.EscapeDataString(sessionId) + "/revoke";
+        return await WriteAsync(HttpMethod.Post, server, path, null, accessToken, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult> RevokeAllSessionsAsync(Uri server, string accessToken, bool keepCurrent, CancellationToken cancellationToken = default)
+    {
+        object? body = keepCurrent ? new { keepCurrent = true } : null;
+        return await WriteAsync(HttpMethod.Post, server, SessionsRevokeAllPath, body, accessToken, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult> DeleteAccountAsync(Uri server, string accessToken, string? password, string? code, CancellationToken cancellationToken = default)
+    {
+        var body = new { password, code };
+        return await WriteAsync(HttpMethod.Post, server, AccountDeletePath, body, accessToken, cancellationToken).ConfigureAwait(false);
     }
 
     private OperationResult<AuthSessionDto> ReadSession(JsonElement root) =>
@@ -287,6 +351,8 @@ public sealed class HttpAuthTransport : IAuthTransport
         "auth.rate_limited" or "device.rate_limited" => AuthErrorCodes.RateLimited,
         "auth.registration_closed" => AuthErrorCodes.RegistrationClosed,
         "auth.required" or "auth.session_expired" or "auth.invalid_refresh" or "auth.refresh_reused" => AuthErrorCodes.TokenInvalid,
+        "auth.reauth_required" => AuthErrorCodes.ReauthRequired,
+        "auth.session_revoked" => AuthErrorCodes.SessionRevoked,
         "device.invalid_code" => AuthErrorCodes.DeviceCodeInvalid,
         null when status == HttpStatusCode.TooManyRequests => AuthErrorCodes.RateLimited,
         null => "SERVER_ERROR",
@@ -301,6 +367,8 @@ public sealed class HttpAuthTransport : IAuthTransport
         AuthErrorCodes.RateLimited => "请求过于频繁，请稍后再试。",
         AuthErrorCodes.RegistrationClosed => "服务器当前未开放注册。",
         AuthErrorCodes.TokenInvalid => "登录已过期，请重新登录。",
+        AuthErrorCodes.ReauthRequired => "需要重新验证身份后才能继续。",
+        AuthErrorCodes.SessionRevoked => "会话已被撤销，请重新登录。",
         AuthErrorCodes.DeviceCodeInvalid => "设备授权码无效或已过期。",
         AuthErrorCodes.NetworkUnavailable => "无法连接服务器，请检查网络与服务器地址。",
         _ => "请求未完成，请稍后再试。"
@@ -313,6 +381,15 @@ public sealed class HttpAuthTransport : IAuthTransport
         "expired" => DeviceAuthorizationStatus.Expired,
         "consumed" => DeviceAuthorizationStatus.Consumed,
         _ => DeviceAuthorizationStatus.Pending
+    };
+
+    private static string PurposeWire(AuthEmailCodePurpose purpose) => purpose switch
+    {
+        AuthEmailCodePurpose.Register => "register",
+        AuthEmailCodePurpose.Login => "login",
+        AuthEmailCodePurpose.Reset => "reset",
+        AuthEmailCodePurpose.DeleteAccount => "delete-account",
+        _ => purpose.ToString().ToLowerInvariant()
     };
 
     private static string? Text(JsonElement element, string name) =>

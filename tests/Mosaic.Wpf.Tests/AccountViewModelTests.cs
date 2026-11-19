@@ -21,10 +21,14 @@ public sealed class AccountViewModelTests
         public Guid DeviceId { get; } = Guid.Parse("22222222-2222-2222-2222-222222222222");
         public event EventHandler? StateChanged { add { } remove { } }
         public int LoginCalls, RegisterCalls, SendCodeCalls, StartDeviceCalls, CancelDeviceCalls, LogoutCalls;
+        public int ListSessionsCalls, DeleteAccountCalls;
         public string? LastEmail, LastCode, LastPassword, LastServerInput;
+        public string? LastDeletePassword, LastDeleteCode;
         public OperationResult LoginResult = OperationResult.Success();
         public OperationResult RegisterResult = OperationResult.Success();
         public OperationResult SendCodeResult = OperationResult.Success();
+        public OperationResult DeleteResult = OperationResult.Success();
+        public List<AuthSessionInfoDto> SessionsResult { get; set; } = [];
         public DeviceAuthorizationDto DeviceAuthorization { get; set; } = new(
             "device-code", "BAADC832", new Uri("https://sync.example.com/device"), new Uri("https://sync.example.com/device?code=BAADC832"), 600, 5);
         public Task<OperationResult<AuthPolicyDto>> GetPolicyAsync(CancellationToken cancellationToken = default) =>
@@ -42,12 +46,20 @@ public sealed class AccountViewModelTests
         public Task<OperationResult> ResetPasswordAsync(string email, string code, string newPassword, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult.Success());
         public Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(CancellationToken cancellationToken = default)
         { StartDeviceCalls++; return Task.FromResult(OperationResult<DeviceAuthorizationDto>.Success(DeviceAuthorization)); }
-        public Task<OperationResult<DeviceAuthorizationStatus>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<DeviceAuthorizationStatus>.Success(DeviceAuthorizationStatus.Pending));
+        public Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Pending, null)));
         public Task<OperationResult> CancelDeviceAuthorizationAsync() { CancelDeviceCalls++; return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult> LogoutAsync(CancellationToken cancellationToken = default) { LogoutCalls++; return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<string>.Success("access"));
+        public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default)
+        { ListSessionsCalls++; return Task.FromResult(OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success(SessionsResult)); }
+        public Task<OperationResult> RevokeSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        { SessionsResult = SessionsResult.Where(session => session.Id != sessionId).ToList(); return Task.FromResult(OperationResult.Success()); }
+        public Task<OperationResult> RevokeAllSessionsAsync(bool keepCurrent, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult.Success());
+        public Task<OperationResult> DeleteAccountAsync(string? password, string? code, CancellationToken cancellationToken = default)
+        { DeleteAccountCalls++; LastDeletePassword = password; LastDeleteCode = code; return Task.FromResult(DeleteResult); }
     }
 
     private sealed class FakeSync : ISyncApi
@@ -374,5 +386,102 @@ public sealed class AccountViewModelTests
         for (var attempt = 0; attempt < 50 && fixture.Settings.Commits.Count < 2; attempt++) await Task.Delay(20);
         Assert.Contains(fixture.Settings.Commits, commit => commit.TryGetValue("sync.enabled", out var value) && value is false);
         Assert.Contains(fixture.Settings.Commits, commit => commit.TryGetValue("sync.includeSettings", out var value) && value is false);
+    });
+
+    [Fact]
+    public Task Sessions_are_loaded_when_the_page_opens_signed_in() => RunFixture(async fixture =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        signedIn.Auth.SessionsResult =
+        [
+            new("s-1", "Mosaic 桌面客户端", "windows", DateTimeOffset.UtcNow.AddDays(-10), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(10), true),
+            new("s-2", "Mosaic 手机", "android", DateTimeOffset.UtcNow.AddDays(-5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(5), false)
+        ];
+
+        await signedIn.ViewModel.InitializeAsync();
+
+        Assert.Equal(1, signedIn.Auth.ListSessionsCalls);
+        Assert.Equal(2, signedIn.ViewModel.Sessions.Count);
+        Assert.True(signedIn.ViewModel.HasSessions);
+        Assert.True(signedIn.ViewModel.ShowSessionList);
+    });
+
+    [Fact]
+    public Task Revoking_a_session_removes_it_from_the_list() => RunFixture(async fixture =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        signedIn.Auth.SessionsResult =
+        [
+            new("s-1", "Mosaic 桌面客户端", "windows", DateTimeOffset.UtcNow.AddDays(-10), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(10), true),
+            new("s-2", "Mosaic 手机", "android", DateTimeOffset.UtcNow.AddDays(-5), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(5), false)
+        ];
+        await signedIn.ViewModel.InitializeAsync();
+
+        await signedIn.ViewModel.RevokeSessionCommand.ExecuteAsync("s-2");
+
+        var remaining = Assert.Single(signedIn.ViewModel.Sessions);
+        Assert.Equal("s-1", remaining.Id);
+        Assert.False(signedIn.ViewModel.IsError);
+    });
+
+    [Fact]
+    public Task Deleting_the_account_asks_for_confirmation_and_never_deletes_silently() => RunFixture(async fixture =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        await signedIn.ViewModel.InitializeAsync();
+
+        signedIn.ViewModel.ShowDeleteDialogCommand.Execute(null);
+        Assert.True(signedIn.ViewModel.DeleteDialogVisible);
+        Assert.True(signedIn.ViewModel.DeleteUsePassword);
+
+        signedIn.Dialogs.ConfirmResult = false;
+        signedIn.ViewModel.DeleteCredential = "correct horse battery";
+        await signedIn.ViewModel.ConfirmDeleteCommand.ExecuteAsync(null);
+        Assert.Equal(0, signedIn.Auth.DeleteAccountCalls);
+
+        signedIn.Dialogs.ConfirmResult = true;
+        await signedIn.ViewModel.ConfirmDeleteCommand.ExecuteAsync(null);
+        Assert.Equal(1, signedIn.Auth.DeleteAccountCalls);
+        Assert.Equal("correct horse battery", signedIn.Auth.LastDeletePassword);
+        Assert.Null(signedIn.Auth.LastDeleteCode);
+        Assert.False(signedIn.ViewModel.DeleteDialogVisible);
+        Assert.False(signedIn.ViewModel.IsError);
+    });
+
+    [Fact]
+    public Task Deleting_with_an_email_code_validates_the_code_format() => RunFixture(async fixture =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        await signedIn.ViewModel.InitializeAsync();
+
+        signedIn.ViewModel.ShowDeleteDialogCommand.Execute(null);
+        signedIn.ViewModel.DeleteUseCode = true;
+        signedIn.ViewModel.DeleteCredential = "12ab";
+
+        await signedIn.ViewModel.ConfirmDeleteCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, signedIn.Auth.DeleteAccountCalls);
+        Assert.True(signedIn.ViewModel.IsError);
+
+        signedIn.ViewModel.DeleteCredential = "123456";
+        await signedIn.ViewModel.ConfirmDeleteCommand.ExecuteAsync(null);
+        Assert.Equal(1, signedIn.Auth.DeleteAccountCalls);
+        Assert.Equal("123456", signedIn.Auth.LastDeleteCode);
+        Assert.Null(signedIn.Auth.LastDeletePassword);
+    });
+
+    [Fact]
+    public Task Sending_the_delete_code_uses_the_delete_account_purpose() => RunFixture(async fixture =>
+    {
+        await using var signedIn = await new Fixture().StartAsync(signedIn: true);
+        await signedIn.ViewModel.InitializeAsync();
+
+        signedIn.ViewModel.ShowDeleteDialogCommand.Execute(null);
+        signedIn.ViewModel.DeleteUseCode = true;
+        await signedIn.ViewModel.SendDeleteCodeCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, signedIn.Auth.SendCodeCalls);
+        Assert.Equal("user@example.com", signedIn.Auth.LastEmail);
+        Assert.False(signedIn.ViewModel.IsError);
     });
 }

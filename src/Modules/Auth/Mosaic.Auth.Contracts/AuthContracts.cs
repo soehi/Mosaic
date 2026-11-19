@@ -13,7 +13,8 @@ public enum AuthEmailCodePurpose
 {
     Register,
     Login,
-    Reset
+    Reset,
+    DeleteAccount
 }
 
 public enum DeviceAuthorizationStatus
@@ -45,7 +46,16 @@ public sealed record DeviceAuthorizationDto(
     int ExpiresInSeconds,
     int IntervalSeconds);
 
-public sealed record DevicePollDto(DeviceAuthorizationStatus Status, AuthSessionDto? Session);
+public sealed record DevicePollDto(DeviceAuthorizationStatus Status, AuthSessionDto? Session, int? SlowDownIntervalSeconds = null);
+
+public sealed record AuthSessionInfoDto(
+    string Id,
+    string? DeviceLabel,
+    string? Platform,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset LastSeenAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    bool Current);
 
 public sealed record AuthState(AuthStatus Status, AuthAccountDto? Account, Uri? Server)
 {
@@ -79,6 +89,8 @@ public static class AuthErrorCodes
     public const string DeviceCodeInvalid = "DEVICE_CODE_INVALID";
     public const string DeviceFlowNotStarted = "DEVICE_FLOW_NOT_STARTED";
     public const string SecretsUnavailable = "AUTH_SECRETS_UNAVAILABLE";
+    public const string ReauthRequired = "AUTH_REAUTH_REQUIRED";
+    public const string SessionRevoked = "AUTH_SESSION_REVOKED";
 }
 
 public static class AuthValidation
@@ -153,8 +165,12 @@ public interface IAuthTransport
     Task<OperationResult> ForgotPasswordAsync(Uri server, string email, CancellationToken cancellationToken = default);
     Task<OperationResult> ResetPasswordAsync(Uri server, string email, string code, string password, CancellationToken cancellationToken = default);
     Task<OperationResult<AuthAccountDto>> GetAccountAsync(Uri server, string accessToken, CancellationToken cancellationToken = default);
-    Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(Uri server, CancellationToken cancellationToken = default);
+    Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(Uri server, string appVersion, CancellationToken cancellationToken = default);
     Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(Uri server, string deviceCode, CancellationToken cancellationToken = default);
+    Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(Uri server, string accessToken, CancellationToken cancellationToken = default);
+    Task<OperationResult> RevokeSessionAsync(Uri server, string accessToken, string sessionId, CancellationToken cancellationToken = default);
+    Task<OperationResult> RevokeAllSessionsAsync(Uri server, string accessToken, bool keepCurrent, CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAccountAsync(Uri server, string accessToken, string? password, string? code, CancellationToken cancellationToken = default);
 }
 
 public interface IAuthApi
@@ -174,9 +190,14 @@ public interface IAuthApi
     Task<OperationResult> ResetPasswordAsync(string email, string code, string newPassword, CancellationToken cancellationToken = default);
 
     Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(CancellationToken cancellationToken = default);
-    Task<OperationResult<DeviceAuthorizationStatus>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default);
+    Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default);
     Task<OperationResult> CancelDeviceAuthorizationAsync();
 
     Task<OperationResult> LogoutAsync(CancellationToken cancellationToken = default);
     Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default);
+
+    Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default);
+    Task<OperationResult> RevokeSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task<OperationResult> RevokeAllSessionsAsync(bool keepCurrent, CancellationToken cancellationToken = default);
+    Task<OperationResult> DeleteAccountAsync(string? password, string? code, CancellationToken cancellationToken = default);
 }

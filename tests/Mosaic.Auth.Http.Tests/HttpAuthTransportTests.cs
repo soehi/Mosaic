@@ -155,7 +155,7 @@ public sealed class HttpAuthTransportTests
         await using var server = new LoopbackServer();
         server.Handler = (_, _) => (200, """{"deviceCode":"device-1","userCode":"BAADC832","verificationUri":"https://sync.example.com/device","expiresIn":900,"interval":5}""");
 
-        var result = await Transport().StartDeviceAuthorizationAsync(server.BaseUri);
+        var result = await Transport().StartDeviceAuthorizationAsync(server.BaseUri, "0.16.1");
 
         Assert.True(result.IsSuccess, result.Error?.Message);
         Assert.Equal("device-1", result.Value.DeviceCode);
@@ -163,6 +163,183 @@ public sealed class HttpAuthTransportTests
         Assert.Equal(new Uri("https://sync.example.com/device"), result.Value.VerificationUri);
         Assert.Equal(900, result.Value.ExpiresInSeconds);
         Assert.Equal(5, result.Value.IntervalSeconds);
+        var request = Assert.Single(server.Requests);
+        using var body = JsonDocument.Parse(request.Body);
+        Assert.Equal("windows", body.RootElement.GetProperty("platform").GetString());
+        Assert.Equal("0.16.1", body.RootElement.GetProperty("appVersion").GetString());
+    }
+
+    [Fact]
+    public async Task Device_start_prefers_verification_uri_complete()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"deviceCode":"device-1","userCode":"BAADC832","verificationUri":"https://sync.example.com/device","verificationUriComplete":"https://sync.example.com/device?user_code=BAADC832","expiresIn":900,"interval":5}""");
+
+        var result = await Transport().StartDeviceAuthorizationAsync(server.BaseUri, "0.16.1");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(new Uri("https://sync.example.com/device?user_code=BAADC832"), result.Value.VerificationUriComplete);
+    }
+
+    [Fact]
+    public async Task Device_start_constructs_the_complete_uri_when_the_server_omits_it()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"deviceCode":"device-1","userCode":"BAADC832","verificationUri":"https://sync.example.com/device","expiresIn":900,"interval":5}""");
+
+        var result = await Transport().StartDeviceAuthorizationAsync(server.BaseUri, "0.16.1");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var complete = Assert.IsType<Uri>(result.Value.VerificationUriComplete);
+        Assert.Equal("/device", complete.AbsolutePath);
+        Assert.Equal("user_code=BAADC832", complete.Query.TrimStart('?'));
+    }
+
+    [Fact]
+    public async Task Device_poll_slow_down_reports_pending_with_the_hinted_interval()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"status":"slow_down","interval":2}""");
+
+        var result = await Transport().PollDeviceAuthorizationAsync(server.BaseUri, "device-1");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(DeviceAuthorizationStatus.Pending, result.Value.Status);
+        Assert.Null(result.Value.Session);
+        Assert.Equal(2, result.Value.SlowDownIntervalSeconds);
+    }
+
+    [Fact]
+    public async Task Sessions_are_listed_from_the_v1_endpoint()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """[{"id":"s-1","deviceLabel":"Mosaic 桌面客户端","platform":"windows","createdAt":"2026-11-01T08:00:00Z","lastSeenAt":"2026-11-19T08:30:00Z","expiresAt":"2026-12-01T08:00:00Z","current":true},{"id":"s-2","deviceLabel":"Mosaic 手机","platform":"android","createdAt":"2026-11-10T08:00:00Z","lastSeenAt":"2026-11-18T08:00:00Z","expiresAt":"2026-12-10T08:00:00Z","current":false}]""");
+
+        var result = await Transport().ListSessionsAsync(server.BaseUri, "access-1");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(2, result.Value.Count);
+        var current = result.Value[0];
+        Assert.Equal("s-1", current.Id);
+        Assert.Equal("Mosaic 桌面客户端", current.DeviceLabel);
+        Assert.Equal("windows", current.Platform);
+        Assert.True(current.Current);
+        Assert.Equal(new DateTimeOffset(2026, 11, 19, 8, 30, 0, TimeSpan.Zero), current.LastSeenAtUtc);
+        var request = Assert.Single(server.Requests);
+        Assert.Equal("GET", request.Method);
+        Assert.Equal("/v1/auth/sessions", request.Path);
+        Assert.Equal("Bearer access-1", request.Authorization);
+    }
+
+    [Fact]
+    public async Task Revoke_session_posts_to_the_session_specific_endpoint()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"revoked":true}""");
+
+        var result = await Transport().RevokeSessionAsync(server.BaseUri, "access-1", "s-9");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var request = Assert.Single(server.Requests);
+        Assert.Equal("POST", request.Method);
+        Assert.Equal("/v1/auth/sessions/s-9/revoke", request.Path);
+        Assert.Equal("Bearer access-1", request.Authorization);
+    }
+
+    [Fact]
+    public async Task Revoke_all_sessions_keeps_current_when_requested()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"revoked":3}""");
+
+        var result = await Transport().RevokeAllSessionsAsync(server.BaseUri, "access-1", keepCurrent: true);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var request = Assert.Single(server.Requests);
+        Assert.Equal("/v1/auth/sessions/revoke-all", request.Path);
+        using var body = JsonDocument.Parse(request.Body);
+        Assert.True(body.RootElement.GetProperty("keepCurrent").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Revoke_all_sessions_without_body_revokes_everything()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"revoked":4}""");
+
+        var result = await Transport().RevokeAllSessionsAsync(server.BaseUri, "access-1", keepCurrent: false);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var request = Assert.Single(server.Requests);
+        Assert.Equal("/v1/auth/sessions/revoke-all", request.Path);
+        Assert.True(string.IsNullOrEmpty(request.Body));
+    }
+
+    [Fact]
+    public async Task Delete_account_sends_password_or_code()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"deleted":true}""");
+
+        var result = await Transport().DeleteAccountAsync(server.BaseUri, "access-1", "password-123", null);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var request = Assert.Single(server.Requests);
+        Assert.Equal("/v1/auth/account/delete", request.Path);
+        using var body = JsonDocument.Parse(request.Body);
+        Assert.Equal("password-123", body.RootElement.GetProperty("password").GetString());
+        Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("code").ValueKind);
+    }
+
+    [Fact]
+    public async Task Reauth_required_maps_to_the_dedicated_code()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (401, """{"code":"auth.reauth_required","message":"需要重新验证身份。","traceId":"trace-2"}""");
+
+        var result = await Transport().DeleteAccountAsync(server.BaseUri, "access-1", "wrong-password", null);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AuthErrorCodes.ReauthRequired, result.Error!.Code);
+        Assert.Equal("trace-2", result.Error.CorrelationId);
+    }
+
+    [Fact]
+    public async Task Session_revoked_maps_to_the_dedicated_code()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (401, """{"code":"auth.session_revoked","message":"会话已被撤销。","traceId":"trace-3"}""");
+
+        var result = await Transport().ListSessionsAsync(server.BaseUri, "access-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AuthErrorCodes.SessionRevoked, result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task Unknown_error_details_fields_are_ignored()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (409, """{"code":"sync.conflict","message":"冲突。","traceId":"trace-4","details":{"current":{"id":"t-1","title":"x"},"future":{"unknown":123}}}""");
+
+        var result = await Transport().ListSessionsAsync(server.BaseUri, "access-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("sync.conflict", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task Delete_account_purpose_is_sent_as_wire_string()
+    {
+        await using var server = new LoopbackServer();
+        server.Handler = (_, _) => (200, """{"sent":true}""");
+
+        var result = await Transport().SendEmailCodeAsync(server.BaseUri, "user@example.com", AuthEmailCodePurpose.DeleteAccount);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var request = Assert.Single(server.Requests);
+        using var body = JsonDocument.Parse(request.Body);
+        Assert.Equal("delete-account", body.RootElement.GetProperty("purpose").GetString());
     }
 
     [Fact]

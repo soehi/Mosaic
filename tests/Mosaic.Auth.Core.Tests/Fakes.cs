@@ -221,8 +221,9 @@ internal sealed class FakeTransport : IAuthTransport
             Guid.Parse("11111111-1111-1111-1111-111111111111"), "user@example.com", "用户")));
     }
 
-    public Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(Uri server, CancellationToken cancellationToken = default)
+    public Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(Uri server, string appVersion, CancellationToken cancellationToken = default)
     {
+        LastAppVersion = appVersion;
         Record(nameof(StartDeviceAuthorizationAsync), server);
         return Task.FromResult(DeviceStart);
     }
@@ -232,5 +233,37 @@ internal sealed class FakeTransport : IAuthTransport
         PollCalls++;
         Record(nameof(PollDeviceAuthorizationAsync), server);
         return Task.FromResult(DevicePoll);
+    }
+
+    public string? LastAppVersion { get; private set; }
+    public OperationResult<IReadOnlyList<AuthSessionInfoDto>> Sessions { get; set; } =
+        OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success([]);
+    public OperationResult RevokeResult { get; set; } = OperationResult.Success();
+    public OperationResult DeleteResult { get; set; } = OperationResult.Success();
+    public (string? Password, string? Code)? LastDelete { get; private set; }
+
+    public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(Uri server, string accessToken, CancellationToken cancellationToken = default)
+    {
+        Record(nameof(ListSessionsAsync), server);
+        return Task.FromResult(Sessions);
+    }
+
+    public Task<OperationResult> RevokeSessionAsync(Uri server, string accessToken, string sessionId, CancellationToken cancellationToken = default)
+    {
+        Record(nameof(RevokeSessionAsync), server);
+        return Task.FromResult(RevokeResult);
+    }
+
+    public Task<OperationResult> RevokeAllSessionsAsync(Uri server, string accessToken, bool keepCurrent, CancellationToken cancellationToken = default)
+    {
+        Record(nameof(RevokeAllSessionsAsync), server);
+        return Task.FromResult(RevokeResult);
+    }
+
+    public Task<OperationResult> DeleteAccountAsync(Uri server, string accessToken, string? password, string? code, CancellationToken cancellationToken = default)
+    {
+        LastDelete = (password, code);
+        Record(nameof(DeleteAccountAsync), server);
+        return Task.FromResult(DeleteResult);
     }
 }

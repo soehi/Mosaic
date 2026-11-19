@@ -70,7 +70,7 @@ internal sealed class GuardedAuthApi(AuthService service, IModuleExecutionGate g
     public Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
         Invoke(service.StartDeviceAuthorizationAsync, cancellationToken);
 
-    public Task<OperationResult<DeviceAuthorizationStatus>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
+    public Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
         Invoke(service.PollDeviceAuthorizationAsync, cancellationToken);
 
     public Task<OperationResult> CancelDeviceAuthorizationAsync() =>
@@ -81,4 +81,16 @@ internal sealed class GuardedAuthApi(AuthService service, IModuleExecutionGate g
 
     public Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
         Invoke(service.GetAccessTokenAsync, cancellationToken);
+
+    public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default) =>
+        Invoke(service.ListSessionsAsync, cancellationToken);
+
+    public Task<OperationResult> RevokeSessionAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        Invoke(token => service.RevokeSessionAsync(sessionId, token), cancellationToken);
+
+    public Task<OperationResult> RevokeAllSessionsAsync(bool keepCurrent, CancellationToken cancellationToken = default) =>
+        Invoke(token => service.RevokeAllSessionsAsync(keepCurrent, token), cancellationToken);
+
+    public Task<OperationResult> DeleteAccountAsync(string? password, string? code, CancellationToken cancellationToken = default) =>
+        Invoke(token => service.DeleteAccountAsync(password, code, token), cancellationToken);
 }

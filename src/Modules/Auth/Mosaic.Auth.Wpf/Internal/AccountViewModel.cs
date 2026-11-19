@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -69,6 +70,11 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private bool _loadingSync;
     private string? _snapshotSummary;
     private string? _restoreSummary;
+    private readonly ObservableCollection<AuthSessionInfoDto> _sessions = [];
+    private bool _sessionsBusy;
+    private bool _deleteDialogVisible;
+    private bool _deleteUseCode;
+    private string _deleteCredential = "";
 
     public AccountViewModel(
         IAuthApi auth,
@@ -88,6 +94,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         _openUri = openUri ?? DefaultOpenUri;
         _copyText = copyText ?? DefaultCopy;
+        Sessions = new(_sessions);
 
         LoginCommand = Async(LoginAsync);
         RegisterCommand = Async(RegisterAsync);
@@ -109,6 +116,13 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         UseOfflineCommand = new RelayCommand(UseOffline);
         ConnectCommand = new RelayCommand(Connect);
         ToggleServerPanelCommand = new RelayCommand(() => ShowServerPanel = !ShowServerPanel);
+        RefreshSessionsCommand = Async(RefreshSessionsAsync, () => _auth.State.Status == AuthStatus.SignedIn && !SessionsBusy);
+        RevokeSessionCommand = new AsyncRelayCommand<string>(RevokeSessionAsync);
+        RevokeAllSessionsCommand = Async(RevokeAllSessionsAsync, () => _auth.State.Status == AuthStatus.SignedIn);
+        ShowDeleteDialogCommand = new RelayCommand(ShowDeleteDialog);
+        CancelDeleteCommand = new RelayCommand(CancelDelete);
+        SendDeleteCodeCommand = Async(SendDeleteCodeAsync, () => CooldownSeconds == 0);
+        ConfirmDeleteCommand = Async(ConfirmDeleteAsync, () => DeleteCredential.Trim().Length > 0);
 
         _auth.StateChanged += OnAuthChanged;
         _sync.StateChanged += OnSyncChanged;
@@ -138,6 +152,13 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public IRelayCommand UseOfflineCommand { get; }
     public IRelayCommand ConnectCommand { get; }
     public IRelayCommand ToggleServerPanelCommand { get; }
+    public IAsyncRelayCommand RefreshSessionsCommand { get; }
+    public IAsyncRelayCommand<string> RevokeSessionCommand { get; }
+    public IAsyncRelayCommand RevokeAllSessionsCommand { get; }
+    public IRelayCommand ShowDeleteDialogCommand { get; }
+    public IRelayCommand CancelDeleteCommand { get; }
+    public IAsyncRelayCommand SendDeleteCodeCommand { get; }
+    public IAsyncRelayCommand ConfirmDeleteCommand { get; }
 
     public AccountMode Mode
     {
@@ -373,6 +394,74 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     public bool HasRestore => !string.IsNullOrEmpty(RestoreSummary);
 
+    public ReadOnlyObservableCollection<AuthSessionInfoDto> Sessions { get; }
+
+    public bool HasSessions => Sessions.Count > 0;
+
+    public bool ShowSessionList => HasSessions && !SessionsBusy;
+
+    public bool ShowSessionsLoading => !HasSessions && SessionsBusy;
+
+    public bool SessionsBusy
+    {
+        get => _sessionsBusy;
+        private set
+        {
+            if (!SetProperty(ref _sessionsBusy, value)) return;
+            RefreshSessionsCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(ShowSessionList));
+            OnPropertyChanged(nameof(ShowSessionsLoading));
+        }
+    }
+
+    public bool DeleteDialogVisible
+    {
+        get => _deleteDialogVisible;
+        private set
+        {
+            if (!SetProperty(ref _deleteDialogVisible, value)) return;
+            OnPropertyChanged(nameof(DeleteDialogHidden));
+        }
+    }
+
+    public bool DeleteDialogHidden => !DeleteDialogVisible;
+
+    public bool DeleteUseCode
+    {
+        get => _deleteUseCode;
+        set
+        {
+            if (!SetProperty(ref _deleteUseCode, value)) return;
+            OnPropertyChanged(nameof(DeleteUsePassword));
+            OnPropertyChanged(nameof(DeleteCredentialLabel));
+            OnPropertyChanged(nameof(DeleteCredentialPlaceholder));
+        }
+    }
+
+    public bool DeleteUsePassword
+    {
+        get => !DeleteUseCode;
+        set => DeleteUseCode = !value;
+    }
+
+    public string DeleteCredential
+    {
+        get => _deleteCredential;
+        set
+        {
+            if (!SetProperty(ref _deleteCredential, value)) return;
+            ConfirmDeleteCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    public string DeleteCredentialLabel => DeleteUseCode
+        ? L("Auth.Delete.CodeLabel", "邮箱验证码")
+        : L("Auth.Delete.PasswordLabel", "账户密码");
+
+    public string DeleteCredentialPlaceholder => DeleteUseCode
+        ? L("Auth.Delete.CodePlaceholder", "输入收到的 6 位验证码")
+        : L("Auth.Delete.PasswordPlaceholder", "输入当前账户密码");
+
     public async Task InitializeAsync()
     {
         await LoadSyncOptionsAsync().ConfigureAwait(true);
@@ -382,6 +471,12 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             var latest = await _sync.RefreshLatestAsync(_lifetime.Token).ConfigureAwait(true);
             if (!latest.IsSuccess) SetMessage(AuthLocalization.Error(latest.Error), isError: true);
             RefreshSummaries();
+        }
+        if (IsSignedIn)
+        {
+            var sessions = await _auth.ListSessionsAsync(_lifetime.Token).ConfigureAwait(true);
+            if (sessions.IsSuccess)
+                ReplaceSessions(sessions.Value);
         }
         NotifyAuth();
     }
@@ -607,6 +702,130 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         RefreshSummaries();
     }
 
+    private void ReplaceSessions(IReadOnlyList<AuthSessionInfoDto> sessions)
+    {
+        _sessions.Clear();
+        foreach (var session in sessions) _sessions.Add(session);
+        OnPropertyChanged(nameof(HasSessions));
+        OnPropertyChanged(nameof(ShowSessionList));
+        OnPropertyChanged(nameof(ShowSessionsLoading));
+    }
+
+    private async Task RefreshSessionsAsync()
+    {
+        SessionsBusy = true;
+        try
+        {
+            var result = await _auth.ListSessionsAsync(_lifetime.Token).ConfigureAwait(true);
+            if (!result.IsSuccess)
+            {
+                Fail(AuthLocalization.Error(result.Error));
+                return;
+            }
+            ReplaceSessions(result.Value);
+        }
+        finally { SessionsBusy = false; }
+    }
+
+    private async Task RevokeSessionAsync(string? sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return;
+        var result = await _auth.RevokeSessionAsync(sessionId, _lifetime.Token).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            Fail(AuthLocalization.Error(result.Error));
+            return;
+        }
+        ReplaceSessions(_sessions.Where(session => session.Id != sessionId).ToList());
+        SetMessage(L("Auth.Sessions.Revoked", "会话已撤销。"), isError: false);
+    }
+
+    private async Task RevokeAllSessionsAsync()
+    {
+        var confirmed = await _dialogs.ConfirmAsync(
+            L("Auth.Sessions.RevokeOthers.Title", "撤销其他会话"),
+            L("Auth.Sessions.RevokeOthers.Message", "除当前设备外，其他所有设备都会被登出，需要重新登录。是否继续？")).ConfigureAwait(true);
+        if (!confirmed) return;
+        var result = await _auth.RevokeAllSessionsAsync(keepCurrent: true, _lifetime.Token).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            Fail(AuthLocalization.Error(result.Error));
+            return;
+        }
+        SetMessage(L("Auth.Sessions.RevokeOthers.Done", "其他会话已撤销。"), isError: false);
+        await RefreshSessionsAsync().ConfigureAwait(true);
+    }
+
+    private void ShowDeleteDialog()
+    {
+        DeleteCredential = "";
+        DeleteUseCode = false;
+        DeleteDialogVisible = true;
+    }
+
+    private void CancelDelete()
+    {
+        DeleteCredential = "";
+        DeleteDialogVisible = false;
+    }
+
+    private async Task SendDeleteCodeAsync()
+    {
+        var email = AccountEmail;
+        if (!AuthValidation.IsValidEmail(email))
+        {
+            Fail(L("Auth.Validation.Email", "请输入有效的邮箱地址。"));
+            return;
+        }
+        var result = await _auth.RequestEmailCodeAsync(email, AuthEmailCodePurpose.DeleteAccount, _lifetime.Token).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            Fail(AuthLocalization.Error(result.Error));
+            return;
+        }
+        StartCooldown();
+        SetMessage(L("Auth.Code.Sent", "验证码已发送，请查收邮箱。"), isError: false);
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        var credential = DeleteCredential.Trim();
+        string? password;
+        string? code;
+        if (DeleteUseCode)
+        {
+            if (!AuthValidation.IsValidEmailCode(credential))
+            {
+                Fail(L("Auth.Validation.Code", "请输入 6 位数字验证码。"));
+                return;
+            }
+            password = null;
+            code = credential;
+        }
+        else
+        {
+            if (credential.Length == 0)
+            {
+                Fail(L("Auth.Validation.Password", "密码需为 10–256 个字符。"));
+                return;
+            }
+            password = credential;
+            code = null;
+        }
+        var confirmed = await _dialogs.ConfirmAsync(
+            L("Auth.Delete.Confirm.Title", "永久删除账号"),
+            L("Auth.Delete.Confirm.Message", "账号与云端全部数据将被永久删除且无法恢复，本机数据保留。是否继续？")).ConfigureAwait(true);
+        if (!confirmed) return;
+        var result = await _auth.DeleteAccountAsync(password, code, _lifetime.Token).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            Fail(AuthLocalization.Error(result.Error));
+            return;
+        }
+        CancelDelete();
+        SetMessage(L("Auth.Delete.Done", "账号已删除。"), isError: false);
+    }
+
     private async Task PersistSyncOptionAsync(string id, bool value)
     {
         try
@@ -673,11 +892,16 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         var source = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _devicePolling = source;
         DeviceSecondsLeft = Math.Max(0, expiresInSeconds);
-        _ = PollDeviceAsync(Math.Clamp(intervalSeconds, 2, 30), source.Token);
+        _ = PollDeviceAsync(Math.Clamp(intervalSeconds, 2, 30), 0, source.Token);
     }
 
-    private async Task PollDeviceAsync(int intervalSeconds, CancellationToken token)
+    private async Task PollDeviceAsync(int baseIntervalSeconds, int nextPollAtSeconds, CancellationToken token)
     {
+        // Server 0.1.1 answers a too-fast poll with 200 {status:"slow_down", interval}; honour it by
+        // adding the hinted interval on top of the current cadence instead of treating it as pending.
+        var effectiveInterval = baseIntervalSeconds;
+        var slowDownIncrement = 0;
+        var pollAt = nextPollAtSeconds;
         try
         {
             while (!token.IsCancellationRequested)
@@ -690,14 +914,21 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
                         L("Auth.Device.Expired", "授权码已过期，请重新获取。"), token).ConfigureAwait(false);
                     return;
                 }
-                if (DeviceSecondsLeft % intervalSeconds != 0) continue;
+                if (DeviceSecondsLeft > pollAt) continue;
                 var polled = await _auth.PollDeviceAuthorizationAsync(token).ConfigureAwait(false);
                 if (!polled.IsSuccess)
                 {
                     await StopWithStatusAsync(AuthLocalization.Error(polled.Error), token).ConfigureAwait(false);
                     return;
                 }
-                switch (polled.Value)
+                pollAt = NextPollAt(DeviceSecondsLeft, effectiveInterval);
+                if (polled.Value.SlowDownIntervalSeconds is int slowDown && slowDown > 0)
+                {
+                    slowDownIncrement += slowDown;
+                    effectiveInterval = Math.Clamp(baseIntervalSeconds + slowDownIncrement, baseIntervalSeconds, 30);
+                    pollAt = NextPollAt(DeviceSecondsLeft, effectiveInterval);
+                }
+                switch (polled.Value.Status)
                 {
                     case DeviceAuthorizationStatus.Pending:
                         continue;
@@ -725,6 +956,9 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             _diagnostics.Report(Guid.NewGuid().ToString("N"), ex);
         }
     }
+
+    private static int NextPollAt(int secondsLeft, int intervalSeconds) =>
+        Math.Max(0, secondsLeft - Math.Max(1, intervalSeconds));
 
     private Task StopWithStatusAsync(string status, CancellationToken token)
     {
@@ -928,6 +1162,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         RefreshLatestCommand.NotifyCanExecuteChanged();
         CopyDeviceCodeCommand.NotifyCanExecuteChanged();
         OpenDeviceUriCommand.NotifyCanExecuteChanged();
+        RefreshSessionsCommand.NotifyCanExecuteChanged();
+        RevokeAllSessionsCommand.NotifyCanExecuteChanged();
+        SendDeleteCodeCommand.NotifyCanExecuteChanged();
+        ConfirmDeleteCommand.NotifyCanExecuteChanged();
     }
 
     private void OnAuthChanged(object? sender, EventArgs e) => OnUi(() =>

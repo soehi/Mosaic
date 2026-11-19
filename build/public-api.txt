@@ -4,6 +4,7 @@ Mosaic.Auth.Contracts.AuthErrorCodes
 Mosaic.Auth.Contracts.AuthPolicyDto
 Mosaic.Auth.Contracts.AuthSecrets
 Mosaic.Auth.Contracts.AuthSessionDto
+Mosaic.Auth.Contracts.AuthSessionInfoDto
 Mosaic.Auth.Contracts.AuthState
 Mosaic.Auth.Contracts.AuthStatus
 Mosaic.Auth.Contracts.AuthValidation

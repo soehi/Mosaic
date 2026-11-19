@@ -86,6 +86,33 @@
     <sys:String x:Key="Auth.Sync.Confirm.Title">Replace local tasks</sys:String>
     <sys:String x:Key="Auth.Sync.Confirm.Message">Downloading the server backup replaces every task on this device and may overwrite portable settings. This cannot be undone. Continue?</sys:String>
 
+    <sys:String x:Key="Auth.Sessions.Title">Signed-in sessions</sys:String>
+    <sys:String x:Key="Auth.Sessions.Loading">Loading sessions…</sys:String>
+    <sys:String x:Key="Auth.Sessions.CurrentTag"> (this device)</sys:String>
+    <sys:String x:Key="Auth.Sessions.Revoke">Revoke</sys:String>
+    <sys:String x:Key="Auth.Sessions.Revoked">Session revoked.</sys:String>
+    <sys:String x:Key="Auth.Sessions.Refresh">Refresh sessions</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers">Sign out other devices</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers.Title">Sign out other devices</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers.Message">Every device except this one will be signed out and must sign in again. Continue?</sys:String>
+    <sys:String x:Key="Auth.Sessions.RevokeOthers.Done">Other sessions revoked.</sys:String>
+
+    <sys:String x:Key="Auth.Delete.Title">Delete account</sys:String>
+    <sys:String x:Key="Auth.Delete.Description">Permanently deletes the account and every backup stored on the server. Tasks on this device are kept.</sys:String>
+    <sys:String x:Key="Auth.Delete.Action">Delete account…</sys:String>
+    <sys:String x:Key="Auth.Delete.Verify">This cannot be undone. Confirm with your password or a fresh email code.</sys:String>
+    <sys:String x:Key="Auth.Delete.UsePassword">Password</sys:String>
+    <sys:String x:Key="Auth.Delete.UseCode">Email code</sys:String>
+    <sys:String x:Key="Auth.Delete.PasswordLabel">Account password</sys:String>
+    <sys:String x:Key="Auth.Delete.CodeLabel">Email code</sys:String>
+    <sys:String x:Key="Auth.Delete.PasswordPlaceholder">Enter the current account password</sys:String>
+    <sys:String x:Key="Auth.Delete.CodePlaceholder">Enter the 6-digit code you received</sys:String>
+    <sys:String x:Key="Auth.Delete.Confirm">Delete permanently</sys:String>
+    <sys:String x:Key="Auth.Delete.Cancel">Cancel</sys:String>
+    <sys:String x:Key="Auth.Delete.Confirm.Title">Delete account permanently</sys:String>
+    <sys:String x:Key="Auth.Delete.Confirm.Message">The account and all of its cloud data will be deleted permanently and cannot be recovered. Local data stays on this device. Continue?</sys:String>
+    <sys:String x:Key="Auth.Delete.Done">Account deleted.</sys:String>
+
     <sys:String x:Key="Auth.Validation.Email">Enter a valid email address.</sys:String>
     <sys:String x:Key="Auth.Validation.Password">Passwords must be 10–256 characters.</sys:String>
     <sys:String x:Key="Auth.Validation.Code">Enter the 6-digit code.</sys:String>
@@ -104,6 +131,8 @@
     <sys:String x:Key="Auth.Error.PasswordTooWeak">Password is too weak. Use at least 10 characters.</sys:String>
     <sys:String x:Key="Auth.Error.TokenExpired">Your session expired. Sign in again.</sys:String>
     <sys:String x:Key="Auth.Error.TokenInvalid">Your session is invalid. Sign in again.</sys:String>
+    <sys:String x:Key="Auth.Error.ReauthRequired">Confirm your identity to continue.</sys:String>
+    <sys:String x:Key="Auth.Error.SessionRevoked">This session was revoked. Sign in again.</sys:String>
     <sys:String x:Key="Auth.Error.DeviceCodeInvalid">The device code is invalid or expired.</sys:String>
     <sys:String x:Key="Auth.Error.DeviceFlowNotStarted">No device authorization is waiting for confirmation.</sys:String>
     <sys:String x:Key="Auth.Error.SecretsUnavailable">The local credential store is unavailable.</sys:String>

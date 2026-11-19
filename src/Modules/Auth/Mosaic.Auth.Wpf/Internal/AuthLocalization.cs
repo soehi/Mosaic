@@ -31,6 +31,8 @@ internal static class AuthLocalization
             AuthErrorCodes.PasswordTooWeak => "Auth.Error.PasswordTooWeak",
             AuthErrorCodes.TokenExpired => "Auth.Error.TokenExpired",
             AuthErrorCodes.TokenInvalid => "Auth.Error.TokenInvalid",
+            AuthErrorCodes.ReauthRequired => "Auth.Error.ReauthRequired",
+            AuthErrorCodes.SessionRevoked => "Auth.Error.SessionRevoked",
             AuthErrorCodes.DeviceCodeInvalid => "Auth.Error.DeviceCodeInvalid",
             AuthErrorCodes.DeviceFlowNotStarted => "Auth.Error.DeviceFlowNotStarted",
             AuthErrorCodes.SecretsUnavailable => "Auth.Error.SecretsUnavailable",

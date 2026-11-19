@@ -107,7 +107,8 @@ public sealed class HttpSyncTransport : ISyncTransport
             : _clock.GetUtcNow();
         var itemCount = root.TryGetProperty("itemCount", out var count) && count.TryGetInt32(out var items) ? items : 0;
         var bytes = root.TryGetProperty("sizeBytes", out var size) && size.TryGetInt64(out var total) ? total : 0;
-        snapshot = new(id, createdAt, itemCount, Text(root, "contentSha256") ?? "", bytes);
+        var serverRevision = root.TryGetProperty("serverRevision", out var revision) && revision.TryGetInt64(out var parsedRevision) ? parsedRevision : 0;
+        snapshot = new(id, createdAt, itemCount, Text(root, "contentSha256") ?? "", bytes, serverRevision, Text(root, "cursor"));
         return true;
     }
 

@@ -106,10 +106,10 @@ public sealed class SyncServiceTests
         Assert.True(result.IsSuccess, result.Error?.Message);
         var keys = fixture.Transport.LastUpload!.Select(item => item.Key).ToArray();
         Assert.Equal(
-            new[] { TaskId.ToString("D"), "appearance.theme", "tasks.confirmDelete", "ui.language", "ui.text.placeholder" },
+            new[] { TaskId.ToString("D"), "appearance.theme", "tasks.confirmDelete", "ui.language" },
             keys.OrderBy(key => key, StringComparer.Ordinal));
         Assert.Equal(1, result.Value.TaskCount);
-        Assert.Equal(4, result.Value.SettingCount);
+        Assert.Equal(3, result.Value.SettingCount);
         Assert.Equal(Guid.Parse("22222222-2222-2222-2222-222222222222"), fixture.Transport.LastDeviceId);
         Assert.Equal("access-token", fixture.Transport.LastToken);
         var taskItem = fixture.Transport.LastUpload!.Single(item => item.Kind == SyncItemKinds.Task);
@@ -121,6 +121,51 @@ public sealed class SyncServiceTests
             || key.StartsWith("desktop.", StringComparison.Ordinal)
             || key.StartsWith("sync.", StringComparison.Ordinal)
             || key.StartsWith("auth.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Upload_never_sends_host_specific_task_settings_that_match_the_old_prefixes()
+    {
+        // tasks.revisionStart and tasks.floating.allowNotesEditing used to slip through the
+        // "tasks." prefix match; server 0.1.1 would reject the whole backup with 400 backup.invalid.
+        var fixture = await new Fixture().StartAsync(
+            ("tasks.revisionStart", SettingPersistence.UserSettings),
+            ("tasks.floating.allowNotesEditing", SettingPersistence.UserSettings),
+            ("tasks.sortOrder", SettingPersistence.UserSettings));
+        fixture.Settings.Values["tasks.revisionStart"] = 5L;
+        fixture.Settings.Values["tasks.floating.allowNotesEditing"] = false;
+        fixture.Settings.Values["tasks.sortOrder"] = "DueDate";
+        fixture.AddTask();
+
+        var result = await fixture.Api.UploadAsync(true);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var keys = fixture.Transport.LastUpload!.Where(item => item.Kind == SyncItemKinds.Setting).Select(item => item.Key).ToArray();
+        Assert.Equal(new[] { "tasks.sortOrder" }, keys);
+        Assert.Equal(1, result.Value.SettingCount);
+    }
+
+    [Fact]
+    public async Task Upload_sends_exactly_the_fourteen_whitelisted_settings_when_all_are_defined()
+    {
+        string[] whitelist =
+        [
+            "ui.language", "appearance.theme", "tasks.sortOrder", "tasks.defaultFilter",
+            "tasks.archive.autoEnabled", "tasks.archive.delayDays", "tasks.title.maxCharacters",
+            "tasks.notes.maxCharacters", "tasks.title.required", "tasks.defaultCompleted",
+            "tasks.confirmDelete", "tasks.confirmUnsaved", "tasks.showCharacterCount",
+            "tasks.autoSwitchToAllOnHidden"
+        ];
+        var fixture = await new Fixture().StartAsync(whitelist.Select(id => (id, SettingPersistence.UserSettings)).ToArray());
+        foreach (var id in whitelist) fixture.Settings.Values[id] = "value-" + id;
+        fixture.AddTask();
+
+        var result = await fixture.Api.UploadAsync(true);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var keys = fixture.Transport.LastUpload!.Where(item => item.Kind == SyncItemKinds.Setting).Select(item => item.Key).ToArray();
+        Assert.Equal(whitelist.OrderBy(key => key, StringComparer.Ordinal), keys.OrderBy(key => key, StringComparer.Ordinal));
+        Assert.Equal(14, result.Value.SettingCount);
     }
 
     [Fact]

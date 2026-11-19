@@ -60,8 +60,8 @@ internal sealed class FakeAuthApi : IAuthApi
     public Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(OperationResult<DeviceAuthorizationDto>.Failure(new(AuthErrorCodes.ServerRequired, "请先填写服务器地址。")));
 
-    public Task<OperationResult<DeviceAuthorizationStatus>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(OperationResult<DeviceAuthorizationStatus>.Success(DeviceAuthorizationStatus.Pending));
+    public Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<DevicePollDto>.Success(new(DeviceAuthorizationStatus.Pending, null)));
 
     public Task<OperationResult> CancelDeviceAuthorizationAsync() => Task.FromResult(OperationResult.Success());
 
@@ -69,6 +69,18 @@ internal sealed class FakeAuthApi : IAuthApi
 
     public Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(OperationResult<string>.Success("access-token"));
+
+    public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success([]));
+
+    public Task<OperationResult> RevokeSessionAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult.Success());
+
+    public Task<OperationResult> RevokeAllSessionsAsync(bool keepCurrent, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult.Success());
+
+    public Task<OperationResult> DeleteAccountAsync(string? password, string? code, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult.Success());
 }
 
 internal sealed class FakeSyncTransport : ISyncTransport

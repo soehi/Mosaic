@@ -26,11 +26,13 @@ public sealed record BackupSnapshotDto(
     DateTimeOffset CreatedAtUtc,
     int ItemCount,
     string ContentSha256,
-    long TotalBytes);
+    long TotalBytes,
+    long ServerRevision = 0,
+    string? Cursor = null);
 
 public sealed record BackupSnapshotContentDto(BackupSnapshotDto Snapshot, IReadOnlyList<BackupItemDto> Items);
 
-public sealed record BackupUploadResult(string SnapshotId, int TaskCount, int SettingCount, long TotalBytes);
+public sealed record BackupUploadResult(string SnapshotId, int TaskCount, int SettingCount, long TotalBytes, long ServerRevision = 0, string? Cursor = null);
 
 public sealed record RestoreSummary(int TaskCount, int SettingCount);
 

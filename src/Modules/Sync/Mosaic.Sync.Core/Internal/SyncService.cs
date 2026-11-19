@@ -13,8 +13,26 @@ namespace Mosaic.Sync.Core.Internal;
 // on this machine by construction: they are never named by this whitelist.
 internal sealed class SyncService : ISyncApi
 {
-    private static readonly string[] PortablePrefixes = ["tasks.", "ui.text."];
-    private static readonly HashSet<string> PortableIds = new(StringComparer.Ordinal) { "appearance.theme", "ui.language" };
+    // Server 0.1.1 rejects any setting key outside this list with 400 backup.invalid, so the
+    // portable set must match docs/auth-sync-server-plan.md section 4.3 exactly — no prefixes,
+    // no extras like tasks.revisionStart or tasks.floating.allowNotesEditing.
+    private static readonly HashSet<string> PortableIds = new(StringComparer.Ordinal)
+    {
+        "ui.language",
+        "appearance.theme",
+        "tasks.sortOrder",
+        "tasks.defaultFilter",
+        "tasks.archive.autoEnabled",
+        "tasks.archive.delayDays",
+        "tasks.title.maxCharacters",
+        "tasks.notes.maxCharacters",
+        "tasks.title.required",
+        "tasks.defaultCompleted",
+        "tasks.confirmDelete",
+        "tasks.confirmUnsaved",
+        "tasks.showCharacterCount",
+        "tasks.autoSwitchToAllOnHidden",
+    };
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IAuthApi _auth;
@@ -91,7 +109,7 @@ internal sealed class SyncService : ISyncApi
                 _messageCode = null;
             }
             Raise();
-            return OperationResult<BackupUploadResult>.Success(new(uploaded.Value.SnapshotId, exported.Value.Count, settingsCount, uploaded.Value.TotalBytes));
+            return OperationResult<BackupUploadResult>.Success(new(uploaded.Value.SnapshotId, exported.Value.Count, settingsCount, uploaded.Value.TotalBytes, uploaded.Value.ServerRevision, uploaded.Value.Cursor));
         }, cancellationToken);
 
     public Task<OperationResult<RestoreSummary>> DownloadAndReplaceAsync(CancellationToken cancellationToken = default) =>
@@ -198,8 +216,7 @@ internal sealed class SyncService : ISyncApi
     }
 
     private static bool IsPortable(SettingDefinition definition) =>
-        definition.Persistence == SettingPersistence.UserSettings &&
-        (PortableIds.Contains(definition.Id) || PortablePrefixes.Any(prefix => definition.Id.StartsWith(prefix, StringComparison.Ordinal)));
+        definition.Persistence == SettingPersistence.UserSettings && PortableIds.Contains(definition.Id);
 
     private static object? ToJson(object? value, SettingValueKind kind) => kind switch
     {

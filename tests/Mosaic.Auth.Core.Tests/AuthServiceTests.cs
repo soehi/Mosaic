@@ -289,13 +289,13 @@ public sealed class AuthServiceTests
 
         Assert.True((await fixture.Api.StartDeviceAuthorizationAsync()).IsSuccess);
         var pending = await fixture.Api.PollDeviceAuthorizationAsync();
-        Assert.Equal(DeviceAuthorizationStatus.Pending, pending.Value);
+        Assert.Equal(DeviceAuthorizationStatus.Pending, pending.Value.Status);
         var callsWhilePending = fixture.Transport.PollCalls;
 
         fixture.Clock.Now = fixture.Clock.Now.AddMinutes(10);
         var expired = await fixture.Api.PollDeviceAuthorizationAsync();
 
-        Assert.Equal(DeviceAuthorizationStatus.Expired, expired.Value);
+        Assert.Equal(DeviceAuthorizationStatus.Expired, expired.Value.Status);
         Assert.Equal(callsWhilePending, fixture.Transport.PollCalls);
         Assert.Equal(AuthErrorCodes.DeviceFlowNotStarted, (await fixture.Api.PollDeviceAuthorizationAsync()).Error!.Code);
     }
@@ -311,7 +311,7 @@ public sealed class AuthServiceTests
 
         var approved = await fixture.Api.PollDeviceAuthorizationAsync();
 
-        Assert.Equal(DeviceAuthorizationStatus.Approved, approved.Value);
+        Assert.Equal(DeviceAuthorizationStatus.Approved, approved.Value.Status);
         Assert.Equal(AuthStatus.SignedIn, fixture.Api.State.Status);
         Assert.NotNull(fixture.Secrets.Stored);
         Assert.Equal(AuthErrorCodes.DeviceFlowNotStarted, (await fixture.Api.PollDeviceAuthorizationAsync()).Error!.Code);
@@ -327,7 +327,7 @@ public sealed class AuthServiceTests
 
         var denied = await fixture.Api.PollDeviceAuthorizationAsync();
 
-        Assert.Equal(DeviceAuthorizationStatus.Denied, denied.Value);
+        Assert.Equal(DeviceAuthorizationStatus.Denied, denied.Value.Status);
         Assert.Equal(AuthStatus.SignedOut, fixture.Api.State.Status);
         Assert.Equal(AuthErrorCodes.DeviceFlowNotStarted, (await fixture.Api.PollDeviceAuthorizationAsync()).Error!.Code);
     }
