@@ -123,6 +123,27 @@
 - `server/README.md`：更新认证/设备/备份/同步表、`MOSAIC_SYNC_HISTORY_DAYS`、白名单、游标 410 语义、会话对象附加字段与账户删除后的错误码说明。
 - 测试：新增 `server/tests/Mosaic.Server.Tests/SessionManagementTests.cs`（会话列表/撤销/保留当前、账户删除密码/验证码/重新认证/级联清理/审计去标识、未知验证码用途）；扩展 `DeviceFlowTests.cs`（`verificationUriComplete`、设备信息、`slow_down`）、`BackupTests.cs`（`serverRevision`/`cursor`、设置白名单）、`SyncTests.cs`（设置白名单、历史清理后的 410）、`LoggingAndMigrationTests.cs`（迁移数为 2、`sync_floor` 存在）；`BackupTests` 的示例设置键改为白名单内键。
 
+### 错误码总表（0.1.1 冻结）
+
+完整表见 `server/README.md` 的《错误码》。与本次裁决相关的三个码：
+
+| 状态 | code | 触发条件 |
+| --- | --- | --- |
+| 401 | `auth.reauth_required` | `POST /v1/auth/account/delete` 的密码不正确，或 `delete-account` 验证码无效/过期 |
+| 401 | `auth.session_revoked` | 令牌有效但会话已撤销（单会话撤销、`revoke-all`、登出全部设备、改密/重置、刷新令牌重用导致 family 撤销） |
+| 410 | `sync.cursor_invalid` | 拉取游标早于 `sync_floor` 水位；`details.requiresSnapshot=true`、`details.floor` 给出水位；格式非法则为 `400 sync.invalid`，同样带 `details.requiresSnapshot=true` |
+
+补充说明：**删除账户是真删**——`users` 行删除后 `sessions`/`refresh_tokens` 等随外键级联清空，没有墓碑；因此删号后的旧令牌返回 `401 auth.required`，而不是 `auth.session_revoked`。客户端（桌面与手机）已按裁决把两者都映射为“重新登录”。
+
+### 可移植设置白名单（14 键，备份与同步共用）
+
+`server/src/Mosaic.Server/Sync/PortableSettings.cs` 与 `server/README.md` 的《可移植设置白名单（14 键）》一致：
+
+`ui.language`、`appearance.theme`、`tasks.sortOrder`、`tasks.defaultFilter`、`tasks.archive.autoEnabled`、`tasks.archive.delayDays`、`tasks.title.maxCharacters`、`tasks.notes.maxCharacters`、`tasks.title.required`、`tasks.defaultCompleted`、`tasks.confirmDelete`、`tasks.confirmUnsaved`、`tasks.showCharacterCount`、`tasks.autoSwitchToAllOnHidden`。
+
+- 备份上传中 `kind: "setting"` 的非白名单键 → `400 backup.invalid`；同步推送中 → `400 sync.invalid`；服务端不保存、不转发。
+- `kind: "task"` 不受限制；旧快照不因白名单变化被删除或改写。
+
 ### 协议决策与偏差（已回报“计划”会话）
 
 - `ChangeDto` 采用冻结文档的 `{cursor,serverRevision,kind,key,deleted,payload,deviceId,createdAt}`（协调消息中的 `operation`/`updatedAtUtc` 与文档冲突，以文档为准）。

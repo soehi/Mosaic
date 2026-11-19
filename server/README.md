@@ -200,7 +200,7 @@ WantedBy=multi-user.target
 | POST | `/v1/backups/{snapshotId}/restore` | 与下载相同，并记录恢复审计 |
 
 - `kind` 仅 `task`（任务）与 `setting`（可移植用户设置）；宿主相关设置由客户端过滤，不上传。
-- `kind: "setting"` 的 `key` 必须属于计划 4.3 的白名单（`ui.language`、`appearance.theme`、`tasks.sortOrder`、`tasks.defaultFilter`、`tasks.archive.autoEnabled`、`tasks.archive.delayDays`、`tasks.title.maxCharacters`、`tasks.notes.maxCharacters`、`tasks.title.required`、`tasks.defaultCompleted`、`tasks.confirmDelete`、`tasks.confirmUnsaved`、`tasks.showCharacterCount`、`tasks.autoSwitchToAllOnHidden`），否则 `400 backup.invalid`；备份与同步共用 `Sync.PortableSettings`。
+- `kind: "setting"` 的 `key` 必须属于下文《可移植设置白名单（14 键）》，否则 `400 backup.invalid`；备份与同步共用同一份 `Sync.PortableSettings`。
 - 上传、`latest`、下载与恢复的响应都带 `serverRevision` 与 `cursor`（字符串，与 `/v1/sync/changes` 的游标同一体系），表示该快照覆盖到的同步位置；恢复快照后客户端可据此决定继续增量还是重新对齐。去重命中时返回首次记录的这两个值。
 - `payload` 必须是 JSON 对象；单条 ≤ 1 MiB；每份 ≤ 20,000 条；每用户累计 ≤ `MOSAIC_BACKUP_QUOTA_BYTES`。
 - 相同内容（不受 `deviceId` 影响）返回相同快照且不新增记录。
@@ -253,6 +253,70 @@ WantedBy=multi-user.target
 | GET/PUT | `/v1/admin/mail` | 需 `X-Admin-Token`；读取只返回 `hasPassword`，写入时空字符串表示清除密码，省略字段表示保持 |
 | POST | `/v1/admin/mail/test` | `{email}`，发送测试邮件，`204` |
 | GET | `/health` | `200 {status:"ok", version, timeUtc}`；数据库不可用 `503` |
+
+### 可移植设置白名单（14 键）
+
+备份与增量同步对 `kind: "setting"` 强制同一份白名单（代码：`server/src/Mosaic.Server/Sync/PortableSettings.cs`），方便客户端与验收逐项对照：
+
+| # | 键 | 说明 |
+| --- | --- | --- |
+| 1 | `ui.language` | 界面语言 |
+| 2 | `appearance.theme` | 主题 |
+| 3 | `tasks.sortOrder` | 任务排序 |
+| 4 | `tasks.defaultFilter` | 默认筛选 |
+| 5 | `tasks.archive.autoEnabled` | 自动归档开关 |
+| 6 | `tasks.archive.delayDays` | 自动归档延迟天数 |
+| 7 | `tasks.title.maxCharacters` | 标题长度上限 |
+| 8 | `tasks.notes.maxCharacters` | 备注长度上限 |
+| 9 | `tasks.title.required` | 标题必填 |
+| 10 | `tasks.defaultCompleted` | 新建任务默认完成状态 |
+| 11 | `tasks.confirmDelete` | 删除前确认 |
+| 12 | `tasks.confirmUnsaved` | 未保存时确认 |
+| 13 | `tasks.showCharacterCount` | 显示字数统计 |
+| 14 | `tasks.autoSwitchToAllOnHidden` | 隐藏时自动切到"全部" |
+
+- 白名单外的 `setting` 键：备份上传 `400 backup.invalid`，同步推送 `400 sync.invalid`；服务端不保存、不转发。
+- `kind: "task"` 不受此限制。
+- 已存在的旧快照不因白名单变化被删除或改写，仍可下载与恢复；但客户端不应再把非白名单设置写回。
+
+### 错误码
+
+所有错误响应为 `{code, message, traceId}`，必要时附带 `details` 对象（同一组字段也平铺在根级以兼容 0.1.0 客户端）。`message` 仅供展示，客户端逻辑一律按 `code` 判断。
+
+| 状态 | code | 触发条件 |
+| --- | --- | --- |
+| 401 | `auth.required` | 缺少或无法解析 Bearer 令牌；也用于**账户已删除**后的旧令牌（账户行已级联删除，无墓碑，因此无法区分"从未存在"与"已删除"） |
+| 401 | `auth.session_revoked` | 令牌有效但会话已被撤销（单会话撤销、`revoke-all`、登出全部设备、改密/重置、刷新令牌重用导致 family 撤销） |
+| 401 | `auth.session_expired` | 访问令牌超过 15 分钟有效期 |
+| 401 | `auth.reauth_required` | 敏感操作重新认证失败：`account/delete` 的密码不正确，或 `delete-account` 验证码无效/过期 |
+| 401 | `auth.invalid_credentials` | 邮箱或密码不正确（含未注册邮箱，返回一致的错误与耗时） |
+| 400 | `auth.invalid_code` | 验证码错误（未达尝试上限） |
+| 400 | `auth.code_expired` | 验证码已过期 |
+| 429 | `auth.code_attempts_exceeded` | 同一验证码尝试次数达到 5 次 |
+| 429 | `auth.rate_limited` | 登录/验证码请求超过 IP 或地址窗口限制 |
+| 403 | `auth.registration_closed` | 服务端关闭注册 |
+| 422 | `auth.invalid_email` / `auth.weak_password` | 邮箱格式不合法 / 密码不满足 10–256 字符 |
+| 404 | `auth.session_not_found` | 撤销的会话 ID 不属于当前用户或不存在 |
+| 401 | `auth.invalid_refresh` / `auth.refresh_reused` | 刷新令牌不存在/已失效 / 检测到已轮换令牌重用（撤销整个 family） |
+| 400 | `device.invalid_code` | 设备码或用户码无效 |
+| 404 | `device.invalid_code` | 用户码不存在、已过期或已属于其他用户（`/v1/device/info`、`approve`、`deny`） |
+| 409 | `device.already_handled` | 授权码已被批准、拒绝或过期，不能再次处理 |
+| 429 | `device.rate_limited` | 设备授权启动/轮询超过窗口限制 |
+| 400 | `backup.invalid` | 结构校验失败，含非白名单 `setting` 键 |
+| 400 | `backup.hash_mismatch` | 客户端声明的 `contentSha256` 与服务端计算不一致 |
+| 404 | `backup.not_found` | 快照不存在或不属于当前用户 |
+| 409 | `backup.conflict` | 备份写入遇到并发冲突，客户端可原样重试（内容相同会去重） |
+| 413 | `backup.quota_exceeded` | 超过每用户备份配额 |
+| 500 | `backup.corrupt` | 读取时重新校验哈希失败 |
+| 400 | `sync.invalid` | 推送/拉取参数非法，含非白名单 `setting` 键与非法游标（后者带 `details.requiresSnapshot=true`） |
+| 409 | `sync.conflict` | `baseServerRevision` 与服务器当前版本不符，响应附带 `details.current` |
+| 410 | `sync.cursor_invalid` | 游标早于已清理的历史水位，响应附带 `details.requiresSnapshot=true` 与 `details.floor`；客户端应先恢复最新备份快照 |
+| 400 | `request.invalid` | 请求体无法解析或缺少必填字段 |
+| 503 | `email.not_configured` | SMTP 未配置；对所有地址统一返回，不泄露上游错误 |
+| 503 | `email.delivery_failed` | SMTP 已配置但投递失败；同样对所有地址统一返回 |
+| 401 | `admin.forbidden` | 管理接口的 `X-Admin-Token` 缺失或不正确 |
+| 404 | `server.not_found` | 未启用管理接口时按不存在处理（隐藏管理面） |
+| 500 | `server.error` | 未预期错误；只记录类型，不返回内部细节 |
 
 ## 安全设计
 
