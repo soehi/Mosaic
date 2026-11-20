@@ -236,7 +236,8 @@ internal static class BuiltInModuleCatalog
                 context.Lifecycle ?? throw new InvalidOperationException("Application lifecycle was not supplied to maintenance UI."),
                 context.Dialogs,
                 context.Diagnostics,
-                context.SettingsPages));
+                context.SettingsPages,
+                new DesktopConfigurationHealthCheck(context.Paths)));
         })
     };
 

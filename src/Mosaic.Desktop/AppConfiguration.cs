@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mosaic.Maintenance.Contracts;
 
 namespace Mosaic.Desktop;
 
@@ -69,6 +70,71 @@ internal sealed record AppConfiguration(
             Settings = configuration.Settings ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             AppliedMigrations = configuration.AppliedMigrations ?? []
         };
+    }
+
+    // Read-only counterpart of Load, used by the maintenance page before a repair. Load repairs and
+    // rewrites the file, so it can never report a problem; Inspect only reports what Load would still
+    // have to rewrite (pending migrations, bindings missing from the file) or reject, and never writes.
+    internal static ConfigurationHealthReport Inspect(AppPaths paths)
+    {
+        if (!File.Exists(paths.ConfigPath))
+            return new(false, ["配置文件 Config/appsettings.json 不存在。"]);
+        AppConfiguration? configuration;
+        try
+        {
+            var json = File.ReadAllText(paths.ConfigPath);
+            using var document = JsonDocument.Parse(json);
+            RejectDuplicateProperties(document.RootElement);
+            configuration = JsonSerializer.Deserialize<AppConfiguration>(json, InspectionOptions);
+        }
+        catch (ConfigurationException exception) { return new(false, [exception.Message]); }
+        catch (JsonException) { return new(false, ["配置 JSON 格式无效，请修正 Config/appsettings.json。"]); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new(false, ["无法读取配置文件：" + exception.Message]);
+        }
+        if (configuration is null) return new(false, ["配置根必须是 JSON 对象。"]);
+
+        var issues = new List<string>();
+        var applied = configuration.AppliedMigrations ?? [];
+        var repaired = RepairProviderBindings(configuration);
+        var bindingsComplete = true;
+        try { ValidateCoreConfiguration(repaired, validateDependencies: true); }
+        catch (ConfigurationException exception)
+        {
+            bindingsComplete = false;
+            issues.Add(exception.Message);
+        }
+        var pending = KnownMigrations.Where(id => !applied.Contains(id, StringComparer.Ordinal)).ToArray();
+        if (pending.Length > 0) issues.Add("有待应用的配置迁移：" + string.Join("、", pending) + "。");
+        if (bindingsComplete)
+        {
+            var storage = EffectiveStorage(repaired);
+            if (storage.Location != "local-app-data" && !Path.IsPathFullyQualified(storage.Location))
+                issues.Add("存储位置必须是 local-app-data 或绝对路径。");
+            else if (!IsValidDatabaseFilename(storage.Filename))
+                issues.Add("存储配置无效，数据库名称必须是合法的单个文件名。");
+        }
+        return new(issues.Count == 0, issues);
+    }
+
+    private static readonly JsonSerializerOptions InspectionOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
+
+    // Mirrors the runtime overrides Bootstrapper applies through HostSettingSource.
+    private static StorageConfiguration EffectiveStorage(AppConfiguration configuration)
+    {
+        static string? Text(IReadOnlyDictionary<string, JsonElement>? settings, string key) =>
+            settings is not null && settings.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        return new StorageConfiguration(
+            "sqlite",
+            Text(configuration.Settings, "storage.location") ?? configuration.Storage.Location,
+            Text(configuration.Settings, "storage.filename") ?? configuration.Storage.Filename);
     }
 
     private static void ValidateCoreConfiguration(AppConfiguration configuration, bool validateDependencies)

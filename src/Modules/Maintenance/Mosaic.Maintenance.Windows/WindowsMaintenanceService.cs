@@ -16,7 +16,7 @@ public sealed class WindowsMaintenanceService : IMaintenanceService
     public WindowsMaintenanceService(string dataRoot, string? executablePath = null)
     {
         _dataRoot = dataRoot;
-        ExecutablePath = executablePath ?? Path.Combine(AppContext.BaseDirectory, "Mosaic.exe");
+        ExecutablePath = executablePath ?? Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Mosaic.Desktop.exe");
         Info = ReadInfo(_dataRoot);
     }
 

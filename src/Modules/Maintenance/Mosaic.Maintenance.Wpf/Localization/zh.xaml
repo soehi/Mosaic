@@ -33,5 +33,7 @@
     <sys:String x:Key="Maintenance.Repair.Title">修复安装</sys:String>
     <sys:String x:Key="Maintenance.Repair.Confirm">将调用 Windows 安装程序修复 Mosaic，完成后自动重新启动。</sys:String>
     <sys:String x:Key="Maintenance.Repair.Started">修复将在应用退出后开始。</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Healthy">配置正常，无需修复。</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Issues">检测到以下配置问题：</sys:String>
     <sys:String x:Key="Maintenance.Error.Unknown">操作未完成，请稍后再试。</sys:String>
 </ResourceDictionary>

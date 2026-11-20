@@ -1,10 +1,17 @@
 param(
-    [string]$ProductVersion = '0.12.2',
+    [string]$ProductVersion = '',
     [switch]$NoPublish,
     [string]$PublishDirectory = 'artifacts/local-run',
     [switch]$SkipValidation)
 $ErrorActionPreference = 'Stop'
 $mosaicRoot = Split-Path $PSScriptRoot -Parent
+# Default to the version the build itself stamps, so the MSI can never be labelled with an
+# older product version than the payload it ships.
+if (-not $ProductVersion) {
+    $mosaicVersionProps = [xml](Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mosaicRoot 'Directory.Build.props'))
+    $ProductVersion = @($mosaicVersionProps.Project.PropertyGroup.Version | Where-Object { $_ })[0]
+    if (-not $ProductVersion) { throw 'Directory.Build.props has no Version property.' }
+}
 if (-not $NoPublish) { & (Join-Path $PSScriptRoot 'publish.ps1') }
 $mosaicPublish = if ([IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirectory } else { Join-Path $mosaicRoot $PublishDirectory }
 if (-not (Test-Path -LiteralPath (Join-Path $mosaicPublish 'Mosaic.Desktop.exe'))) { throw 'Publish the application first.' }

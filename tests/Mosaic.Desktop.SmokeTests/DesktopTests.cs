@@ -189,6 +189,9 @@ public sealed partial class DesktopTests
                 location = "local-app-data",
                 filename = "../escape.sqlite"
             });
+        var seededMigrations = config.TryGetValue("appliedMigrations", out var seededMarkers)
+            ? seededMarkers.EnumerateArray().Select(item => item.GetString()).ToArray()
+            : [];
         File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
         var original = File.ReadAllText(configPath);
         Process? process = null;
@@ -204,9 +207,9 @@ public sealed partial class DesktopTests
             }
             if (scenario == "already-migrated-disabled")
             {
-                // All four migration markers are already present, so no migration may run again;
-                // the only permitted change is the startup self-heal re-adding desktop.presence@1
-                // from the enabled desktop-presence module's manifest.
+                // Every migration marker shipped with the app is already present, so no migration may
+                // run again and no marker may be appended; the only permitted change is the startup
+                // self-heal re-adding desktop.presence@1 from the enabled desktop-presence module.
                 await UntilCondition(() => File.ReadAllText(configPath).Contains("desktop.presence@1", StringComparison.Ordinal),
                     "Startup repair did not add the desktop.presence@1 binding");
                 using var healedDocument = JsonDocument.Parse(File.ReadAllText(configPath));
@@ -214,7 +217,7 @@ public sealed partial class DesktopTests
                     healedDocument.RootElement.GetProperty("providers").GetProperty("desktop.presence@1").GetString());
                 var applied = healedDocument.RootElement.GetProperty("appliedMigrations")
                     .EnumerateArray().Select(item => item.GetString()).ToArray();
-                Assert.Equal(4, applied.Length);
+                Assert.Equal(seededMigrations, applied);
                 return;
             }
 
@@ -436,6 +439,58 @@ public sealed partial class DesktopTests
         Assert.DoesNotContain("sync.api@1",configuration.Providers.Keys);
         using var doc=JsonDocument.Parse(File.ReadAllText(path));
         Assert.Equal("tasks-core",doc.RootElement.GetProperty("providers").GetProperty("tasks.changes@1").GetString());
+    }
+
+    [Fact]
+    public void Inspection_accepts_a_healthy_configuration_without_writing()
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var original=File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json"));
+        File.WriteAllText(path,original);
+
+        var report=AppConfiguration.Inspect(new AppPaths(root));
+
+        Assert.True(report.IsHealthy,string.Join(" | ",report.Issues));
+        Assert.Empty(report.Issues);
+        // The maintenance page relies on a check that never rewrites what it inspects.
+        Assert.Equal(original,File.ReadAllText(path));
+        Assert.False(File.Exists(path+".pre-migration"));
+    }
+
+    [Fact]
+    public void Inspection_reports_a_binding_that_startup_repair_cannot_fix()
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        var providers=config["providers"].Deserialize<Dictionary<string,string>>()!;
+        providers["tasks.transfer@1"]="missing-provider";
+        config["providers"]=JsonSerializer.SerializeToElement(providers);
+        File.WriteAllText(path,JsonSerializer.Serialize(config));
+        var before=File.ReadAllText(path);
+
+        var report=AppConfiguration.Inspect(new AppPaths(root));
+
+        Assert.False(report.IsHealthy);
+        Assert.Contains(report.Issues,issue=>issue.Contains("tasks.transfer@1",StringComparison.Ordinal));
+        Assert.Equal(before,File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void Inspection_reports_pending_migrations_and_invalid_configuration_files()
+    {
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        Assert.False(AppConfiguration.Inspect(new AppPaths(root)).IsHealthy); // no file at all
+
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        config["appliedMigrations"]=JsonSerializer.SerializeToElement(Array.Empty<string>());
+        File.WriteAllText(path,JsonSerializer.Serialize(config));
+        var pending=AppConfiguration.Inspect(new AppPaths(root));
+        Assert.False(pending.IsHealthy);
+        Assert.Contains(pending.Issues,issue=>issue.Contains("maintenance-v1",StringComparison.Ordinal));
+
+        File.WriteAllText(path,"{ not json");
+        Assert.False(AppConfiguration.Inspect(new AppPaths(root)).IsHealthy);
     }
 
     [Theory]

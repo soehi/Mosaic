@@ -13,5 +13,6 @@
     <ProjectReference Include="..\..\..\Mosaic.Presentation.Contracts\Mosaic.Presentation.Contracts.csproj" />
     <ProjectReference Include="..\..\..\Mosaic.Presentation.Wpf\Mosaic.Presentation.Wpf.csproj" />
     <InternalsVisibleTo Include="Mosaic.Wpf.Tests" />
+    <InternalsVisibleTo Include="Mosaic.Maintenance.Tests" />
   </ItemGroup>
 </Project>

@@ -16,6 +16,7 @@ internal sealed class MaintenanceViewModel : ObservableObject, IPageController
     private readonly IApplicationLifecycle _lifecycle;
     private readonly IUserDialogService _dialogs;
     private readonly IDiagnosticSink _diagnostics;
+    private readonly IConfigurationHealthCheck? _healthCheck;
     private string _currentLocation = string.Empty;
     private string _currentDatabase = string.Empty;
     private string _databaseSize = string.Empty;
@@ -32,13 +33,15 @@ internal sealed class MaintenanceViewModel : ObservableObject, IPageController
         IMaintenanceService maintenance,
         IApplicationLifecycle lifecycle,
         IUserDialogService dialogs,
-        IDiagnosticSink diagnostics)
+        IDiagnosticSink diagnostics,
+        IConfigurationHealthCheck? healthCheck = null)
     {
         _relocation = relocation;
         _maintenance = maintenance;
         _lifecycle = lifecycle;
         _dialogs = dialogs;
         _diagnostics = diagnostics;
+        _healthCheck = healthCheck;
         BrowseCommand = new RelayCommand(Browse);
         MigrateCommand = new AsyncRelayCommand(MigrateAsync, () => !IsBusy);
         UninstallCommand = new AsyncRelayCommand(UninstallAsync, () => !IsBusy && IsInstalled);
@@ -216,11 +219,26 @@ internal sealed class MaintenanceViewModel : ObservableObject, IPageController
         try
         {
             StatusMessage = string.Empty;
+            // Checking first keeps a healthy installation untouched: a second click on the installer
+            // must not run msiexec when there is nothing to repair.
+            var health = await CheckConfigurationAsync().ConfigureAwait(true);
+            if (health is { IsHealthy: true })
+            {
+                StatusMessage = MaintenanceLocalization.Localize("Maintenance.Repair.Healthy", "配置正常，无需修复。");
+                return;
+            }
+            var message = MaintenanceLocalization.Localize(
+                "Maintenance.Repair.Confirm",
+                "将调用 Windows 安装程序修复 Mosaic，完成后自动重新启动。");
+            if (health is { Issues.Count: > 0 } report)
+                message = MaintenanceLocalization.Localize(
+                        "Maintenance.Repair.Issues",
+                        "检测到以下配置问题：") + Environment.NewLine +
+                    string.Join(Environment.NewLine, report.Issues.Select(issue => "· " + issue)) +
+                    Environment.NewLine + Environment.NewLine + message;
             if (!await _dialogs.ConfirmAsync(
                     MaintenanceLocalization.Localize("Maintenance.Repair.Title", "修复安装"),
-                    MaintenanceLocalization.Localize(
-                        "Maintenance.Repair.Confirm",
-                        "将调用 Windows 安装程序修复 Mosaic，完成后自动重新启动。")).ConfigureAwait(true))
+                    message).ConfigureAwait(true))
                 return;
             var prepared = await _maintenance.PrepareRepairAsync().ConfigureAwait(true);
             if (!prepared.IsSuccess) { Report(prepared.Error); return; }
@@ -251,6 +269,21 @@ internal sealed class MaintenanceViewModel : ObservableObject, IPageController
         >= 1024 => (bytes / 1024d).ToString("0.0", CultureInfo.CurrentCulture) + " KB",
         _ => bytes.ToString(CultureInfo.CurrentCulture) + " B"
     };
+
+    // A failed check must not block repair: report it and fall back to the plain repair flow.
+    private async Task<ConfigurationHealthReport?> CheckConfigurationAsync()
+    {
+        if (_healthCheck is null) return null;
+        try
+        {
+            return await _healthCheck.CheckAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            try { _diagnostics.Report(Guid.NewGuid().ToString("N"), exception); } catch { }
+            return null;
+        }
+    }
 
     public Task<bool> CanLeaveAsync() => Task.FromResult(true);
 

@@ -10,7 +10,8 @@ try {
     # The executable xUnit runner also works in restricted hosts without MTP named pipes.
     foreach ($project in Get-ChildItem tests -Directory | Where-Object Name -Like 'Mosaic.*') {
         if ($SkipDesktop -and $project.Name -eq 'Mosaic.Desktop.SmokeTests') { continue }
-        $framework = if ($project.Name -in @('Mosaic.Wpf.Tests', 'Mosaic.Desktop.SmokeTests')) { 'net10.0-windows' } else { 'net10.0' }
+        # Derive the target framework from the project so a new net10.0-windows suite is not skipped.
+        $framework = if (Select-String -Path (Join-Path $project.FullName "$($project.Name).csproj") -Pattern '<TargetFramework>net10.0-windows</TargetFramework>' -Quiet) { 'net10.0-windows' } else { 'net10.0' }
         dotnet (Join-Path $project.FullName "bin/$Configuration/$framework/$($project.Name).dll")
         if ($LASTEXITCODE) { throw "Tests failed: $($project.Name)" }
     }

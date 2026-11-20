@@ -1,3 +1,4 @@
+using System.IO;
 using Mosaic.Maintenance.Contracts;
 using Mosaic.Maintenance.Windows;
 
@@ -14,6 +15,21 @@ public sealed class WindowsMaintenanceServiceTests
         Assert.Equal(root, service.Info.DataRoot);
         Assert.Equal(Path.Combine(root, "Mosaic.exe"), service.ExecutablePath);
         Assert.True(service.Info.Availability is MaintenanceAvailability.Installed or MaintenanceAvailability.Portable);
+    }
+
+    [Fact]
+    public void Default_executable_path_is_the_running_process_not_a_missing_Mosaic_exe()
+    {
+        // Repair relaunches the app through this path; the published file is Mosaic.Desktop.exe, so a
+        // default of "Mosaic.exe" made PrepareRepairAsync pass relaunchPath: null and never restart.
+        var root = Path.Combine(Path.GetTempPath(), "Mosaic-maintenance-tests", Guid.NewGuid().ToString("N"));
+        var service = new WindowsMaintenanceService(root);
+
+        Assert.Equal(
+            Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Mosaic.Desktop.exe"),
+            service.ExecutablePath);
+        Assert.True(File.Exists(service.ExecutablePath));
+        Assert.False(service.ExecutablePath.EndsWith(Path.DirectorySeparatorChar + "Mosaic.exe", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

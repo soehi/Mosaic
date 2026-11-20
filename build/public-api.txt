@@ -64,7 +64,9 @@ Mosaic.FloatingWindows.Wpf.FloatingWindowsModule
 Mosaic.Kernel.ModuleExecutionGate
 Mosaic.Kernel.ModuleGraph
 Mosaic.Kernel.ModuleRuntime
+Mosaic.Maintenance.Contracts.ConfigurationHealthReport
 Mosaic.Maintenance.Contracts.IApplicationLifecycle
+Mosaic.Maintenance.Contracts.IConfigurationHealthCheck
 Mosaic.Maintenance.Contracts.IMaintenanceService
 Mosaic.Maintenance.Contracts.MaintenanceAvailability
 Mosaic.Maintenance.Contracts.MaintenanceInfo

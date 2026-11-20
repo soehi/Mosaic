@@ -12,7 +12,8 @@ internal sealed class MaintenanceViewFactory(MaintenanceUiDependencies dependenc
             dependencies.Maintenance,
             dependencies.Lifecycle,
             dependencies.Dialogs,
-            dependencies.Diagnostics);
+            dependencies.Diagnostics,
+            dependencies.HealthCheck);
         view.DataContext = model;
         return new ViewPage(view, model);
     }

@@ -33,5 +33,7 @@
     <sys:String x:Key="Maintenance.Repair.Title">Repair install</sys:String>
     <sys:String x:Key="Maintenance.Repair.Confirm">Windows Installer will repair Mosaic and restart the app when it finishes.</sys:String>
     <sys:String x:Key="Maintenance.Repair.Started">Repair starts after the app exits.</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Healthy">Configuration is healthy; nothing to repair.</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Issues">Configuration problems found:</sys:String>
     <sys:String x:Key="Maintenance.Error.Unknown">The action did not complete. Try again later.</sys:String>
 </ResourceDictionary>

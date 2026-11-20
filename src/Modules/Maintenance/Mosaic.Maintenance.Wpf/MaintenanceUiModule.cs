@@ -14,7 +14,8 @@ public sealed record MaintenanceUiDependencies(
     IApplicationLifecycle Lifecycle,
     IUserDialogService Dialogs,
     IDiagnosticSink Diagnostics,
-    SettingsPageRegistry? SettingsPages = null);
+    SettingsPageRegistry? SettingsPages = null,
+    IConfigurationHealthCheck? HealthCheck = null);
 
 /// <summary>Contributes the maintenance page: storage relocation, repair and uninstall.</summary>
 public sealed class MaintenanceUiModule(MaintenanceUiDependencies dependencies) : IModuleActivation, IUiModule

@@ -1,3 +1,4 @@
+using System.IO;
 using Mosaic.Maintenance.Contracts;
 
 namespace Mosaic.Maintenance.Tests;

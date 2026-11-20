@@ -34,6 +34,24 @@ public interface IMaintenanceService
     Task<OperationResult> CancelPendingAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Read-only outcome of the configuration self-check that runs before a repair. A healthy report
+/// means there is nothing for the installer to repair, so the helper must not be started.
+/// </summary>
+public sealed record ConfigurationHealthReport(bool IsHealthy, IReadOnlyList<string> Issues)
+{
+    public static ConfigurationHealthReport Healthy { get; } = new(true, []);
+}
+
+/// <summary>
+/// Checks the configuration on disk without rewriting it. Startup repairs configuration in place,
+/// so the maintenance page can only rely on a check that never mutates what it inspects.
+/// </summary>
+public interface IConfigurationHealthCheck
+{
+    Task<ConfigurationHealthReport> CheckAsync(CancellationToken cancellationToken = default);
+}
+
 public interface IApplicationLifecycle
 {
     Task<OperationResult> RequestExitAsync(CancellationToken cancellationToken = default);

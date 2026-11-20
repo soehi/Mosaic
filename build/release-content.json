@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.0",
+  "currentReleaseId": "mosaic-0.17.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -552,6 +552,21 @@
       ],
       "fixed": [],
       "contentSha256": "820F365C3E33B3E4A18030DE4BE6CE4A31F510FA9E98AD1CD7896611B2E2DBCE"
+    },
+    {
+      "releaseId": "mosaic-0.17.1",
+      "version": "0.17.1",
+      "releasedOn": "2026-11-20",
+      "previousReleaseId": "mosaic-0.17.0",
+      "added": [],
+      "improved": [
+        "设置内的「修复安装」先做只读配置检查：配置正常时提示「配置正常，无需修复」且不调用 Windows 安装程序，检测到问题（配置无效、能力绑定无效、有未应用的配置迁移）时先列出问题，确认后才修复"
+      ],
+      "fixed": [
+        "修复 0.17.0 安装后无法启动：启动模块前释放了单次使用的模块运行时并解绑模块事件，每次启动都以「Mosaic · 无法启动」诊断窗结束；恢复启动失败时统一清理并记录错误编号的结构",
+        "修复应用内「修复安装」完成后应用不重新启动：默认的可执行文件路径指向不存在的 Mosaic.exe，改为当前进程路径"
+      ],
+      "contentSha256": "E336EB205298F8C66DFFC7B8B9621D5ED1B5520C56B92821A77A2913C3BBF8D8"
     }
   ]
 }

@@ -43,7 +43,7 @@ internal sealed class DesktopApplicationLifecycle(string executable, IReadOnlyLi
 
     internal static DesktopApplicationLifecycle Create()
     {
-        var process = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Mosaic.exe");
+        var process = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Mosaic.Desktop.exe");
         var commandLine = Environment.GetCommandLineArgs().Skip(1).ToList();
         if (string.Equals(Path.GetFileNameWithoutExtension(process), "dotnet", StringComparison.OrdinalIgnoreCase))
         {
