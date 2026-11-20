@@ -119,6 +119,21 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task Server_address_is_hidden_from_the_generic_editor_but_still_saved_by_auth()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.Settings.Values["auth.serverUrl"] = ServerUrl;
+
+        var definition = Assert.Single(fixture.Settings.Definitions, item => item.Id == "auth.serverUrl");
+        Assert.False(definition.ShowInSettings);
+
+        var result = await fixture.Api.SetServerAsync("https://other.example.com");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal("https://other.example.com", Assert.Single(fixture.Settings.Commits)["auth.serverUrl"]);
+    }
+
+    [Fact]
     public async Task Changing_server_drops_credentials_issued_by_the_previous_origin()
     {
         var fixture = await new Fixture().StartAsync();

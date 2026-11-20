@@ -1142,6 +1142,35 @@ public sealed class PresentationTests
     });
 
     [Fact]
+    public Task Definitions_hidden_from_the_editor_never_enter_rows_counts_or_resets() => Sta.Run(async () =>
+    {
+        // Same shape as auth.serverUrl: registered with the settings core and saved by its module,
+        // but the generic editor must not show an input or reset the stored value.
+        SettingDefinition hidden = new("auth.serverUrl", "auth-core", "账号服务器地址", "hidden",
+            SettingValueKind.String, "", null, null, null, SettingsGroup.AccountsAndBackup, SettingCategory.Normal,
+            SettingApplyMode.Immediate, SettingPersistence.UserSettings, ShowInSettings: false);
+        var api = new SettingsApi
+        {
+            Definitions = [.. new ShellSettingSource().Definitions, hidden],
+            Values = new Dictionary<string, object?> { ["appearance.theme"] = "Dark" }
+        };
+        var model = CreateSettingsViewModel(api, new Dialogs()); await Initialize(model);
+        try
+        {
+            Assert.Contains(hidden, api.Definitions);
+            Assert.DoesNotContain("auth.serverUrl", RowIds(model));
+            Set(model, "ShowAdvanced", true);
+            Assert.DoesNotContain("auth.serverUrl", RowIds(model));
+
+            await Get<IAsyncRelayCommand>(model, "ResetAllCommand").ExecuteAsync(null);
+            Assert.True(Get<bool>(model, "HasChanges"));
+            await Get<IAsyncRelayCommand>(model, "SaveCommand").ExecuteAsync(null);
+            Assert.DoesNotContain("auth.serverUrl", Assert.Single(api.SaveCalls).Keys);
+        }
+        finally { await ((IPageController)model).DisposeAsync(); }
+    });
+
+    [Fact]
     public Task Show_advanced_reveals_all_rows_in_current_section_and_notifies_visibility() => Sta.Run(async () =>
     {
         var api = new SettingsApi

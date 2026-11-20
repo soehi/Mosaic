@@ -474,6 +474,12 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         OnPropertyChanged(nameof(HasSelectedPage));
     }
 
+    // Hidden definitions stay registered with the settings core so their module can read and save
+    // them (AuthService restores auth.serverUrl this way). Because no row exists for them, section
+    // counts, previews, section/all resets and search never see or clear them.
+    private static IEnumerable<SettingDefinition> Editable(IReadOnlyList<SettingDefinition> definitions) =>
+        definitions.Where(definition => definition.ShowInSettings);
+
     public async Task InitializeAsync()
     {
         if (SelectedPage is { } contribution)
@@ -481,7 +487,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             var definitions = await _settings.ListDefinitionsAsync(_lifetime.Token);
             if (definitions.IsSuccess)
             {
-                foreach (var definition in definitions.Value)
+                foreach (var definition in Editable(definitions.Value))
                 {
                     var row = new SettingRow(definition, definition.DefaultValue);
                     row.Changed += RowChanged;
@@ -501,7 +507,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
             var session = await _settings.BeginEditSessionAsync(_lifetime.Token);
             if (!session.IsSuccess) { Fail(SettingsLocalization.Error(session.Error)); return; }
             _session = session.Value;
-            foreach (var definition in definitions.Value)
+            foreach (var definition in Editable(definitions.Value))
             {
                 var row = new SettingRow(definition, _session.SavedValues.GetValueOrDefault(definition.Id));
                 row.Changed += RowChanged; _rows[definition.Id] = row;

@@ -1,5 +1,32 @@
 # Mosaic：实施与验证记录
 
+## 0.17.2：设置页排版收口、维护页重排与服务器地址入口隐藏（2026-11-20）
+
+- 根因位置：
+  - 重复标题：`src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml:167`（0.17.1 版本，容器分区表头）与 `src/Modules/Maintenance/Mosaic.Maintenance.Wpf/Views/MaintenanceView.xaml:43`（0.17.1 版本，页面自带标题）同时渲染分区名，进入「维护」时连续出现两个「维护」。
+  - 内容贴边与固定宽度：`SettingsView.xaml:275`（0.17.1 版本）的模块页 `ContentControl` 未声明内容伸展契约，且 `MaintenanceView.xaml:42`（0.17.1 版本）根 `StackPanel` 为 `HorizontalAlignment="Left"`、`MaxWidth="820"`、左外边距为零——模块页拿不到真实可用宽高，卡片贴容器边缘，大窗口右侧留白。
+  - 「0 项设置」：`SettingsView.xaml:169`（0.17.1 版本）表头计数无条件绑定 `VisibleCountLabel`，值来自 `SettingsViewModel.cs:412`（0.17.1 版本）的可见行计数；模块贡献页没有设置行，计数为 0，但该计数对操作页没有意义。
+  - 窄窗口可达性：`MaintenanceView.xaml:54`、`:70`、`:89`、`:92`（0.17.1 版本）用两列 `Grid` 放路径输入框与「选择文件夹」，修复/卸载按钮用水平 `StackPanel`，卸载复选框直接用字符串 `Content`——窄窗口下输入框被挤压、复选框文字不换行。
+  - 服务器地址重复入口：`src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthSettingsSource.cs:18`（0.17.1 版本）把 `auth.serverUrl` 声明为普通（`StorageSystem` 分组、`Normal` 分类）定义，通用编辑器按定义逐条生成输入框，开始页之外多出第二个服务器地址编辑入口。
+- 改动位置：
+  - 契约：`src/Modules/Settings/Mosaic.Settings.Contracts/SettingsContracts.cs:30-36` `SettingDefinition` 末尾新增 `bool ShowInSettings = true` 及注释——只影响通用编辑器是否建行，注册、读取与写入不变。
+  - 隐藏定义：`src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthSettingsSource.cs:18-24` `auth.serverUrl` 定义追加 `ShowInSettings: false`；`auth.accountChoiceMade` 未动。
+  - 视图模型：`src/Modules/Settings/Mosaic.Settings.Wpf/Internal/SettingsViewModel.cs:480-481` 新增 `Editable()`（`definition.ShowInSettings` 过滤）；`:490`（模块页初始化分支）与 `:510`（通用初始化）改为 `foreach (var definition in Editable(definitions.Value))`——隐藏定义不进入 `_rows`，因此不参与 `RefreshSections` 的分区计数、`VisibleRows`、搜索与恢复默认（`Changes()` 与 `ResetAllCommand` 只遍历 `_rows`）。
+  - 容器视图：`SettingsView.xaml:104-107`（标题与总说明）、`:109-115`（高级设置栏）、`:128-136`（恢复默认区）、`:172-174`（表头计数）、`:179-183`（通用行 `ScrollViewer`）统一绑定 `HasSettingsSectionContent`；`:279-282` 模块页 `ContentControl` 增加 `HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"`。`HasSettingsSectionContent` 仍为 `SettingsViewModel.cs:374` 的 `SelectedPage is null`，既有语义未改。
+  - 维护页：`MaintenanceView.xaml:48-50` 根 `ScrollViewer` + 内边距 `20,20,20,24` + 单行副标题，删除页面自带的「维护」标题；`:52-102` 存储位置卡（当前数据库/大小两列、路径 `Grid` 与 `BrowseButton`、迁移 `WrapPanel`、说明）；`:104-127` 应用维护卡（标题 `:106`、安装摘要 `:107`、数据目录 `:108-109`、修复按钮 `:110-112`、分隔线 `:113`、卸载标题 `:114`、可换行复选框 `:115-119`、卸载按钮 `:120-123`、说明 `:124`）；`Card` 样式 `:10-17` 保留 16 DIP 卡片间距与 22 DIP 内边距，新增 `SectionDivider` 样式 `:42-46`。
+  - 窄窗口：`src/Modules/Maintenance/Mosaic.Maintenance.Wpf/Views/MaintenanceView.xaml.cs:8-16` 新增 `IsCompact` 依赖属性，`:21-22` 构造函数按 620 DIP 阈值随 `SizeChanged` 更新，`:25-33` `ApplyCompactLayout` 把 `BrowseButton` 在 `Grid.Row`/`Grid.Column` 的 `0,1` 与 `1,0` 间切换并调整对齐与边距。
+  - 本地化：`src/Modules/Maintenance/Mosaic.Maintenance.Wpf/Localization/zh.xaml:4`（`Maintenance.Subtitle`）、`:13`（`Maintenance.App.Title`=应用维护）、`:16`（`Maintenance.App.Repair`=检查并修复）、`:17`（`Maintenance.App.UninstallTitle`=卸载 Mosaic）、`:18`（`Maintenance.App.Uninstall`=卸载）；`en.xaml` 同位置为英文对应文案；删除不再使用的 `Maintenance.Title`。
+  - 测试：`tests/Mosaic.Wpf.Tests/PresentationTests.cs:1145` 新增 `Definitions_hidden_from_the_editor_never_enter_rows_counts_or_resets`（隐藏定义仍注册、不建行、高级模式不出现、恢复默认后保存不含该键）；`tests/Mosaic.Auth.Core.Tests/AuthServiceTests.cs:122` 新增 `Server_address_is_hidden_from_the_generic_editor_but_still_saved_by_auth`（`ShowInSettings=false` 且 `SetServerAsync` 仍提交 `auth.serverUrl`）；`tests/Mosaic.Wpf.Tests/MaintenanceViewModelTests.cs:174-190` 新增 `Browse_button_moves_below_the_path_when_the_view_is_narrow`，`:193` 抽出 `ThemedView()` 夹具（构造视图、应用深色主题）。
+  - 发布元数据：`Directory.Build.props:12`、`build/installer/Mosaic.Installer.wixproj:4`（`ProductVersion`）、`build/release-content.json`、`build/release-manifest.json`（`currentReleaseId=mosaic-0.17.2`，第 35 条，`previousReleaseId=mosaic-0.17.1`，指纹 `BA73BD633209CF7EA43F15993A180B552BE4B88A499B406E56ADCA76C00CF90E`）、`build/published-release-index.json`（第 35 条）、`docs/releases/v0.17.2.md`、`README.md`。
+  - XAML 编译插曲（如实记录）：编辑 `MaintenanceView.xaml` 的修复按钮块时，XAML 编译器一度报 `MC3050 无法找到类型 theme.MosaicTheme`，且始终指向该按钮的 `Style`/`AutomationProperties` 属性行；`xmlns:theme` 声明与所用键（`QuietButtonKey`/`DangerButtonKey`）确实存在（`src/Mosaic.Presentation.Wpf/MosaicTheme.cs`），清理 `obj`/`bin` 重建后仍复现。把该按钮块按行重写（每行一个属性、统一缩进）后消失。未改主题键、未改 `xmlns`、未改程序集引用，因此判定为编辑器改写留下的 XAML 编译态问题，不是产品缺陷；最终按钮改为默认按钮样式并去掉单子元素 `WrapPanel`，编译与截图均正常。
+- 迁移逻辑与验收项：本次不新增配置迁移，`KnownMigrations` 与 `appsettings.json` 的 `appliedMigrations` 均未变，不改数据库结构，不改安装目录内容。对已有安装的影响仅在展示层：
+  - `auth.serverUrl` 的定义仍在模块启动时注册、值仍从用户设置库读取，只是不再生成编辑行；分区重置与「恢复全部默认」只重置 `_rows` 中的键，不会清空服务器地址，账户流程（开始页登录、`SetServerAsync`）继续读写同一个键。验收：`Server_address_is_hidden_from_the_generic_editor_but_still_saved_by_auth`、`Definitions_hidden_from_the_editor_never_enter_rows_counts_or_resets`。
+  - 维护页的数据库迁移、配置预检与修复、卸载命令及确认规则未改，只改布局与文案；验收：`Browse_button_moves_below_the_path_when_the_view_is_narrow` 与 `Mosaic.Maintenance.Tests` 既有 16 项（含预检四组合、可执行文件路径、调度脚本）。
+  - 未在真实用户数据目录（`%LOCALAPPDATA%\Mosaic`）上执行任何写操作；截图与测试均使用临时数据根和假实现。
+- 验证：`dotnet build Mosaic.sln -c Release` 0 警告 0 错误；`build/test.ps1` 全绿 423 项：Architecture 4、Auth.Core 26、Auth.Http 36、Desktop Smoke 54、DesktopPresence 17、FloatingWindows 12、Kernel 7、Maintenance 16、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 5、Storage.Sqlite 22、Sync.Core 14、Tasks.Contract 7、Tasks.Core 27、Wpf 134（本次新增 Wpf 2 项、Auth.Core 1 项）。离屏截图核对（临时目录 `mosaic-ui-snapshot`，1160×720、1100×720、1600×900，深色主题）：容器只显示一个「维护」标题、副标题在卡片上方、两张卡片随宽度填满、无「0 项设置」、卸载区标题/复选框/危险按钮层次正确、窗口变窄时「选择文件夹」换行；截图由临时渲染器 `UiSnapshotScratch` 生成，核对后已删除，未入库。`scripts/release_content_verify.py` PASS（35 条索引，0.17.2 指纹 `BA73BD633209CF7EA43F15993A180B552BE4B88A499B406E56ADCA76C00CF90E`）。
+- 未验证项：真实安装上的视觉验收（不同 DPI 与字体缩放、多显示器）、浅色主题截图、620 DIP 以下的实机拖动体验；这些需要用户侧实测。
+- 发布核验：`build/publish.ps1 -UseV2Feed` 重新发布到 `artifacts/local-run`（0.17.2），`build/package.ps1 -NoPublish` PASS（`published payload is a release build with manifest mosaic-0.17.2`、`Release content verified: 0.17.2, mosaic-0.17.2, 35 indexed releases`、`MSI contains the Application-owned DesktopFolder Mosaic shortcut, INSTALLFOLDER working directory, and StartupCleanup registry removals`），`build/test-package-shortcuts.ps1 -PackagePath artifacts/installer/0.17.2/Mosaic-0.17.2-win-x64.msi` PASS。安装包 `artifacts/installer/Mosaic-0.17.2-win-x64.msi`（52,154,812 字节，SHA-256 `788F9711627CCF6B8453437F7EF91BAC5F14C35DC3756430613A90D2267C89EC`）。发布后用新载荷复跑 `build/test.ps1` 仍为 423 项全绿（Desktop Smoke 54/54）。
+
 ## 0.17.1：修复 0.17.0 启动失败、修复安装不重启，修复安装前加只读配置预检（2026-11-20）
 
 - 根因位置：

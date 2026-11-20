@@ -37,37 +37,58 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="Margin" Value="0,8,0,0"/>
         </Style>
+        <!-- The browse button moves below the path box in narrow layouts; see MaintenanceView.xaml.cs. -->
+
+        <Style x:Key="SectionDivider" TargetType="Border">
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Margin" Value="0,18,0,16"/>
+            <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+        </Style>
     </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel MaxWidth="820" HorizontalAlignment="Left" Margin="0,0,24,24">
-            <TextBlock Text="{DynamicResource Maintenance.Title}" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,6"/>
-            <TextBlock Text="{DynamicResource Maintenance.Subtitle}" Style="{StaticResource HintText}" Margin="0,0,0,20"/>
+        <StackPanel Margin="20,20,20,24">
+            <TextBlock Text="{DynamicResource Maintenance.Subtitle}" Style="{StaticResource HintText}" Margin="0,0,0,18"/>
 
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="{DynamicResource Maintenance.Storage.Title}" Style="{StaticResource CardTitle}"/>
-                    <TextBlock Text="{DynamicResource Maintenance.Storage.Current}" Style="{StaticResource FieldLabel}"/>
-                    <TextBlock Text="{Binding CurrentDatabase}" Style="{StaticResource PathText}"/>
-                    <TextBlock Text="{DynamicResource Maintenance.Storage.Size}" Style="{StaticResource FieldLabel}"/>
-                    <TextBlock Text="{Binding DatabaseSize}" Margin="0,0,0,12"/>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,24,0">
+                            <TextBlock Text="{DynamicResource Maintenance.Storage.Current}" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Text="{Binding CurrentDatabase}" Style="{StaticResource PathText}" Margin="0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="{DynamicResource Maintenance.Storage.Size}" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Text="{Binding DatabaseSize}"/>
+                        </StackPanel>
+                    </Grid>
                     <TextBlock Text="{DynamicResource Maintenance.Storage.Target}" Style="{StaticResource FieldLabel}"/>
                     <Grid Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
                         <TextBox Text="{Binding TargetFolder, UpdateSourceTrigger=PropertyChanged}"
-                                 MinHeight="40" Padding="12,8" VerticalContentAlignment="Center"
+                                 MinHeight="40" MinWidth="0" Padding="12,8" VerticalContentAlignment="Center"
+                                 TextWrapping="Wrap" AcceptsReturn="False"
                                  Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
                                  Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"
                                  BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.ControlHoverBorderBrushKey}}"
                                  AutomationProperties.AutomationId="StorageTargetBox"/>
-                        <Button Grid.Column="1" Content="{DynamicResource Maintenance.Storage.Browse}"
-                                Command="{Binding BrowseCommand}" Margin="10,0,0,0" MinHeight="40"
+                        <Button x:Name="BrowseButton" Grid.Column="1" Content="{DynamicResource Maintenance.Storage.Browse}"
+                                Command="{Binding BrowseCommand}" MinHeight="40" VerticalAlignment="Top" Margin="10,0,0,0"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
                                 AutomationProperties.AutomationId="StorageBrowseButton"/>
                     </Grid>
-                    <StackPanel Orientation="Horizontal">
+                    <WrapPanel>
                         <Button Content="{DynamicResource Maintenance.Storage.Migrate}" Command="{Binding MigrateCommand}"
                                 MinHeight="38" Padding="18,0"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
@@ -75,7 +96,7 @@
                         <TextBlock Text="{DynamicResource Maintenance.Busy}" VerticalAlignment="Center" Margin="14,0,0,0"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"
                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolVisibility}}"/>
-                    </StackPanel>
+                    </WrapPanel>
                     <TextBlock Text="{DynamicResource Maintenance.Storage.Hint}" Style="{StaticResource HintText}"/>
                 </StackPanel>
             </Border>
@@ -86,19 +107,20 @@
                     <TextBlock Text="{Binding InstallSummary}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                     <TextBlock Text="{DynamicResource Maintenance.App.DataRoot}" Style="{StaticResource FieldLabel}"/>
                     <TextBlock Text="{Binding DataRoot}" Style="{StaticResource PathText}"/>
-                    <CheckBox Content="{DynamicResource Maintenance.App.DeleteData}" IsChecked="{Binding DeleteUserData}"
-                              IsEnabled="{Binding IsInstalled}" Margin="0,0,0,14"
-                              AutomationProperties.AutomationId="DeleteUserDataCheck"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="{DynamicResource Maintenance.App.Repair}" Command="{Binding RepairCommand}"
-                                MinHeight="38" Padding="18,0" Margin="0,0,10,0"
-                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                AutomationProperties.AutomationId="RepairInstallButton"/>
-                        <Button Content="{DynamicResource Maintenance.App.Uninstall}" Command="{Binding UninstallCommand}"
-                                MinHeight="38" Padding="18,0"
-                                Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
-                                AutomationProperties.AutomationId="UninstallButton"/>
-                    </StackPanel>
+                    <Button Content="{DynamicResource Maintenance.App.Repair}" Command="{Binding RepairCommand}"
+                            MinHeight="38" Padding="18,0" HorizontalAlignment="Left"
+                            AutomationProperties.AutomationId="RepairInstallButton"/>
+                    <Border Style="{StaticResource SectionDivider}"/>
+                    <TextBlock Text="{DynamicResource Maintenance.App.UninstallTitle}" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                    <CheckBox IsChecked="{Binding DeleteUserData}" IsEnabled="{Binding IsInstalled}" Margin="0,0,0,14"
+                              VerticalContentAlignment="Top"
+                              AutomationProperties.AutomationId="DeleteUserDataCheck">
+                        <TextBlock Text="{DynamicResource Maintenance.App.DeleteData}" TextWrapping="Wrap"/>
+                    </CheckBox>
+                    <Button Content="{DynamicResource Maintenance.App.Uninstall}" Command="{Binding UninstallCommand}"
+                            MinHeight="38" Padding="18,0" HorizontalAlignment="Left"
+                            Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
+                            AutomationProperties.AutomationId="UninstallButton"/>
                     <TextBlock Text="{DynamicResource Maintenance.App.Hint}" Style="{StaticResource HintText}"/>
                 </StackPanel>
             </Border>

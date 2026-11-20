@@ -1,8 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
-    <sys:String x:Key="Maintenance.Title">Maintenance</sys:String>
-    <sys:String x:Key="Maintenance.Subtitle">Relocate the database, or repair and uninstall Mosaic. Actions that exit the app take effect on the next start.</sys:String>
+    <sys:String x:Key="Maintenance.Subtitle">Manage the database location, check the configuration, or repair and uninstall Mosaic. Actions that exit the app take effect on the next start.</sys:String>
     <sys:String x:Key="Maintenance.Busy">Working…</sys:String>
     <sys:String x:Key="Maintenance.Storage.Title">Storage location</sys:String>
     <sys:String x:Key="Maintenance.Storage.Current">Current database</sys:String>
@@ -11,11 +10,12 @@
     <sys:String x:Key="Maintenance.Storage.Browse">Choose folder</sys:String>
     <sys:String x:Key="Maintenance.Storage.Migrate">Migrate and restart</sys:String>
     <sys:String x:Key="Maintenance.Storage.Hint">Only the database is copied; credentials, logs and configuration stay in the original data folder. The app restarts when the copy is done, and the original data is kept.</sys:String>
-    <sys:String x:Key="Maintenance.App.Title">Application</sys:String>
+    <sys:String x:Key="Maintenance.App.Title">Application maintenance</sys:String>
     <sys:String x:Key="Maintenance.App.DataRoot">Local data folder</sys:String>
     <sys:String x:Key="Maintenance.App.DeleteData">Also delete local data on uninstall (cannot be undone)</sys:String>
-    <sys:String x:Key="Maintenance.App.Repair">Repair install</sys:String>
-    <sys:String x:Key="Maintenance.App.Uninstall">Uninstall Mosaic</sys:String>
+    <sys:String x:Key="Maintenance.App.Repair">Check and repair</sys:String>
+    <sys:String x:Key="Maintenance.App.UninstallTitle">Uninstall Mosaic</sys:String>
+    <sys:String x:Key="Maintenance.App.Uninstall">Uninstall</sys:String>
     <sys:String x:Key="Maintenance.App.Hint">The MSI build supports uninstalling and repairing from here; portable or development builds must be removed manually.</sys:String>
 
     <sys:String x:Key="Maintenance.Install.Installed">Installed {0} · {1}</sys:String>

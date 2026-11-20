@@ -29,7 +29,11 @@ public sealed record SettingDefinition(
     SettingPreviewMode PreviewMode = SettingPreviewMode.None,
     string? DisplayNameKey = null,
     string? DescriptionKey = null,
-    IReadOnlyList<SettingOption>? Options = null);
+    IReadOnlyList<SettingOption>? Options = null,
+    // False keeps the definition registered, readable and writable for its module without the
+    // generic settings editor creating an input for it. Other consumers and stored values are
+    // unaffected, so existing installs keep their saved connection data.
+    bool ShowInSettings = true);
 
 public sealed record SettingPreviewResult(long Revision,
     IReadOnlyDictionary<string, OperationError> Errors,

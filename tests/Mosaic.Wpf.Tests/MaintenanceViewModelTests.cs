@@ -163,6 +163,35 @@ public sealed class MaintenanceViewModelTests
     [Fact]
     public Task View_loads_with_theme_resources_and_bindings() => Sta.Run(() =>
     {
+        var view = ThemedView();
+        view.Measure(new System.Windows.Size(900, 700));
+        view.Arrange(new System.Windows.Rect(0, 0, 900, 700));
+        Assert.NotNull(view.Content);
+        return Task.CompletedTask;
+    });
+
+    [Fact]
+    public Task Browse_button_moves_below_the_path_when_the_view_is_narrow() => Sta.Run(() =>
+    {
+        var view = ThemedView();
+        var button = Assert.IsType<System.Windows.Controls.Button>(view.FindName("BrowseButton"));
+
+        view.Measure(new System.Windows.Size(560, 700));
+        view.Arrange(new System.Windows.Rect(0, 0, 560, 700));
+        view.UpdateLayout();
+        Assert.Equal(1, System.Windows.Controls.Grid.GetRow(button));
+        Assert.Equal(0, System.Windows.Controls.Grid.GetColumn(button));
+
+        view.Measure(new System.Windows.Size(900, 700));
+        view.Arrange(new System.Windows.Rect(0, 0, 900, 700));
+        view.UpdateLayout();
+        Assert.Equal(0, System.Windows.Controls.Grid.GetRow(button));
+        Assert.Equal(1, System.Windows.Controls.Grid.GetColumn(button));
+        return Task.CompletedTask;
+    });
+
+    private static Mosaic.Maintenance.Wpf.Views.MaintenanceView ThemedView()
+    {
         var view = new Mosaic.Maintenance.Wpf.Views.MaintenanceView
         {
             DataContext = Create(new FakeRelocation(), new FakeMaintenance())
@@ -171,11 +200,8 @@ public sealed class MaintenanceViewModelTests
             System.Windows.Application.LoadComponent(
                 new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative))));
         Mosaic.Presentation.Wpf.MosaicThemeManager.Apply(view.Resources, Mosaic.Presentation.Wpf.MosaicThemeVariant.Dark);
-        view.Measure(new System.Windows.Size(900, 700));
-        view.Arrange(new System.Windows.Rect(0, 0, 900, 700));
-        Assert.NotNull(view.Content);
-        return Task.CompletedTask;
-    });
+        return view;
+    }
 
     private static MaintenanceViewModel Create(
         FakeRelocation relocation,

@@ -103,10 +103,12 @@
         <StackPanel Margin="0,0,0,20">
             <TextBlock Text="{DynamicResource Settings.Title}" Style="{DynamicResource {x:Static theme:MosaicTheme.HeaderTextKey}}"/>
             <TextBlock Text="{DynamicResource Settings.Subtitle}" Margin="0,8,0,0" TextWrapping="Wrap"
-                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"
+                       Visibility="{Binding HasSettingsSectionContent, Converter={StaticResource BoolVisibility}}"/>
         </StackPanel>
         <Border Grid.Row="1" Padding="14,8" Margin="0,0,0,20" CornerRadius="10"
-                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}">
+                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                Visibility="{Binding HasSettingsSectionContent, Converter={StaticResource BoolVisibility}}">
             <DockPanel LastChildFill="True">
                 <CheckBox DockPanel.Dock="Right" Style="{StaticResource Switch}" IsChecked="{Binding ShowAdvanced}"
                           IsEnabled="{Binding IsNotBusy}" Content="{DynamicResource Settings.Advanced}"
@@ -123,7 +125,8 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <DockPanel>
-                <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0"
+                            Visibility="{Binding HasSettingsSectionContent, Converter={StaticResource BoolVisibility}}">
                     <Separator Margin="8,0,8,12" Background="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
                     <Button Content="{DynamicResource Settings.ResetSection}" Command="{Binding ResetSectionCommand}"
                             Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" HorizontalContentAlignment="Left" MinHeight="40"/>
@@ -167,7 +170,8 @@
                     <Border Padding="20,16" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}">
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding VisibleCountLabel}" FontSize="12" VerticalAlignment="Center"
-                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"
+                                       Visibility="{Binding HasSettingsSectionContent, Converter={StaticResource BoolVisibility}}"/>
                             <TextBlock Text="{Binding SelectedSection, Converter={StaticResource SectionName}}" FontSize="17" FontWeight="SemiBold"/>
                         </DockPanel>
                     </Border>
@@ -273,6 +277,7 @@
                         </StackPanel>
                     </ScrollViewer>
                     <ContentControl Grid.Row="1" Content="{Binding SelectedPageView.View}"
+                                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                                     Visibility="{Binding HasSelectedPage, Converter={StaticResource BoolVisibility}}"/>
                     <Border Grid.RowSpan="2" Panel.ZIndex="2" Padding="24"
                             Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
