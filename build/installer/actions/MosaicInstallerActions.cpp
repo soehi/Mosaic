@@ -223,7 +223,10 @@ bool ReadBinaryStream(MSIHANDLE hInstall, const wchar_t* name, std::string& cont
     query += L"'";
     MSIHANDLE view = 0;
     if (MsiDatabaseOpenViewW(database, query.c_str(), &view) != ERROR_SUCCESS)
+    {
+        MsiCloseHandle(database);
         return false;
+    }
     bool ok = false;
     if (MsiViewExecute(view, 0) == ERROR_SUCCESS)
     {
@@ -255,6 +258,9 @@ bool ReadBinaryStream(MSIHANDLE hInstall, const wchar_t* name, std::string& cont
         }
     }
     MsiCloseHandle(view);
+    // MsiGetActiveDatabase 返回的数据库句柄同样需要关闭，否则 MSI 会在动作结束时
+    // 报告 2769（自定义动作未关闭句柄），0.17.4 的每次扫描都会留下该警告。
+    MsiCloseHandle(database);
     return ok;
 }
 
@@ -747,6 +753,27 @@ extern "C" __declspec(dllexport) UINT __stdcall DetectInstallState(MSIHANDLE hIn
         }
     }
     LogInfo(hInstall, std::wstring(L"Mosaic: 检测状态 ") + stateName);
+    return ERROR_SUCCESS;
+}
+
+// 卸载前恢复已登记的安装位置。DetectInstallState 只在安装/维护时执行，INSTALLFOLDER
+// 在卸载会话中会退回包内默认目录（%LOCALAPPDATA%\Programs\Mosaic），导致自定义位置的
+// 文件全部残留；这里在 CostFinalize 之前把目录表目标改回产品实际登记的位置。
+extern "C" __declspec(dllexport) UINT __stdcall RestoreInstallFolderForRemoval(MSIHANDLE hInstall)
+{
+    std::wstring productCode = GetProperty(hInstall, L"ProductCode");
+    if (productCode.empty())
+        return ERROR_SUCCESS;
+    std::wstring location = TrimEndingSeparators(Trim(GetProductInfo(productCode, INSTALLPROPERTY_INSTALLLOCATION)));
+    if (location.empty() || PathIsRelativeW(location.c_str()))
+    {
+        // 0.17.2 及更早版本未登记位置，卸载保持默认目录语义。
+        LogInfo(hInstall, L"Mosaic: 卸载时未登记安装位置，按默认目录移除。");
+        return ERROR_SUCCESS;
+    }
+    SetProperty(hInstall, L"INSTALLFOLDER", location);
+    SetProperty(hInstall, L"MOSAICINSTALLEDLOCATION", location);
+    LogInfo(hInstall, L"Mosaic: 卸载位置 " + location);
     return ERROR_SUCCESS;
 }
 

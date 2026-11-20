@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
-    [string]$ExpectedVersion = '0.17.4',
+    [string]$ExpectedVersion = '0.17.5',
     [switch]$SkipPayloadHash
 )
 $ErrorActionPreference = 'Stop'
@@ -90,11 +90,23 @@ try {
     if ([regex]::Matches($actionsSource, 'return ERROR_INSTALL_FAILURE').Count -lt 2) {
         Fail 'ScanPayload and VerifyRepairedPayload must both return ERROR_INSTALL_FAILURE on failure.'
     }
+    # 卸载必须恢复产品登记的位置，否则自定义安装目录的文件不会被移除（0.17.4 实机缺陷）。
+    if ($actionsSource -notlike '*RestoreInstallFolderForRemoval*' -or $actionsSource -notlike '*INSTALLPROPERTY_INSTALLLOCATION*') {
+        Fail 'Uninstall must restore INSTALLFOLDER from the registered product location.'
+    }
+    # 扫描动作借用 Binary 表读取清单，必须关闭 MsiGetActiveDatabase 返回的数据库句柄。
+    if ($actionsSource -notlike '*MsiCloseHandle(database)*') {
+        Fail 'ReadBinaryStream must close the active database handle.'
+    }
 
     # 执行序列：状态检测早于成本计算，扫描在成本计算前设置 REINSTALL，复检在提交之后。
     $executeSequence = Read-MsiRows $database 'SELECT * FROM InstallExecuteSequence' 3
     $detect = Find-Row $executeSequence 'DetectInstallState' 'InstallExecuteSequence entry'
     if ($detect[2] -ne '26' -or $detect[1] -notlike '*NOT REMOVE*') { Fail "DetectInstallState must run at 26 with 'NOT REMOVE'." }
+    $restore = Find-Row $executeSequence 'RestoreInstallFolderForRemoval' 'InstallExecuteSequence entry'
+    if ($restore[2] -ne '27' -or $restore[1] -notlike '*REMOVE*') {
+        Fail 'Uninstall must restore the registered install folder at 27 before CostFinalize.'
+    }
     $enforce = Find-Row $executeSequence 'EnforceInstallFolder' 'InstallExecuteSequence entry'
     if ($enforce[2] -ne '950' -or $enforce[1] -notlike '*NOT Installed*') { Fail 'EnforceInstallFolder must run at 950 only for new installs.' }
     $scan = Find-Row $executeSequence 'ScanPayload' 'InstallExecuteSequence entry'

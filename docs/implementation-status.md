@@ -1,5 +1,35 @@
 # Mosaic：实施与验证记录
 
+## 0.17.5：卸载按登记位置移除、关闭 MSI 数据库句柄（2026-11-20）
+
+- 根因位置（以下行号指已提交的 0.17.4 版本 `077bfab`）：
+  - 自定义安装位置卸载后文件残留：`build/installer/Package.wxs:52` 的 `DetectInstallState`（执行序列 26）条件为 `NOT REMOVE`，`:54` 的 `EnforceInstallFolder`（950）条件为 `NOT Installed AND NOT REMOVE`。卸载会话中两者都被跳过，`INSTALLFOLDER` 没有任何属性赋值，目录解析回退到 `Package.wxs:15` 的 `Directory` 表默认目录 `%LOCALAPPDATA%\Programs\Mosaic`；`RemoveFiles` 因此只删除默认目录，自定义位置中的 470 个程序文件全部遗留。实机日志证据（`10-uninstall-custom.log`，0.17.4 复现时）：`Skipping action: EnforceInstallFolder (condition is false)` 与 `PROPERTY CHANGE: Adding INSTALLFOLDER property. Its value is 'C:\Users\MosaicQA\AppData\Local\Programs\Mosaic\'`，随后 `FileRemove` 全部指向默认目录。
+  - 每次扫描泄漏一个 MSIHANDLE：`build/installer/actions/MosaicInstallerActions.cpp:218` 通过 `MsiGetActiveDatabase` 取得数据库句柄，原实现只在 `:257` 关闭 `view`，从未关闭数据库句柄。MSI 在动作结束时报告 `DEBUG: Error 2769: Custom Action ScanPayload did not close 1 MSIHANDLEs.`；每次打开维护页（UI 扫描）或静默扫描都会出现该警告。
+- 改动位置：
+  - 原生动作 `build/installer/actions/MosaicInstallerActions.cpp`：
+    - `ReadBinaryStream:215`：`:227`（`MsiDatabaseOpenViewW` 失败路径）关闭数据库句柄；`:263`（正常路径）关闭 `view` 后关闭数据库句柄。
+    - 新增 `RestoreInstallFolderForRemoval:762`：读取 `ProductCode`，用 `GetProductInfo(..., INSTALLPROPERTY_INSTALLLOCATION)` 取产品登记位置并 `TrimEndingSeparators`；位置为空或为相对路径（0.17.2 及更早未登记）时写日志并保持默认目录语义；否则设置 `INSTALLFOLDER` 与 `MOSAICINSTALLEDLOCATION`。
+  - 包定义 `build/installer/Package.wxs`：`:47` 声明 `RestoreInstallFolderForRemoval`（`Execute="immediate"`、`Return="ignore"`）；`:54-55` 在 `DetectInstallState` 26 之后、`CostFinalize` 900 之前新增序列 27，条件 `REMOVE`。
+  - 静态包校验 `build/test-package-maintenance.ps1`：`:93-101` 新增源码契约（必须包含 `RestoreInstallFolderForRemoval`、`INSTALLPROPERTY_INSTALLLOCATION`、`MsiCloseHandle(database)`）；`:106-109` 新增执行序列断言（动作位于 27 且条件含 `REMOVE`）。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.17.5）、`build/installer/Mosaic.Installer.wixproj:4`（默认 `ProductVersion` 0.17.5）、`build/release-content.json`（第 38 条 `mosaic-0.17.5`，`previousReleaseId=mosaic-0.17.4`，指纹 `777313277E4763A3183DF2ACD2BECEA302067E17CB9BD3CDB603C3AF24AB6218`）、`build/published-release-index.json`（第 38 条）、`build/release-manifest.json`、`docs/releases/v0.17.5.md`、`README.md:3` 与当前版本说明/下载链接、本文件、`docs/installer-location-plan.md` §10.9。
+- 迁移逻辑与验收项：
+  - 数据与配置迁移：无。组件 GUID、KeyPath、UpgradeCode、per-user 范围、数据目录与注册表结构均未变化，升级仍由 `MajorUpgrade afterInstallInitialize` 原地完成。`%LOCALAPPDATA%\Mosaic` 下的用户数据不参与卸载删除。
+  - 已登记位置的产品（0.17.3/0.17.4）：卸载按登记位置删除程序文件与空目录；升级保持原位置。
+  - 未登记位置的旧安装（0.17.2 及更早）：`RestoreInstallFolderForRemoval` 读取为空或相对路径时只写日志，卸载保持默认目录语义，与旧行为一致；动作 `Return="ignore"`，不新增卸载失败路径。
+  - 验收项（实机，隔离用户 `MosaicQA`）：自定义位置卸载后目录内文件数为 0 且目录不存在、产品登记被移除；默认位置卸载删除负载并保留用户哨兵文件；全部安装/维护日志不再出现 `did not close`/2769；0.17.4 → 0.17.5 升级保留自定义位置；健康维护零写入；删除 EXE 与同尺寸篡改 DLL 后修复恢复；显式 `/f` 重写 470 个文件；拒绝读取时静默安装返回 1603；应用运行中修复由 Restart Manager 关闭并在完成后重启应用（返回 0）；文件被非重启管理器进程占用时修复返回 1603 并整体回滚，释放占用后再修复返回 0 且内容恢复。
+- 验证（静态）：`build/package.ps1` 完整执行，WiX 0 警告 0 错误；release content 校验 `mosaic-0.17.5`（38 条索引）；`test-package-shortcuts.ps1` PASS；`test-package-maintenance.ps1` PASS（含新增源码与序列断言）；470 个 cabinet 成员逐文件 SHA-256 与清单一致。产物 `Mosaic-0.17.5-win-x64.msi`，52,466,396 字节，SHA-256 `F8F23394EAF0B82F36454C3C83A3C89D4888CCC3C3D177C4321B82C3C405B433`。
+- 实机验收（0.17.5 MSI，隔离用户 `MosaicQA`，独立 profile `C:\Users\MosaicQA`）：
+  - 首轮维护矩阵 39 项，38 项一次通过；唯一未通过项是测试脚本自身的时区比较缺陷（`[datetime]'…Z'` 在 PowerShell 5.1 被转成本地时间，与 `LastWriteTimeUtc` 的 ticks 不等），同一步的 `explicit-f-rewrites-files` 以哨兵年份变化、mtime 恢复为包内时间与日志 `FileCopy=470` 判定通过，非产品缺陷。修正断言后复跑（22:11–22:13，同一隔离用户与独立 profile）：39 项全部通过，`result-0175.json` 记录 `ok=true`、失败项为空；证据日志为 `logs-0175\01`–`10`。
+  - 修复点 1 实测：0.17.4 → 0.17.5 升级保留 `C:\Users\Public\MosaicQA\Install Folder`；`/x` 日志先执行 `RestoreInstallFolderForRemoval` 并记录 `Mosaic: 卸载位置 C:\Users\Public\MosaicQA\Install Folder`（返回值 1，`Return=ignore`），卸载后 `files=0`、目录不存在、ARP 登记为空。
+  - 修复点 2 实测：0.17.5 的 01–04 号安装/维护/修复/显式 `/f` 日志中 `2769` 与 `did not close` 计数均为 0，全量日志扫描断言通过；0.17.4 同场景曾每次扫描出现一条。
+  - 其他通过项：默认位置安装与 ARP/快捷方式登记；健康维护零写入且哨兵文件哈希与修改时间不变；删除 EXE + 同尺寸清零 DLL 后修复恢复内容与快捷方式；拒绝读取时 `/qn` 返回 1603 且不误报；默认位置卸载删除负载、保留 `%LOCALAPPDATA%\Mosaic` 哨兵与移除 ARP；0.17.4 → 0.17.5 升级版本与位置正确、未在默认目录另装；升级后健康维护零写入。
+  - 文件占用场景（隔离用户，0.17.5 MSI）：
+    - 应用正在运行时执行 `REINSTALL=ALL REINSTALLMODE=amus`：日志依次记录 `RESTART MANAGER: Will attempt to shut down and restart applications in no UI modes.`、`Successfully shut down all applications that held files in use.`、`Previously shut down applications have been restarted.`；引擎返回 0，470 个文件全部重写，EXE 哈希与包内一致，`PendingFileRenameOperations` 无 Mosaic 项，未出现 3010。
+    - 文件被非重启管理器进程占用（ASUS 侧以 `FileShare.Read` 持有读共享锁，EXE 已清零）：`Executing op: FileCopy(… Mosaic.Desktop.exe …)` 之后立即记录 `Note: 1: 2205 2: 3: Error` 与 `Note: 1: 2228 … Error = 1603`，引擎重试约 3 分钟后以 `MainEngineThread is returning 1603` 结束并整体回滚；回滚后 EXE 仍为清零内容（哈希 `04DB6BC9…09E3`），安装集其余文件未被破坏。
+    - 释放占用后再执行同一修复：引擎返回 0，470 个 `FileCopy`，EXE 哈希恢复为 `34F1F22E…D124`，脚本记录 `healthy=true`。
+    - 待重启（3010）分支在本矩阵未被触发：两种占用分别由 Restart Manager 关闭重启或以 1603 失败回滚，没有出现「由 Windows Installer 安排到重启后替换」的情形；`IsRebootPending` 与 3010 语义仍由静态断言与代码审查覆盖。
+- 未验证项：中文安装路径（矩阵只覆盖含空格的英文路径）、位置校验/取消路径（卷根、UNC、无权限、数据目录冲突）、交互 UI 的 FilesInUse 对话框与取消/回滚路径、3010/待重启语义、降级拒绝、0.17.2 起点升级（矩阵以 0.17.4 为旧版）、DPI/窄窗口文案、Windows 10 实机、ARM64、干净 VM 与真实安装介质；后几项与 0.17.4 保持相同的验证边界，不影响本次两项修复的判定。
+
 ## 0.17.4：同版本维护自动扫描、健康分支提前结束与失败/待重启状态传播（2026-11-20）
 
 - 根因位置（以下行号指已提交的 0.17.3 版本 `ba54e76`）：

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.4",
+  "currentReleaseId": "mosaic-0.17.5",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -627,6 +627,19 @@
         "显式 /f 的修复语义保持原样：扫描健康时不清除调用方设置的 REINSTALL，也不会被健康结果页提前结束。"
       ],
       "contentSha256": "E2DED972E1E1670A3D4DDF249818995E4910D0C15CFC9A63BDFC2642D7E3A428"
+    },
+    {
+      "releaseId": "mosaic-0.17.5",
+      "version": "0.17.5",
+      "releasedOn": "2026-11-20",
+      "previousReleaseId": "mosaic-0.17.4",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "卸载自定义安装位置时按产品登记的安装位置移除文件与目录；此前卸载会话把目标退回默认目录，导致自定义目录中的全部文件残留。",
+        "扫描与修复动作在读取载荷清单后正确关闭 Windows Installer 数据库句柄，安装日志不再出现未关闭句柄的 2769 警告。"
+      ],
+      "contentSha256": "777313277E4763A3183DF2ACD2BECEA302067E17CB9BD3CDB603C3AF24AB6218"
     }
   ]
 }

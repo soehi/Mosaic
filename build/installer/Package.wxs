@@ -44,12 +44,15 @@
     <CustomAction Id="ScanPayload" BinaryRef="MosaicActions" DllEntry="ScanPayload" Execute="immediate" Return="check" />
     <CustomAction Id="ValidateInstallFolder" BinaryRef="MosaicActions" DllEntry="ValidateInstallFolder" Execute="immediate" Return="check" />
     <CustomAction Id="EnforceInstallFolder" BinaryRef="MosaicActions" DllEntry="EnforceInstallFolder" Execute="immediate" Return="check" />
+    <CustomAction Id="RestoreInstallFolderForRemoval" BinaryRef="MosaicActions" DllEntry="RestoreInstallFolderForRemoval" Execute="immediate" Return="ignore" />
     <CustomAction Id="RestoreDefaultInstallFolder" BinaryRef="MosaicActions" DllEntry="RestoreDefaultInstallFolder" Execute="immediate" Return="check" />
     <CustomAction Id="BrowseInstallFolder" BinaryRef="MosaicActions" DllEntry="BrowseInstallFolder" Execute="immediate" Return="check" />
     <CustomAction Id="VerifyRepairedPayload" BinaryRef="MosaicActions" DllEntry="VerifyRepairedPayload" Execute="immediate" Return="check" />
     <CustomAction Id="SetArpInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" />
     <InstallExecuteSequence>
       <Custom Action="DetectInstallState" Sequence="26" Condition="NOT REMOVE" />
+      <!-- 卸载要在 CostFinalize 之前把 INSTALLFOLDER 指回产品登记的位置，否则自定义位置的文件不会被移除。 -->
+      <Custom Action="RestoreInstallFolderForRemoval" Sequence="27" Condition="REMOVE" />
       <!-- 静默安装先校验 INSTALLFOLDER：无效路径直接失败，不静默退回默认目录。 -->
       <Custom Action="EnforceInstallFolder" Sequence="950" Condition="NOT Installed AND NOT REMOVE" />
       <!-- 有 UI 时扫描已在 UI 序列完成，这里复用同一结果；静默安装没有 UI 序列，在此扫描。 -->

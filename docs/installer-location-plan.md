@@ -1,6 +1,6 @@
 # Mosaic：安装位置选择、同程序替换与桌面快捷方式计划
 
-状态：2026-11-20，基于 0.17.2 重新规划（0.17.3 实施、0.17.4 修正维护流程）。桌面快捷方式子项已在 0.9.1 实施；自定义安装位置与同版本 MSI 文件扫描修复已在 0.17.3 实施，0.17.4 修正为自动扫描、健康分支在写入前结束并传播失败/待重启状态；实机矩阵仍待隔离环境验收。本次用户确认的交付范围、技术路径和验收以第 10 节为准；第 1–9 节保留历史设计与结果，其中跨位置替换及无登记目录覆盖不作为本次自动执行行为。
+状态：2026-11-20，基于 0.17.2 重新规划（0.17.3 实施、0.17.4 修正维护流程、0.17.5 修正卸载位置与句柄泄漏）。桌面快捷方式子项已在 0.9.1 实施；自定义安装位置与同版本 MSI 文件扫描修复已在 0.17.3 实施，0.17.4 修正为自动扫描、健康分支在写入前结束并传播失败/待重启状态；0.17.5 在隔离 Windows 用户内完成实机矩阵验收并修复卸载残留与 2769 句柄警告。本次用户确认的交付范围、技术路径和验收以第 10 节为准；第 1–9 节保留历史设计与结果，其中跨位置替换及无登记目录覆盖不作为本次自动执行行为。
 
 关联：[架构原则](architecture-principles.md)、[总实施计划](implementation-plan.md)、[实施与验证记录](implementation-status.md)。
 
@@ -252,12 +252,18 @@ AppConfiguration、用户数据配置迁移和数据库模块无需为安装目�
 
 交付记录逐项区分静态包检查、自动化逻辑测试与真实 Windows Installer 执行结果。安装成功截图不能代替损坏修复实验；构建成功不能代替 MSI UI 维护验收。版本号在实施时按最新正式版分配，源码、测试、文案、迁移兼容说明、Release 与 MSI 一次交付。
 
-### 10.9 实施状态（0.17.4，2026-11-20）
+### 10.9 实施状态（0.17.5，2026-11-20）
 
+- 0.17.5 修正（实机矩阵发现的缺陷）：
+  - 卸载自定义位置后文件残留：`build/installer/Package.wxs` 的 `DetectInstallState`（执行序列 26，条件 `NOT REMOVE`）与 `EnforceInstallFolder`（950，条件 `NOT Installed AND NOT REMOVE`）在卸载会话中都被跳过，`INSTALLFOLDER` 没有属性赋值，退回 `Directory` 表默认目录 `%LOCALAPPDATA%\Programs\Mosaic`，`RemoveFiles` 只删除默认目录，自定义位置的文件全部遗留。修复：新增 `RestoreInstallFolderForRemoval`（`MosaicInstallerActions.cpp:762`，`Package.wxs:47` 声明、`:55` 挂到执行序列 27，条件 `REMOVE`），在 CostFinalize 之前读取产品登记的 `INSTALLPROPERTY_INSTALLLOCATION` 并回填 `INSTALLFOLDER`；未登记位置（0.17.2 及更早）保持默认目录语义。`Return="ignore"`，位置读取失败不阻断卸载。
+  - 安装日志 2769：`MsiGetActiveDatabase`（`MosaicInstallerActions.cpp:218`）返回的数据库句柄原先未关闭，每次 `ScanPayload`/复检都产生 `DEBUG: Error 2769: Custom Action … did not close 1 MSIHANDLEs.`。修复：`:227`（打开视图失败路径）与 `:263`（正常路径）关闭该句柄。
+  - 静态契约：`build/test-package-maintenance.ps1:94-101` 断言源码包含恢复动作、登记位置常量与数据库句柄关闭；`:106-109` 断言执行序列 27 且条件含 `REMOVE`。
 - 0.17.4 修正（对应 §10.5/§10.6 的调度与结果传播要求）：维护页不再需要手动点「下一步」，UI 序列 1002 在执行任何页面之前自动 `ScanPayload`；扫描健康且无显式 `/f` 时只显示健康结果页，`完成` 以 `EndDialog Exit` 在 `ExecuteAction` 之前结束，不改写 ARP 登记、不进入修复事务；异常或 `/f` 才继续到修复与复检。`ScanPayload`/`VerifyRepairedPayload` 遇到不可读、清单错误、复检失败时通过标准错误消息返回 `ERROR_INSTALL_FAILURE`（静默 `/qn` 为 1603）；被占用而待重启替换的文件归类 `PendingReboot`，页面显示「需要重启后完成修复」并保留 3010；健康/待重启/失败三种结果各自显示，不再共用完成文案。改动落位：`build/installer/actions/MosaicInstallerActions.cpp`（`ReportError`、`IsRebootPending`、`ScanPayload`、`VerifyRepairedPayload`）、`build/installer/Package.wxs`（`MOSAICEXITTITLE`、UI 1002、健康页显示条件、执行扫描 `NOT MOSAICSCANSTATUS`、ARP 条件、复检条件）、`build/installer/Dialogs.wxs`（删除 `MaintStartDlg`、健康结果页、进度页摘要、动态结果标题）、`build/test-package-maintenance.ps1`（序列/事件/控件与源码契约断言）。
 
 - 已实施：位置选择页（输入/浏览/恢复默认）、路径校验与数据目录隔离、状态检测与维护/升级/阻断路由、内嵌原生扫描器与载荷清单、同版本维护只读扫描、缺失/损坏时自动 `REINSTALL=ALL` + `REINSTALLMODE=amus`、提交后复检、`ARPINSTALLLOCATION` 与 `HKCU\Software\Mosaic\Installer\InstallLocation` 登记、升级原位继承与 ≤0.17.2 回退。实际落位：`build/installer/actions/MosaicInstallerActions.cpp`、`build/installer/actions/build-actions.ps1`、`build/installer/Dialogs.wxs`、`build/installer/Package.wxs`、`build/installer/Mosaic.Installer.wixproj`、`scripts/generate_installer_manifest.py`、`scripts/package_payload.py`、`build/package.ps1`、`build/test-package-maintenance.ps1`、`build/test-install.ps1`。
 - 已通过（静态包检查）：`build/test-package-maintenance.ps1` 对 ProductVersion/UpgradeCode、七个自定义动作、两个 Binary、执行与 UI/AdminUI 序列、错误对话框与文件占用列表、位置页事件、启动条件、位置元数据、清单与 `File` 表一致性、快捷方式目标、cabinet 覆盖与逐文件 SHA-256 全部断言通过；已接入 `build/package.ps1` 两条打包链。
 - 自动化覆盖：`build/test-install.ps1` 改为从「应用和功能」/`HKCU` 元数据读取实际位置并断言升级后位置不变；该脚本需要两版 MSI 与干净测试用户，未在本机执行。
-- 仍待独立环境验收：§10.8 全部实机项——中文+空格自定义路径、健康维护零写入、删除 EXE/运行时 DLL/语言资源/整目录、同大小篡改、快捷方式修复、文件锁定与取消/回滚/3010、0.17.2 实机升级与后续同版本维护、静默 `/qn` 有效/无效路径、显式 `/f`、`/x` 不扫描、降级拒绝、用户数据保留。UI 文案、DPI/窄窗口与 FilesInUse 实际触发同属实机项。
+- 实机矩阵（0.17.5 MSI，隔离 Windows 用户 `MosaicQA`，独立 profile `C:\Users\MosaicQA`，2026-11-20 22:11–22:13）：§10.8 的 39 项断言全部通过（`result-0175.json` 记录 `ok=true`，证据日志 `logs-0175\01`–`10`）——默认位置安装与 ARP/快捷方式登记、健康维护零写入且哨兵不变、同尺寸清零 DLL 后修复恢复、显式 `REINSTALL=ALL` 重写 470 个文件、安装目录拒绝读取时 `/qn` 返回 1603、默认位置卸载删负载并保留数据、0.17.4 → 0.17.5 原位升级保留自定义位置、升级后健康维护零写入、自定义位置卸载后 `files=0` 且目录移除、全部安装/维护日志无 `DEBUG: Error 2769`。
+- 文件占用实测：应用（`Mosaic.Desktop.exe`）运行时执行全量重装，Restart Manager 记录「关闭所有占用文件的应用程序」并在完成后重启应用，返回 0、470 个文件重写、无待重启项；文件被非 Restart Manager 进程持锁时，修复在 `FileCopy` 后以 `2205`/`2228 Error = 1603` 失败，重试约 3 分钟后整体回滚（损坏文件未被替换），释放占用后再修复返回 0 并恢复哈希。3010/待重启分支未在实机触发。
+- 仍未实机验证：中文路径（矩阵只覆盖含空格的英文路径）、位置校验与取消路径（卷根/UNC/无权限/数据目录冲突/取消选择）、以 UI 双击驱动的维护与 FilesInUse 对话框、降级拒绝、0.17.2 起点升级（矩阵以 0.17.4 为旧版）、3010/待重启语义、Windows 10、ARM64、干净 VM 与真实安装介质；UI 文案与 DPI/窄窗口同属实机项。
 - 命名差异：计划中的 `Mosaic.Installer.Actions/` 实际为 `build/installer/actions/`；`Localization/zh-CN.wxl` 未新增，中文字面量直接写在 `Dialogs.wxs` 与 C++ 动作中；未使用 WixUI 扩展，`packages.lock.json` 未改。
