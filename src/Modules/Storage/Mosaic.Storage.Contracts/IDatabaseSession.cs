@@ -49,6 +49,13 @@ public sealed class SqlRow
 
 public sealed record MigrationDefinition(int Version, string Sql);
 
+public enum InstallationKind { Fresh, Legacy }
+
+public interface IInstallationState
+{
+    Task<OperationResult<InstallationKind>> GetInstallationKindAsync(CancellationToken cancellationToken = default);
+}
+
 // Valid only during the synchronous callback, on the storage worker thread.
 public interface ITransactionSession
 {

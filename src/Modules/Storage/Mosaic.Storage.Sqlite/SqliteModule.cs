@@ -14,7 +14,8 @@ public sealed record SqliteOptions(
     int BusyTimeoutSeconds = 3,
     int BackupRetention = 5,
     SqliteJournalMode JournalMode = SqliteJournalMode.Delete,
-    SqliteConnectionMode ConnectionMode = SqliteConnectionMode.ReusedSingle);
+    SqliteConnectionMode ConnectionMode = SqliteConnectionMode.ReusedSingle,
+    bool ConfigurationExisted = true);
 
 public sealed class StorageSettingSource : ISettingSource
 {
@@ -52,7 +53,7 @@ public sealed class StorageSettingSource : ISettingSource
         Task.CompletedTask;
 }
 
-public sealed class SqliteModule : IModuleActivation
+public sealed class SqliteModule : IModuleActivation, ICapabilityProvider
 {
     private readonly SqliteOptions _options;
     private readonly IDiagnosticSink _diagnostics;
@@ -61,10 +62,16 @@ public sealed class SqliteModule : IModuleActivation
     public SqliteModule(SqliteOptions options, IDiagnosticSink diagnostics) { _options = options; _diagnostics = diagnostics; }
     public static ModuleManifest Definition { get; } = new(
         "storage-sqlite",
-        [new("sqlite.session", 1)],
+        [new("sqlite.session", 1), new("startup.installation-state", 1)],
         [],
         "Owns the SQLite connection, serialized execution queue, migrations and backups.");
     public ModuleManifest Manifest => Definition;
+    public object? GetCapability(CapabilityId capability) => capability.Name switch
+    {
+        "sqlite.session" when capability.MajorVersion == 1 => Session,
+        "startup.installation-state" when capability.MajorVersion == 1 => Session as IInstallationState,
+        _ => null
+    };
     public IDatabaseSession Session => _worker ?? throw new InvalidOperationException("Storage is not active.");
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {

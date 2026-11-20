@@ -34,13 +34,13 @@ public partial class ShellWindow : Window, IAsyncDisposable
     private double _resizeOffset;
     private Thickness _pageMargin = new(32, 30, 28, 28);
 
-    public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings = null)
+    public ShellWindow(ContributionRegistry contributions, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings = null, SettingsPageRegistry? settingsPages = null)
     {
         InitializeComponent();
         Title = MosaicVersion.WindowTitle;
         VersionText.Text = MosaicVersion.Display;
         VersionText.ToolTip = MosaicVersion.Display;
-        _model = new(contributions, dialogs, settings); DataContext = _model;
+        _model = new(contributions, dialogs, settings, settingsPages); DataContext = _model;
         ShellSettingsApplier.Attach(this);
         Closed += (_, _) => ShellSettingsApplier.Detach(this);
     }

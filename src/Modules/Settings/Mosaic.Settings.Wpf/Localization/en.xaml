@@ -26,6 +26,7 @@
     <sys:String x:Key="Settings.ResetRow">Reset default</sys:String>
     <sys:String x:Key="Settings.Section.Normal">General</sys:String>
     <sys:String x:Key="Settings.Section.Tasks">Tasks</sys:String>
+    <sys:String x:Key="Settings.Section.AccountsAndBackup">Account and backup</sys:String>
     <sys:String x:Key="Settings.Section.Appearance">Appearance and layout</sys:String>
     <sys:String x:Key="Settings.Section.Storage">Storage and system</sys:String>
     <sys:String x:Key="Settings.Section.Text">Text</sys:String>

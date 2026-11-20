@@ -22,6 +22,12 @@ public interface IModuleActivation : IAsyncDisposable
     Task StopAsync();
 }
 
+/// <summary>Exports activated capability instances by their declared identifier.</summary>
+public interface ICapabilityProvider
+{
+    object? GetCapability(CapabilityId capability);
+}
+
 public interface IModuleExecutionGate
 {
     void Activate();

@@ -45,6 +45,7 @@ public partial class App : Application
         try
         {
             _paths = AppPaths.FromArguments(e.Args);
+            var configurationExisted = File.Exists(_paths.ConfigPath);
             _instance = new(_paths.Root, ReportFailure, ReadSingleInstanceRetry(_paths));
             if (!_instance.IsPrimary) { await _instance.NotifyAsync(); await FinishAsync(); return; }
             _instance.Listen(() => Dispatcher.BeginInvoke(new Action(async () =>
@@ -53,7 +54,7 @@ public partial class App : Application
                 else if (_windowHost.Window is not null) await _windowHost.RestoreMainWindowAsync();
                 else MainWindow?.Activate();
             })));
-            shell = await _bootstrapper.StartAsync(_paths, new UiDispatcher(Dispatcher), new UserDialogService(), _windowHost);
+            shell = await _bootstrapper.StartAsync(_paths, new UiDispatcher(Dispatcher), new UserDialogService(), _windowHost, configurationExisted);
             _shell = shell;
             _windowHost.Window = shell;
             await shell.InitializeAsync();

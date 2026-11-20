@@ -171,7 +171,8 @@
                             <TextBlock Text="{Binding SelectedSection, Converter={StaticResource SectionName}}" FontSize="17" FontWeight="SemiBold"/>
                         </DockPanel>
                     </Border>
-                    <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="1" Padding="20,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="1" Padding="20,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  Visibility="{Binding HasSettingsSectionContent, Converter={StaticResource BoolVisibility}}">
                         <StackPanel>
                             <ItemsControl ItemsSource="{Binding VisibleRows}">
                                 <ItemsControl.ItemTemplate>
@@ -271,6 +272,8 @@
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         </StackPanel>
                     </ScrollViewer>
+                    <ContentControl Grid.Row="1" Content="{Binding SelectedPageView.View}"
+                                    Visibility="{Binding HasSelectedPage, Converter={StaticResource BoolVisibility}}"/>
                     <Border Grid.RowSpan="2" Panel.ZIndex="2" Padding="24"
                             Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
                             Visibility="{Binding IsLoading, Converter={StaticResource BoolVisibility}}">

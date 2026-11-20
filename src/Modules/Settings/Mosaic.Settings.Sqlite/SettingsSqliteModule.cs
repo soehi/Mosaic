@@ -7,7 +7,7 @@ namespace Mosaic.Settings.Sqlite;
 
 public sealed record SettingsSqliteDependencies(IDatabaseSession Session);
 
-public sealed class SettingsSqliteModule : IModuleActivation
+public sealed class SettingsSqliteModule : IModuleActivation, ICapabilityProvider
 {
     private readonly IDatabaseSession _session;
     private SettingsRepository? _repository;
@@ -20,6 +20,8 @@ public sealed class SettingsSqliteModule : IModuleActivation
         [new("sqlite.session", 1)],
         "Owns the settings table migration and parameterized setting persistence.");
     public ModuleManifest Manifest => Definition;
+    public object? GetCapability(CapabilityId capability) =>
+        capability == new CapabilityId("settings.repository", 1) ? Repository : null;
     public ISettingRepository Repository => _repository ?? throw new InvalidOperationException("Settings storage is not active.");
 
     public async Task ActivateAsync(CancellationToken cancellationToken = default)

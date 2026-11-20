@@ -1,5 +1,35 @@
 # Mosaic：实施与验证记录
 
+## 账户设置与首次选择（工作区试用）
+
+- 根因位置：
+  - 账户入口与首启：`src/Mosaic.Shell.Wpf/ShellViewModel.cs`（旧）`InitializeAsync` 依据账户地址跳转独立 `account.home` 页；`src/Modules/Auth/Mosaic.Auth.Wpf/AuthUiModule.cs`（旧）以 `Navigation`/`Status` 贡献账户导航与 `account.status` 状态项；`AccountViewModel.LogoutAsync`（旧）在退出时清空 `auth.accountChoiceMade`。`AuthSettingsSource.Definitions` 未定义该标记，设置提交无法持久化它。
+  - 新安装误判：`src/Mosaic.Desktop/App.xaml.cs`（旧）先构造单一实例并以设置 API 读取设置，`AppConfiguration.Load` 在 `Bootstrapper` 判断配置存在性之前就把默认 `appsettings.json` 复制到数据目录，导致全新空目录被分类为 Legacy。
+  - Device Flow 轮询：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs:783`（旧）以 `nextPollAtSeconds = 0` 启动 `PollDeviceAsync`，而 `PollDeviceAsync` 在 `DeviceSecondsLeft > pollAt` 时跳过轮询（`AccountViewModel.cs:805`），首次轮询实际发生在倒计时归零、已进入过期分支之后，浏览器批准永远不会被识别。该缺陷自 0.16.0 引入。
+- 改动位置：
+  - 设置页扩展点：`src/Mosaic.Presentation.Contracts/PresentationContracts.cs`（`SettingsPageContribution`、`ISettingsPageModule`）、`src/Mosaic.Presentation.Contracts/SettingsPageRegistry.cs`（新增）；`src/Mosaic.Desktop/BuiltInModuleCatalog.cs`、`src/Mosaic.Desktop/Bootstrapper.cs` 传递注册表与 capability 绑定。
+  - 设置侧承载：`src/Modules/Settings/Mosaic.Settings.Contracts/SettingsContracts.cs`（`SettingsGroup.AccountsAndBackup`）、`Mosaic.Settings.Wpf/Internal/SettingsViewModel.cs`（`SelectPageAsync`、`SelectedPageView`、`HasSettingsSectionContent`）、`SettingsUiModule.cs`、`Internal/SettingsViewFactory.cs`、`Views/SettingsView.xaml`、`Localization/zh.xaml`、`Localization/en.xaml`。
+  - 账户侧：`src/Modules/Auth/Mosaic.Auth.Wpf/AuthUiModule.cs`（只注册设置页，不再贡献 Navigation/Vertical 状态项）、`Internal/AuthViewFactory.cs`、`Internal/AccountViewModel.cs`、`Views/AccountView.xaml`、`Views/AccountView.xaml.cs`、`Localization/zh.xaml`、`Localization/en.xaml`；删除不再使用的 `Internal/AccountStatusItem.cs` 及其本地化键。
+  - 首次选择：`src/Mosaic.Shell.Wpf/ShellViewModel.cs`（`InitializeAsync` 判断 `auth.accountChoiceMade`、`OnStartPageRequested`、`OnInitialChoiceCompleted`）、`ShellWindow.xaml.cs`；`src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthSettingsSource.cs` 定义 `auth.accountChoiceMade`；`AuthModule.cs` 声明 manifest 依赖与 `InitialAccountChoice`。
+  - 安装分类：`src/Modules/Storage/Mosaic.Storage.Contracts/IDatabaseSession.cs`（`IInstallationState`、`InstallationKind`）、`Mosaic.Storage.Sqlite/Internal/DatabaseWorker.cs`（启动时在同一事务写入 `mosaic_startup_metadata('installation-classification-v1')`，重启时 `INSERT OR IGNORE` 保持原分类）、`SqliteModule.cs`（导出 `startup.installation-state@1`）、`src/Mosaic.Contracts/ModuleManifest.cs`（`ICapabilityProvider`）、`src/Mosaic.Kernel/ModuleRuntime.cs`（`Resolve<T>` 与激活前钩子）、`src/Modules/Settings/Mosaic.Settings.Sqlite/Internal/SettingsRepository.cs`（`InitializeAsync` 事务内写 `settings_initializations` 与缺失值）、`src/Modules/Settings/Mosaic.Settings.Sqlite/SettingsSqliteModule.cs`。
+  - Device Flow 轮询修正：`AccountViewModel.StartDevicePolling` 改为以 `Math.Max(0, expiresInSeconds)` 作为首个轮询标记（`AccountViewModel.cs:783`），第一个循环即按服务端返回的 `verificationUriComplete` 授权结果轮询。
+- 迁移逻辑与验收：无法区分新旧的数据目录一律按 Legacy（用户裁决）；仅当"配置在进程启动前不存在且数据库文件此前不存在"才判为 Fresh（`App.xaml.cs:48` 采集存在性，`DatabaseWorker.cs:47` 判定）；显式 false/true 均保留；分类与 choice 在同一事务内写入，失败回滚并可重试（`SettingsRepositoryTests.Failed_startup_migration_rolls_back_and_retries`）；旧安装若缺少标记会显示一次选择界面，选择后不再出现。设置 → 账户可手动重新打开开始页（`RequestStartPage`）。
+- 退出行为：`AccountView.xaml` 账户设置状态只有一个统一退出图标（`AccountLogoutButton`）；`AccountViewModel.LogoutAsync` 在线时先确认、调用既有登出接口撤销会话并清理本机凭据，离线时不发网络请求，两种情况都返回开始页并 `RequestStartPage()`；普通退出不清除 `auth.accountChoiceMade`。
+- 浏览器登录：`AccountViewModel.StartDeviceAsync` 在未配置服务器时先用 `AuthValidation.DefaultServerUrl` 配置官方服务器，再启动 Device Flow 并打开服务端返回的 `VerificationUriComplete`；只有"连接其他自建服务器"展开地址输入；"忘记密码"打开 `{serverBase}/device?mode=reset`。注册、验证码、密码与重置全部只在浏览器完成，桌面端不再有这些表单。
+- 验证：`dotnet build Mosaic.sln` Debug/Release 均 0 警告 0 错误；`dotnet test Mosaic.sln` Debug 与 Release 均 372/372 通过（Wpf 122、Auth.Http 36、Tasks.Core 27、Auth.Core 25、Settings.Core 25、Presence 17、ReleaseSummary 17、Sync.Core 14、FloatingWindows 12、Storage.Sqlite 12、Kernel 7、Tasks.Contract 7、Settings.Sqlite 5、Architecture 4、Smoke 42）。新增测试覆盖：在线退出（调用一次登出、回到开始页、标记保留、发出 `StartPageRequested`）、离线退出（0 次网络调用）、开始页在设置页内显示、离线/自建服务器/浏览器批准三条路径完成首启选择、Device 批准轮询。
+- 输入框视觉修正：`src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml`（工作区）`FieldBox` 原先只设置高度、内边距与外边距，沿用全局 `TextBox` 的浅色默认背景/边框；在深色主题下，「连接其他自建服务器」展开的服务器地址输入框与周围卡片对比突兀。现让 `FieldBox` 使用 `SurfaceMutedBrushKey` 背景、`ControlHoverBorderBrushKey` 边框、`TextPrimaryBrushKey` 前景，并统一垂直居中与等宽字体；`ServerUrlInput` 单独增大字号并补 `AutomationProperties.Name`。改动只影响账户设置页展开的服务器地址输入框，不改变校验、持久化或 Device Flow。
+- 验证：`dotnet build src/Modules/Auth/Mosaic.Auth.Wpf/Mosaic.Auth.Wpf.csproj -c Release` 0 警告 0 错误。
+- 未验证项：0.16.6 MSI 的安装/升级路径未再实测（前一版 0.16.4 → 工作区旧库升级已单独验证）；Smoke 中依赖真实指针的浮动窗口用例偶发失败，重跑即通过；capability 解析只用单元测试覆盖绑定错误，未接入替代 provider 实测；未使用真实账号、SMTP 或浏览器 Cookie；输入框视觉调整尚未实机截图复核。
+
+### 0.16.6 本地试用包（2026-11-20）
+
+- 版本号：`Directory.Build.props`、`build/installer/Mosaic.Installer.wixproj` 由 0.16.5 提升到 0.16.6。本机注册表中 0.16.8 的 DisplayVersion 与可执行文件 0.16.5 不一致，属上一轮试用残留；安装器 `MajorUpgrade` 会覆盖文件。
+- 根因位置：`build/installer/Package.wxs` 的 LaunchCondition 引用 `WINDOWSBUILD`，而属性声明为 `WindowsBuild`，WiX ICE46 大小写校验令打包失败（MSI 属性名不区分大小写，功能上无影响）。改动位置：`Mosaic.Installer.wixproj` 的 `SuppressIces` 增加 ICE46 并注明原因。
+- 发布说明：`build/release-content.json`、`build/published-release-index.json` 新增 0.16.6 条目，指纹 `EEEAD1058CDF7B8762BCED82DB042B1D36A3BC064C5D9ED486040BC40306AD5D`；`docs/releases/v0.16.6.md` 由校验脚本生成。
+- 打包命令：`build/package.ps1 -ProductVersion 0.16.6`（首次因 ICE46 失败，抑制后 `-NoPublish` 重跑成功）；`build/test-package-shortcuts.ps1` 通过。
+- 产物：`artifacts/installer/Mosaic-0.16.6-win-x64.msi`，52,113,780 字节，SHA-256 `533D68E6E857C7F320DEFC7905DA9E10AA90CB4C1CB5C141850EDDAD11819BB4`。
+- 内容核验：`msiexec /a` 管理安装提取后 `Mosaic.Desktop.dll`、`Mosaic.Auth.Wpf.dll`、`release-manifest.json` 的 SHA-256 与 `artifacts/local-run` 完全一致，manifest `currentReleaseId = mosaic-0.16.6`（32 条发布记录）。
+
 ## 0.16.5：账号入口移入左下角、四选一登录流程、退出登录回到账号选择（2026-11-19）
 
 - 根因位置：

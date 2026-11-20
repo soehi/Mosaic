@@ -25,8 +25,14 @@
         </Style>
         <Style x:Key="FieldBox" TargetType="TextBox">
             <Setter Property="MinHeight" Value="40"/>
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Padding" Value="14,8"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
+            <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.ControlHoverBorderBrushKey}}"/>
+            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Segoe UI"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style x:Key="FieldPassword" TargetType="PasswordBox">
             <Setter Property="MinHeight" Value="40"/>
@@ -59,8 +65,10 @@
                   AutomationProperties.AutomationId="AccountPage">
         <StackPanel Margin="32,28,32,40" MaxWidth="720" HorizontalAlignment="Left">
             <TextBlock Text="{DynamicResource Auth.Title}"
+                       Visibility="{Binding ShowStartPage, Converter={StaticResource BoolVisibility}}"
                        Style="{DynamicResource {x:Static theme:MosaicTheme.HeaderTextKey}}"/>
             <TextBlock Text="{DynamicResource Auth.Subtitle}"
+                       Visibility="{Binding ShowStartPage, Converter={StaticResource BoolVisibility}}"
                        TextWrapping="Wrap" Margin="0,6,0,20"
                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
 
@@ -70,6 +78,13 @@
                            Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
             </Border>
 
+            <Button Command="{Binding LogoutCommand}" HorizontalAlignment="Left" MinWidth="44" MinHeight="44"
+                    Content="&#xE8AC;" FontFamily="Segoe MDL2 Assets"
+                    ToolTip="{DynamicResource Auth.Account.Logout}"
+                    AutomationProperties.Name="{DynamicResource Auth.Account.Logout}"
+                    AutomationProperties.AutomationId="AccountLogoutButton"
+                    Visibility="{Binding ShowAccountSettings, Converter={StaticResource BoolVisibility}}"/>
+            <StackPanel Visibility="{Binding ShowStartPage, Converter={StaticResource BoolVisibility}}">
             <!-- Signed out: optional sign-in. Nothing here runs until the user acts. -->
             <StackPanel Visibility="{Binding ShowLoginCard, Converter={StaticResource BoolVisibility}}">
                 <Border Style="{StaticResource Card}">
@@ -80,21 +95,18 @@
                         <TextBlock Text="{Binding ModeDescription}" TextWrapping="Wrap" Margin="0,6,0,14"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
 
-                        <DockPanel Margin="0,0,0,12">
-                            <Button DockPanel.Dock="Right" Content="{DynamicResource Auth.Server.Change}"
-                                    Command="{Binding ToggleServerPanelCommand}"
-                                    Style="{StaticResource LinkButton}" Margin="8,0,0,0"/>
-                            <TextBlock Text="{Binding ServerDisplay}" TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                        </DockPanel>
+                        <TextBlock Text="{Binding ServerDisplay}" TextTrimming="CharacterEllipsis"
+                                   Margin="0,0,0,12"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
 
                         <StackPanel Visibility="{Binding ShowServerPanel, Converter={StaticResource BoolVisibility}}"
                                     Margin="0,0,0,8">
                             <TextBlock Text="{DynamicResource Auth.Server.Label}" Style="{StaticResource FieldLabel}"/>
                             <TextBox Text="{Binding ServerInput, UpdateSourceTrigger=PropertyChanged}"
                                      Style="{StaticResource FieldBox}"
-                                     AutomationProperties.AutomationId="ServerUrlInput"/>
+                                     FontSize="16"
+                                     AutomationProperties.AutomationId="ServerUrlInput"
+                                     AutomationProperties.Name="{DynamicResource Auth.Server.Label}"/>
                             <TextBlock Text="{DynamicResource Auth.Server.Hint}" TextWrapping="Wrap" FontSize="12"
                                        Margin="0,0,0,10"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
@@ -107,111 +119,29 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Login: the account-choice screen (browser, existing account, offline,
-                             or a self-hosted server below). Nothing runs until the user acts. -->
+                        <!-- Login: the account-choice screen. Registration, the email+password
+                             form and password reset live entirely in the browser (device flow);
+                             the desktop offers exactly four entries and nothing runs until the
+                             user acts. -->
                         <StackPanel Visibility="{Binding IsLoginMode, Converter={StaticResource BoolVisibility}}"
                                     AutomationProperties.AutomationId="AccountChoice"
                                     AutomationProperties.Name="{DynamicResource Auth.Choice.Title}">
                             <Button Content="{DynamicResource Auth.Login.Browser}" Command="{Binding StartDeviceCommand}"
                                     Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                    HorizontalAlignment="Left" MinWidth="180" MinHeight="38" Margin="0,0,0,18"
+                                    HorizontalAlignment="Left" MinWidth="240" MinHeight="38" Margin="0,0,0,10"
                                     AutomationProperties.AutomationId="BrowserLoginButton"/>
-                            <TextBlock Text="{DynamicResource Auth.Email}" Style="{StaticResource FieldLabel}"/>
-                            <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                                     Style="{StaticResource FieldBox}"
-                                     AutomationProperties.AutomationId="LoginEmail"/>
-                            <TextBlock Text="{DynamicResource Auth.Password}" Style="{StaticResource FieldLabel}"/>
-                            <PasswordBox x:Name="LoginPassword" Style="{StaticResource FieldPassword}"
-                                         PasswordChanged="OnLoginPasswordChanged"
-                                         AutomationProperties.AutomationId="LoginPassword"/>
-                            <Button Content="{DynamicResource Auth.Login}" Command="{Binding LoginCommand}"
-                                    Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                    HorizontalAlignment="Left" MinWidth="140" MinHeight="38"/>
-                            <WrapPanel Margin="0,16,0,0">
-                                <Button Content="{DynamicResource Auth.Login.Offline}" Command="{Binding UseOfflineCommand}"
-                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="OfflineButton"/>
-                                <Button Content="{DynamicResource Auth.Server.Change}" Command="{Binding ToggleServerPanelCommand}"
-                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="ServerPanelButton"/>
-                                <Button Content="{DynamicResource Auth.Login.Forgot}" Command="{Binding ShowForgotCommand}"
-                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="ForgotButton"/>
-                            </WrapPanel>
-                        </StackPanel>
-
-                        <!-- Register -->
-                        <StackPanel Visibility="{Binding IsRegisterMode, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="{DynamicResource Auth.Email}" Style="{StaticResource FieldLabel}"/>
-                            <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                                     Style="{StaticResource FieldBox}"
-                                     AutomationProperties.AutomationId="RegisterEmail"/>
-                            <TextBlock Text="{DynamicResource Auth.Code}" Style="{StaticResource FieldLabel}"/>
-                            <DockPanel Margin="0,0,0,14">
-                                <Button DockPanel.Dock="Right" Content="{Binding SendCodeLabel}" Command="{Binding SendCodeCommand}"
-                                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                        MinWidth="132" MinHeight="40" Margin="8,0,0,0"/>
-                                <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource FieldBox}" Margin="0"
-                                         MaxLength="6" AutomationProperties.AutomationId="RegisterCode"/>
-                            </DockPanel>
-                            <TextBlock Text="{DynamicResource Auth.Password}" Style="{StaticResource FieldLabel}"/>
-                            <PasswordBox x:Name="RegisterPassword" Style="{StaticResource FieldPassword}"
-                                         PasswordChanged="OnRegisterPasswordChanged"
-                                         AutomationProperties.AutomationId="RegisterPassword"/>
-                            <TextBlock Text="{DynamicResource Auth.PasswordConfirm}" Style="{StaticResource FieldLabel}"/>
-                            <PasswordBox x:Name="RegisterConfirm" Style="{StaticResource FieldPassword}"
-                                         PasswordChanged="OnRegisterConfirmChanged"
-                                         AutomationProperties.AutomationId="RegisterConfirm"/>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="{DynamicResource Auth.Register.Submit}" Command="{Binding RegisterCommand}"
-                                        Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                        MinWidth="160" MinHeight="38"/>
-                                <Button Content="{DynamicResource Auth.Back}" Command="{Binding BackToLoginCommand}"
-                                        Style="{StaticResource LinkButton}" Margin="12,0,0,0"/>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- Forgot password -->
-                        <StackPanel Visibility="{Binding IsForgotMode, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="{DynamicResource Auth.Email}" Style="{StaticResource FieldLabel}"/>
-                            <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
-                                     Style="{StaticResource FieldBox}"
-                                     AutomationProperties.AutomationId="ForgotEmail"/>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="{DynamicResource Auth.Forgot.Submit}" Command="{Binding ForgotCommand}"
-                                        Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                        MinHeight="38"/>
-                                <Button Content="{DynamicResource Auth.Back}" Command="{Binding BackToLoginCommand}"
-                                        Style="{StaticResource LinkButton}" Margin="12,0,0,0"/>
-                                <Button x:Name="RegisterLink" Content="{DynamicResource Auth.Register}" Command="{Binding ShowRegisterCommand}"
-                                        Style="{StaticResource LinkButton}" AutomationProperties.AutomationId="RegisterButton"/>
-                            </StackPanel>
-                        </StackPanel>
-
-                        <!-- Reset password -->
-                        <StackPanel Visibility="{Binding IsResetMode, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="{DynamicResource Auth.Code}" Style="{StaticResource FieldLabel}"/>
-                            <DockPanel Margin="0,0,0,14">
-                                <Button DockPanel.Dock="Right" Content="{Binding SendCodeLabel}" Command="{Binding SendCodeCommand}"
-                                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                        MinWidth="132" MinHeight="40" Margin="8,0,0,0"/>
-                                <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}"
-                                         Style="{StaticResource FieldBox}" Margin="0"
-                                         MaxLength="6" AutomationProperties.AutomationId="ResetCode"/>
-                            </DockPanel>
-                            <TextBlock Text="{DynamicResource Auth.NewPassword}" Style="{StaticResource FieldLabel}"/>
-                            <PasswordBox x:Name="ResetPassword" Style="{StaticResource FieldPassword}"
-                                         PasswordChanged="OnResetPasswordChanged"
-                                         AutomationProperties.AutomationId="ResetPassword"/>
-                            <TextBlock Text="{DynamicResource Auth.PasswordConfirm}" Style="{StaticResource FieldLabel}"/>
-                            <PasswordBox x:Name="ResetConfirm" Style="{StaticResource FieldPassword}"
-                                         PasswordChanged="OnResetConfirmChanged"
-                                         AutomationProperties.AutomationId="ResetConfirm"/>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="{DynamicResource Auth.Reset.Submit}" Command="{Binding ResetCommand}"
-                                        Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                        MinHeight="38"/>
-                                <Button Content="{DynamicResource Auth.Back}" Command="{Binding BackToLoginCommand}"
-                                        Style="{StaticResource LinkButton}" Margin="12,0,0,0"/>
-                            </StackPanel>
+                            <Button Content="{DynamicResource Auth.Server.Change}" Command="{Binding ToggleServerPanelCommand}"
+                                    Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                    HorizontalAlignment="Left" MinWidth="240" MinHeight="38" Margin="0,0,0,10"
+                                    AutomationProperties.AutomationId="ServerPanelButton"/>
+                            <Button Content="{DynamicResource Auth.Login.Offline}" Command="{Binding UseOfflineCommand}"
+                                    Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                    HorizontalAlignment="Left" MinWidth="240" MinHeight="38" Margin="0,0,0,10"
+                                    AutomationProperties.AutomationId="OfflineButton"/>
+                            <Button Content="{DynamicResource Auth.Login.Forgot}" Command="{Binding ShowForgotCommand}"
+                                    Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                    HorizontalAlignment="Left" MinWidth="240" MinHeight="38"
+                                    AutomationProperties.AutomationId="ForgotButton"/>
                         </StackPanel>
 
                         <!-- Device flow: browser or phone confirmation -->
@@ -256,8 +186,9 @@
                 </StackPanel>
             </Border>
 
-            <!-- Signed in -->
-            <StackPanel Visibility="{Binding IsSignedIn, Converter={StaticResource BoolVisibility}}">
+            </StackPanel>
+            <!-- Signed-in account details are not shown on the settings page. -->
+            <StackPanel Visibility="Collapsed">
                 <Border Style="{StaticResource Card}">
                     <DockPanel>
                         <Border DockPanel.Dock="Left" Width="48" Height="48" CornerRadius="24"

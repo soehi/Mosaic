@@ -9,7 +9,8 @@ public sealed record SettingsUiDependencies(
     ISettingsApi Api,
     IUiDispatcher Dispatcher,
     IUserDialogService Dialogs,
-    IDiagnosticSink Diagnostics);
+    IDiagnosticSink Diagnostics,
+    SettingsPageRegistry? Pages = null);
 
 public sealed class SettingsUiModule(SettingsUiDependencies dependencies) : IModuleActivation, IUiModule
 {

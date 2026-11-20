@@ -15,7 +15,8 @@ internal enum SettingsSection
     Storage,
     Text,
     DesktopPresence,
-    FloatingWindows
+    FloatingWindows,
+    AccountsAndBackup
 }
 
 internal sealed class SettingRow : ObservableObject
@@ -328,6 +329,8 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
 {
     private readonly ISettingsApi _settings;
     private readonly IUserDialogService _dialogs;
+    private readonly IReadOnlyList<SettingsPageContribution> _pages;
+    private readonly IReadOnlyDictionary<SettingsSection, SettingsPageContribution> _pagesBySection;
     private readonly Dictionary<string, SettingRow> _rows = [];
     private readonly CancellationTokenSource _lifetime = new();
     private ISettingsEditSession? _session;
@@ -343,20 +346,31 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     private string? _message;
     private TaskCompletionSource? _busyCompletion;
     private bool _isPreviewing;
+    private ViewPage? _selectedPageView;
+    private readonly Dictionary<string, ViewPage> _createdPages = [];
 
-    public SettingsViewModel(ISettingsApi settings, IUserDialogService dialogs)
+    public SettingsViewModel(ISettingsApi settings, IUserDialogService dialogs) : this(settings, dialogs, new SettingsPageRegistry()) { }
+
+    public SettingsViewModel(ISettingsApi settings, IUserDialogService dialogs, SettingsPageRegistry pages)
     {
         _settings = settings; _dialogs = dialogs;
+        _pages = pages.Pages;
+        _pagesBySection = _pages.ToDictionary(page => Enum.Parse<SettingsSection>(page.GroupId, ignoreCase: false));
+        if (pages.InitialGroupId is { } groupId) _selectedSection = Enum.Parse<SettingsSection>(groupId, ignoreCase: false);
         SaveCommand = new AsyncRelayCommand(() => SaveCoreAsync(), () => IsNotBusy && HasChanges);
         DiscardCommand = new AsyncRelayCommand(DiscardChangesAsync, () => IsNotBusy && (HasChanges || IsError));
         ResetSectionCommand = new AsyncRelayCommand(() => ResetCoreAsync(VisibleRows.ToArray()), () => IsNotBusy && HasVisibleRows);
         ResetAllCommand = new AsyncRelayCommand(() => ResetCoreAsync(_rows.Values.ToArray()), () => IsNotBusy && ShowAdvanced);
         ResetToDefaultCommand = new RelayCommand<SettingRow>(row => { if (row is not null) ResetRows([row]); }, row => IsNotBusy && row is not null);
-        SelectSectionCommand = new AsyncRelayCommand<SettingsSection>(section => { if (Sections.Contains(section)) SelectedSection = section; return Task.CompletedTask; }, _ => IsNotBusy);
+        SelectSectionCommand = new AsyncRelayCommand<SettingsSection>(SelectSectionAsync, _ => IsNotBusy);
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
     }
     public ObservableCollection<SettingsSection> Sections { get; } = [];
     public ObservableCollection<SettingRow> VisibleRows { get; } = [];
+    public SettingsPageContribution? SelectedPage => _pagesBySection.GetValueOrDefault(SelectedSection);
+    public ViewPage? SelectedPageView => _selectedPageView;
+    public bool HasSelectedPage => SelectedPageView is not null;
+    public bool HasSettingsSectionContent => SelectedPage is null;
     public SettingsSection SelectedSection
     {
         get => _selectedSection;
@@ -416,8 +430,67 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     public IAsyncRelayCommand<SettingsSection> SelectSectionCommand { get; }
     private static string Local(string key, string fallback) => SettingsLocalization.Localize(key, fallback);
 
+    private async Task SelectSectionAsync(SettingsSection section)
+    {
+        if (!Sections.Contains(section) || section == SelectedSection) return;
+        if (_selectedPageView is not null && !await _selectedPageView.Controller.CanLeaveAsync()) return;
+        if (_pagesBySection.ContainsKey(section) && _session is not null && !await CanLeaveAsync()) return;
+        SelectedSection = section;
+        if (SelectedPage is { } contribution)
+        {
+            if (_session is not null)
+            {
+                if (!await CanLeaveAsync()) return;
+                await _session.DisposeAsync();
+                _session = null;
+            }
+            await SelectPageAsync(contribution);
+        }
+        else
+        {
+            _selectedPageView = null;
+            OnPropertyChanged(nameof(SelectedPageView));
+            OnPropertyChanged(nameof(HasSelectedPage));
+            if (_session is null)
+            {
+                foreach (var row in _rows.Values) row.Changed -= RowChanged;
+                _rows.Clear();
+                await InitializeAsync();
+            }
+        }
+    }
+
+    private async Task SelectPageAsync(SettingsPageContribution contribution)
+    {
+        if (!_createdPages.TryGetValue(contribution.Id, out var page))
+        {
+            page = contribution.Factory.Create();
+            await page.Controller.InitializeAsync();
+            _createdPages.Add(contribution.Id, page);
+        }
+        _selectedPageView = page;
+        OnPropertyChanged(nameof(SelectedPageView));
+        OnPropertyChanged(nameof(HasSelectedPage));
+    }
+
     public async Task InitializeAsync()
     {
+        if (SelectedPage is { } contribution)
+        {
+            var definitions = await _settings.ListDefinitionsAsync(_lifetime.Token);
+            if (definitions.IsSuccess)
+            {
+                foreach (var definition in definitions.Value)
+                {
+                    var row = new SettingRow(definition, definition.DefaultValue);
+                    row.Changed += RowChanged;
+                    _rows[definition.Id] = row;
+                }
+            }
+            await SelectPageAsync(contribution);
+            RefreshSections();
+            return;
+        }
         if (_rows.Count != 0 || IsLoading || _disposed) return;
         IsLoading = true;
         try
@@ -569,19 +642,23 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         SettingsGroup.Text => SettingsSection.Text,
         SettingsGroup.DesktopPresence => SettingsSection.DesktopPresence,
         SettingsGroup.FloatingWindows => SettingsSection.FloatingWindows,
+        SettingsGroup.AccountsAndBackup => SettingsSection.AccountsAndBackup,
         _ => SettingsSection.Tasks
     };
     private void ApplySectionFilter()
     {
         VisibleRows.Clear();
         foreach (var row in _rows.Values.Where(row => (ShowAdvanced || !row.IsAdvanced) && SectionFor(row.Definition.Group) == SelectedSection).OrderBy(row => row.Id, StringComparer.Ordinal)) VisibleRows.Add(row);
+        OnPropertyChanged(nameof(SelectedPage));
+        OnPropertyChanged(nameof(HasSelectedPage));
+        OnPropertyChanged(nameof(HasSettingsSectionContent));
         NotifyState();
     }
     private void RefreshSections()
     {
         Sections.Clear();
         foreach (var section in Enum.GetValues<SettingsSection>())
-            if (_rows.Values.Any(row => SectionFor(row.Definition.Group) == section && (ShowAdvanced || !row.IsAdvanced))) Sections.Add(section);
+            if (_pagesBySection.ContainsKey(section) || _rows.Values.Any(row => SectionFor(row.Definition.Group) == section && (ShowAdvanced || !row.IsAdvanced))) Sections.Add(section);
         if (!Sections.Contains(SelectedSection) && Sections.Count > 0) SelectedSection = Sections[0];
     }
     private void RefreshDirty() { HasChanges = _rows.Values.Any(row => row.IsDirty); NotifyState(); }
@@ -629,6 +706,8 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
         foreach (var row in _rows.Values) row.Changed -= RowChanged;
         await _previewTask;
+        foreach (var page in _createdPages.Values) await page.Controller.DisposeAsync();
+        _createdPages.Clear();
         if (_session is not null) await _session.DisposeAsync();
         _lifetime.Dispose();
     }
@@ -676,6 +755,7 @@ internal sealed class SettingsSectionNameConverter : System.Windows.Data.IValueC
         SettingsSection.Text => SettingsLocalization.Localize("Settings.Section.Text", "文案"),
         SettingsSection.DesktopPresence => SettingsLocalization.Localize("Settings.Section.DesktopPresence", "驻留与边缘"),
         SettingsSection.FloatingWindows => SettingsLocalization.Localize("Settings.Section.FloatingWindows", "悬浮任务窗"),
+        SettingsSection.AccountsAndBackup => SettingsLocalization.Localize("Settings.Section.AccountsAndBackup", "账户与备份"),
         _ => string.Empty
     };
 

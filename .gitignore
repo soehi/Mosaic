@@ -2,6 +2,7 @@
 **/obj/
 artifacts/
 server/data/
+tmp/
 **/master.key
 TestResults/
 .vs/

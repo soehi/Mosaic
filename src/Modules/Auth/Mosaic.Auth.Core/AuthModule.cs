@@ -34,12 +34,15 @@ public sealed class AuthModule : IModuleActivation
     public static ModuleManifest Definition { get; } = new(
         "auth-core",
         [new("auth.api", 1)],
-        [new("auth.transport", 1), new("auth.secrets", 1), new("settings.api", 1)],
+        [new("auth.transport", 1), new("auth.secrets", 1), new("settings.api", 1), new("startup.installation-state", 1), new("settings.repository", 1)],
         "Owns account session state, credential lifecycle and the account settings source.");
 
     public ModuleManifest Manifest => Definition;
 
     public IAuthApi Api => _api;
+
+    public static SettingInitialization InitialAccountChoice(bool existingInstallation) =>
+        new("auth.account-choice-v1", AuthSettingsSource.AccountChoiceMade, existingInstallation);
 
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {

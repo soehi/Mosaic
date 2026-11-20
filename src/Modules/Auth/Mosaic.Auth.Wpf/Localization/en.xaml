@@ -17,42 +17,16 @@
     <sys:String x:Key="Auth.Server.Save">Save server</sys:String>
     <sys:String x:Key="Auth.Server.Cancel">Cancel</sys:String>
     <sys:String x:Key="Auth.Server.Saved">Server address saved.</sys:String>
-    <sys:String x:Key="Auth.Status.SignedOut">Not signed in</sys:String>
-    <sys:String x:Key="Auth.Status.Offline">Offline</sys:String>
-    <sys:String x:Key="Auth.Status.Tooltip">{0} · Open the account page</sys:String>
-    <sys:String x:Key="Auth.Status.Tooltip.SignedOut">Offline: not signed in · Open the account page</sys:String>
-    <sys:String x:Key="Auth.Status.SignOut">Sign out</sys:String>
-    <sys:String x:Key="Auth.Status.SignOut.Tooltip">Sign out and choose the account option again</sys:String>
 
-    <sys:String x:Key="Auth.Email">Email</sys:String>
-    <sys:String x:Key="Auth.Password">Password</sys:String>
-    <sys:String x:Key="Auth.PasswordConfirm">Confirm password</sys:String>
-    <sys:String x:Key="Auth.NewPassword">New password</sys:String>
-    <sys:String x:Key="Auth.Code">Email code</sys:String>
     <sys:String x:Key="Auth.Code.Send">Send code</sys:String>
     <sys:String x:Key="Auth.Code.Resend">Resend ({0}s)</sys:String>
     <sys:String x:Key="Auth.Code.Sent">Code sent. Check your inbox.</sys:String>
 
-    <sys:String x:Key="Auth.Login">Sign in</sys:String>
     <sys:String x:Key="Auth.Login.Success">Signed in.</sys:String>
     <sys:String x:Key="Auth.Login.Browser">Sign in with a browser</sys:String>
     <sys:String x:Key="Auth.Login.Offline">Stay offline without a server</sys:String>
     <sys:String x:Key="Auth.Login.Forgot">Forgot password</sys:String>
-
-    <sys:String x:Key="Auth.Register">Create an account</sys:String>
-    <sys:String x:Key="Auth.Register.Title">Create an account</sys:String>
-    <sys:String x:Key="Auth.Register.Description">Register with an email code; you are signed in when it completes.</sys:String>
-    <sys:String x:Key="Auth.Register.Submit">Register and sign in</sys:String>
-    <sys:String x:Key="Auth.Register.Success">Account created and signed in.</sys:String>
-    <sys:String x:Key="Auth.Back">Back to sign in</sys:String>
-
-    <sys:String x:Key="Auth.Forgot.Title">Reset your password</sys:String>
-    <sys:String x:Key="Auth.Forgot.Description">Enter your email and we will send a 6-digit code to reset the password.</sys:String>
-    <sys:String x:Key="Auth.Forgot.Submit">Send reset code</sys:String>
-    <sys:String x:Key="Auth.Reset.Title">Set a new password</sys:String>
-    <sys:String x:Key="Auth.Reset.Description">Enter the code you received and choose a new password.</sys:String>
-    <sys:String x:Key="Auth.Reset.Submit">Reset password</sys:String>
-    <sys:String x:Key="Auth.Reset.Success">Password reset. Sign in with the new password.</sys:String>
+    <sys:String x:Key="Auth.Forgot.Opened">Password recovery is open in your browser. Follow the steps there.</sys:String>
 
     <sys:String x:Key="Auth.Device.Title">Sign in with a browser</sys:String>
     <sys:String x:Key="Auth.Device.Description">Open the address below in a browser or on your phone and enter the code to confirm.</sys:String>
@@ -124,7 +98,6 @@
     <sys:String x:Key="Auth.Validation.Email">Enter a valid email address.</sys:String>
     <sys:String x:Key="Auth.Validation.Password">Passwords must be 10–256 characters.</sys:String>
     <sys:String x:Key="Auth.Validation.Code">Enter the 6-digit code.</sys:String>
-    <sys:String x:Key="Auth.Validation.Confirm">The passwords do not match.</sys:String>
 
     <sys:String x:Key="Auth.Error.Unknown">The action did not complete. Try again shortly.</sys:String>
     <sys:String x:Key="Auth.Error.ServerRequired">Enter a server address first.</sys:String>

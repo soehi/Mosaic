@@ -18,7 +18,10 @@ internal sealed class AuthSettingsSource(AuthService service) : ISettingSource
         new(ServerUrl, "auth-core", "账号服务器地址", "用于登录与备份的自建服务器地址，默认 https://mosaic.bansonic.top；留空表示不连接服务器。",
             SettingValueKind.String, "", null, null, null, SettingsGroup.StorageSystem, SettingCategory.Normal,
             SettingApplyMode.Immediate, SettingPersistence.UserSettings,
-            DisplayNameKey: "Settings.Setting.AuthServer", DescriptionKey: "Settings.Setting.AuthServer.Description")
+            DisplayNameKey: "Settings.Setting.AuthServer", DescriptionKey: "Settings.Setting.AuthServer.Description"),
+        new(AccountChoiceMade, "auth-core", "账户选择已完成", "记录首次启动时的账户选择。",
+            SettingValueKind.Boolean, false, null, null, null, SettingsGroup.AccountsAndBackup, SettingCategory.Advanced,
+            SettingApplyMode.Immediate, SettingPersistence.UserSettings)
     ];
 
     public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>

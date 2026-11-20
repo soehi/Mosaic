@@ -40,6 +40,8 @@ internal sealed class ModuleRuntimeContext(
     internal IUiDispatcher Dispatcher { get; } = dispatcher;
     internal IUserDialogService Dialogs { get; } = dialogs;
     internal List<ISettingSource> DeferredSettingSources { get; } = [];
+    internal bool ConfigurationExisted { get; init; } = true;
+    internal SettingsPageRegistry SettingsPages { get; } = new();
     internal SqliteModule? Storage { get; set; }
     internal TasksSqliteModule? Repository { get; set; }
     internal TasksModule? Tasks { get; set; }
@@ -75,7 +77,8 @@ internal static class BuiltInModuleCatalog
                 StorageIntSetting(context.HostSettings, "storage.busyTimeoutSeconds"),
                 StorageIntSetting(context.HostSettings, "storage.backupRetention"),
                 context.HostSettings?.GetValue("storage.journalMode") as string == "Wal" ? SqliteJournalMode.Wal : SqliteJournalMode.Delete,
-                context.HostSettings?.GetValue("storage.connectionMode") as string == "PooledPerOperation" ? SqliteConnectionMode.PooledPerOperation : SqliteConnectionMode.ReusedSingle),
+                context.HostSettings?.GetValue("storage.connectionMode") as string == "PooledPerOperation" ? SqliteConnectionMode.PooledPerOperation : SqliteConnectionMode.ReusedSingle,
+                context.ConfigurationExisted),
                 context.Diagnostics);
             context.DeferredSettingSources.Add(context.Storage.Settings);
             return context.Storage;
@@ -163,7 +166,8 @@ internal static class BuiltInModuleCatalog
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings API was not assembled before settings UI."),
                 context.Dispatcher,
                 context.Dialogs,
-                context.Diagnostics));
+                context.Diagnostics,
+                context.SettingsPages));
         }),
         [HttpAuthModule.Definition.Id] = new(HttpAuthModule.Definition, context =>
         {
@@ -210,7 +214,8 @@ internal static class BuiltInModuleCatalog
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings API was not assembled before account UI."),
                 context.Dispatcher,
                 context.Dialogs,
-                context.Diagnostics));
+                context.Diagnostics,
+                context.SettingsPages));
         })
     };
 

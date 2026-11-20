@@ -17,42 +17,16 @@
     <sys:String x:Key="Auth.Server.Save">保存服务器</sys:String>
     <sys:String x:Key="Auth.Server.Cancel">取消</sys:String>
     <sys:String x:Key="Auth.Server.Saved">服务器地址已保存。</sys:String>
-    <sys:String x:Key="Auth.Status.SignedOut">未登录</sys:String>
-    <sys:String x:Key="Auth.Status.Offline">离线</sys:String>
-    <sys:String x:Key="Auth.Status.Tooltip">{0}，点击进入账户页</sys:String>
-    <sys:String x:Key="Auth.Status.Tooltip.SignedOut">离线：未登录，点击进入账户页</sys:String>
-    <sys:String x:Key="Auth.Status.SignOut">退出登录</sys:String>
-    <sys:String x:Key="Auth.Status.SignOut.Tooltip">退出登录并重新选择账号方式</sys:String>
 
-    <sys:String x:Key="Auth.Email">邮箱</sys:String>
-    <sys:String x:Key="Auth.Password">密码</sys:String>
-    <sys:String x:Key="Auth.PasswordConfirm">确认密码</sys:String>
-    <sys:String x:Key="Auth.NewPassword">新密码</sys:String>
-    <sys:String x:Key="Auth.Code">邮箱验证码</sys:String>
     <sys:String x:Key="Auth.Code.Send">发送验证码</sys:String>
     <sys:String x:Key="Auth.Code.Resend">重新发送（{0} 秒）</sys:String>
     <sys:String x:Key="Auth.Code.Sent">验证码已发送，请查收邮箱。</sys:String>
 
-    <sys:String x:Key="Auth.Login">登录</sys:String>
     <sys:String x:Key="Auth.Login.Success">登录成功。</sys:String>
     <sys:String x:Key="Auth.Login.Browser">在浏览器中登录</sys:String>
     <sys:String x:Key="Auth.Login.Offline">不连接服务器，离线使用</sys:String>
     <sys:String x:Key="Auth.Login.Forgot">忘记密码</sys:String>
-
-    <sys:String x:Key="Auth.Register">注册账户</sys:String>
-    <sys:String x:Key="Auth.Register.Title">注册账户</sys:String>
-    <sys:String x:Key="Auth.Register.Description">使用邮箱验证码注册；完成后会自动登录。</sys:String>
-    <sys:String x:Key="Auth.Register.Submit">注册并登录</sys:String>
-    <sys:String x:Key="Auth.Register.Success">注册成功，已登录。</sys:String>
-    <sys:String x:Key="Auth.Back">返回登录</sys:String>
-
-    <sys:String x:Key="Auth.Forgot.Title">找回密码</sys:String>
-    <sys:String x:Key="Auth.Forgot.Description">输入注册邮箱，我们会发送 6 位验证码用于重置密码。</sys:String>
-    <sys:String x:Key="Auth.Forgot.Submit">发送重置验证码</sys:String>
-    <sys:String x:Key="Auth.Reset.Title">重置密码</sys:String>
-    <sys:String x:Key="Auth.Reset.Description">输入收到的验证码并设置新密码。</sys:String>
-    <sys:String x:Key="Auth.Reset.Submit">重置密码</sys:String>
-    <sys:String x:Key="Auth.Reset.Success">密码已重置，请使用新密码登录。</sys:String>
+    <sys:String x:Key="Auth.Forgot.Opened">已在浏览器中打开密码找回页面，请按页面提示操作。</sys:String>
 
     <sys:String x:Key="Auth.Device.Title">在浏览器中登录</sys:String>
     <sys:String x:Key="Auth.Device.Description">在浏览器或手机上打开下面的地址，输入授权码完成确认。</sys:String>
@@ -97,7 +71,6 @@
     <sys:String x:Key="Auth.Validation.Email">请输入有效的邮箱地址。</sys:String>
     <sys:String x:Key="Auth.Validation.Password">密码需为 10–256 个字符。</sys:String>
     <sys:String x:Key="Auth.Validation.Code">请输入 6 位数字验证码。</sys:String>
-    <sys:String x:Key="Auth.Validation.Confirm">两次输入的密码不一致。</sys:String>
 
     <sys:String x:Key="Auth.Error.Unknown">操作未完成，请稍后再试。</sys:String>
     <sys:String x:Key="Auth.Error.ServerRequired">请先填写服务器地址。</sys:String>

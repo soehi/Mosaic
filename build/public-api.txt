@@ -25,6 +25,7 @@ Mosaic.Auth.Wpf.AuthUiModule
 Mosaic.Auth.Wpf.Views.AccountView
 Mosaic.Contracts.CapabilityId
 Mosaic.Contracts.ErrorCodes
+Mosaic.Contracts.ICapabilityProvider
 Mosaic.Contracts.IDiagnosticSink
 Mosaic.Contracts.IIdGenerator
 Mosaic.Contracts.IModuleActivation
@@ -75,12 +76,15 @@ Mosaic.Presentation.Contracts.IFloatingContentSession
 Mosaic.Presentation.Contracts.IFloatingDetachSource
 Mosaic.Presentation.Contracts.INavigationGuard
 Mosaic.Presentation.Contracts.IPageController
+Mosaic.Presentation.Contracts.ISettingsPageModule
 Mosaic.Presentation.Contracts.IStatusContribution
 Mosaic.Presentation.Contracts.IUiDispatcher
 Mosaic.Presentation.Contracts.IUiModule
 Mosaic.Presentation.Contracts.IUserDialogService
 Mosaic.Presentation.Contracts.IViewFactory
 Mosaic.Presentation.Contracts.NavigationItem
+Mosaic.Presentation.Contracts.SettingsPageContribution
+Mosaic.Presentation.Contracts.SettingsPageRegistry
 Mosaic.Presentation.Contracts.UnsavedChoice
 Mosaic.Presentation.Contracts.ViewContribution
 Mosaic.Presentation.Contracts.ViewPage
@@ -112,6 +116,7 @@ Mosaic.Settings.Contracts.SettingApplyMode
 Mosaic.Settings.Contracts.SettingCategory
 Mosaic.Settings.Contracts.SettingDefinition
 Mosaic.Settings.Contracts.SettingFormatError
+Mosaic.Settings.Contracts.SettingInitialization
 Mosaic.Settings.Contracts.SettingOption
 Mosaic.Settings.Contracts.SettingPersistence
 Mosaic.Settings.Contracts.SettingPreviewMode
@@ -137,6 +142,8 @@ Mosaic.Shell.Wpf.ShellWindow
 Mosaic.Shell.Wpf.UiDispatcher
 Mosaic.Shell.Wpf.UserDialogService
 Mosaic.Storage.Contracts.IDatabaseSession
+Mosaic.Storage.Contracts.IInstallationState
+Mosaic.Storage.Contracts.InstallationKind
 Mosaic.Storage.Contracts.ITransactionSession
 Mosaic.Storage.Contracts.MigrationDefinition
 Mosaic.Storage.Contracts.SqlRow

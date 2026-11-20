@@ -5,7 +5,7 @@ namespace Mosaic.Settings.Contracts;
 
 public enum SettingValueKind { Boolean, Integer, Double, Enum, String, ModuleList, ProviderMap }
 public enum SettingCategory { Normal, Advanced }
-public enum SettingsGroup { Tasks, Appearance, StorageSystem, Text, DesktopPresence, FloatingWindows }
+public enum SettingsGroup { Tasks, Appearance, StorageSystem, Text, DesktopPresence, FloatingWindows, AccountsAndBackup }
 public enum SettingApplyMode { Immediate, Restart }
 public enum SettingPersistence { UserSettings, HostConfig }
 public enum SettingPreviewMode { None, Reversible }
@@ -325,9 +325,13 @@ public interface ISettingsCore : ISettingsApi
     Task<OperationResult> PrepareSourceStopAsync(string moduleId, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult.Success());
 }
 
+public sealed record SettingInitialization(string MigrationId, string SettingId, object? Value);
+
 public interface ISettingRepository
 {
     Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default);
     Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default);
     Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
+    Task<OperationResult> InitializeAsync(SettingInitialization initialization, CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult.Failure(new(ErrorCodes.CapabilityUnavailable, "设置初始化不可用。")));
 }

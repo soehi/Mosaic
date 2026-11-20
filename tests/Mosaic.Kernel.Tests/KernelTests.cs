@@ -70,6 +70,55 @@ public sealed class KernelTests
         Assert.Contains("does not match", error.Message);
         Assert.Equal(new[] { "dispose b" }, calls);
     }
+    [Fact]
+    public async Task Resolver_uses_active_bound_provider_and_rejects_invalid_bindings()
+    {
+        var capability = new CapabilityId("sample", 1);
+        var manifest = new ModuleManifest("provider", [capability], []);
+        var exported = new object();
+        var runtime = new ModuleRuntime();
+        await runtime.StartAsync([manifest], _ => new ExportModule(manifest, exported));
+        var bindings = new Dictionary<string, string> { ["sample@1"] = "provider" };
+        Assert.Same(exported, runtime.Resolve<object>(capability, bindings));
+        Assert.Throws<InvalidOperationException>(() => runtime.Resolve<string>(capability, bindings));
+        Assert.Throws<InvalidOperationException>(() => runtime.Resolve<object>(capability, new Dictionary<string, string>()));
+        Assert.Throws<InvalidOperationException>(() => runtime.Resolve<object>(capability, new Dictionary<string, string> { ["sample@1"] = "other" }));
+        await runtime.StopAsync();
+        Assert.Throws<InvalidOperationException>(() => runtime.Resolve<object>(capability, bindings));
+    }
+
+    [Fact]
+    public async Task Failed_consumer_activation_revokes_previously_activated_provider()
+    {
+        var capability = new CapabilityId("sample", 1);
+        var provider = new ModuleManifest("provider", [capability], []);
+        var consumer = new ModuleManifest("b", [], [capability]);
+        var binding = new Dictionary<string, string> { ["sample@1"] = "provider" };
+        var exported = new object();
+        var calls = new List<string>();
+        await using var runtime = new ModuleRuntime();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.StartAsync(
+            [provider, consumer],
+            manifest => manifest.Id == "provider" ? new ExportModule(manifest, exported) : new FakeModule(manifest, calls),
+            CancellationToken.None,
+            (module, _) =>
+            {
+                if (module.Manifest.Id == "b") Assert.Same(exported, runtime.Resolve<object>(capability, binding));
+                return Task.CompletedTask;
+            }));
+        Assert.Throws<InvalidOperationException>(() => runtime.Resolve<object>(capability, binding));
+        Assert.Contains("dispose b", calls);
+    }
+
+    private sealed class ExportModule(ModuleManifest manifest, object exported) : IModuleActivation, ICapabilityProvider
+    {
+        public ModuleManifest Manifest => manifest;
+        public object? GetCapability(CapabilityId capability) => manifest.Provides.Contains(capability) ? exported : null;
+        public Task ActivateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     private sealed class FakeModule(ModuleManifest manifest, List<string> calls) : IModuleActivation
     {
         public ModuleManifest Manifest => manifest;

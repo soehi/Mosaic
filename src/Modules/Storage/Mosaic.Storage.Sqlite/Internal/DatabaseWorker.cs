@@ -5,7 +5,7 @@ using Mosaic.Storage.Contracts;
 
 namespace Mosaic.Storage.Sqlite.Internal;
 
-internal sealed class DatabaseWorker : IDatabaseSession, IAsyncDisposable
+internal sealed class DatabaseWorker : IDatabaseSession, IInstallationState, IAsyncDisposable
 {
     private readonly SqliteOptions _options;
     private readonly IDiagnosticSink _diagnostics;
@@ -32,8 +32,22 @@ internal sealed class DatabaseWorker : IDatabaseSession, IAsyncDisposable
         _threadId = Environment.CurrentManagedThreadId;
         try
         {
+            var databaseExisted = File.Exists(_options.DatabasePath);
             Directory.CreateDirectory(Path.GetDirectoryName(_options.DatabasePath)!);
             using var connection = OpenConnection();
+            using (var transaction = connection.BeginTransaction())
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    CREATE TABLE IF NOT EXISTS mosaic_startup_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                    INSERT OR IGNORE INTO mosaic_startup_metadata(key, value)
+                    VALUES ('installation-classification-v1', $classification);
+                    """;
+                command.Parameters.AddWithValue("$classification", !_options.ConfigurationExisted && !databaseExisted ? "fresh" : "legacy");
+                command.ExecuteNonQuery();
+                transaction.Commit();
+            }
             _ready.TrySetResult();
             // Blocking waits are confined to this dedicated database thread, never the UI.
             if (_options.ConnectionMode == SqliteConnectionMode.PooledPerOperation)
@@ -114,6 +128,19 @@ internal sealed class DatabaseWorker : IDatabaseSession, IAsyncDisposable
         catch (ChannelClosedException) { return OperationResult<T>.Failure(new(ErrorCodes.CapabilityUnavailable, "存储不可用。")); }
         return await result.Task.ConfigureAwait(false);
     }
+
+    public Task<OperationResult<InstallationKind>> GetInstallationKindAsync(CancellationToken cancellationToken = default) =>
+        Enqueue(connection =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT value FROM mosaic_startup_metadata WHERE key='installation-classification-v1'";
+            return (command.ExecuteScalar() as string) switch
+            {
+                "fresh" => InstallationKind.Fresh,
+                "legacy" => InstallationKind.Legacy,
+                _ => throw new InvalidOperationException("Startup installation classification is unavailable.")
+            };
+        }, cancellationToken);
 
     public Task<OperationResult<int>> ExecuteAsync(SqlStatement statement, CancellationToken cancellationToken = default) =>
         Enqueue(c => { using var s = new SqliteSession(c, null); return s.Execute(statement); }, cancellationToken);

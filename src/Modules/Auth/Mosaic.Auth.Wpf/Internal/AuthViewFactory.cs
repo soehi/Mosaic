@@ -13,7 +13,8 @@ internal sealed class AuthViewFactory(AuthUiDependencies dependencies) : IViewFa
             dependencies.Settings,
             dependencies.Dialogs,
             dependencies.Dispatcher,
-            dependencies.Diagnostics);
+            dependencies.Diagnostics,
+            settingsPages: dependencies.SettingsPages);
         view.DataContext = model;
         return new ViewPage(view, model);
     }

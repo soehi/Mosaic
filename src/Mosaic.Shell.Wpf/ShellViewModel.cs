@@ -22,6 +22,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private string? _currentNavigationLabelKey;
     private IDisposable? _localizationRegistration;
     private Mosaic.Settings.Contracts.ISettingsApi? _settings;
+    private readonly SettingsPageRegistry? _settingsPages;
+    private bool _firstChoiceActive;
     private readonly ObservableCollection<NavigationItem> _navigationItems = [];
     private readonly ObservableCollection<IStatusContribution> _statusItems = [];
     // Contributions that opt into the sidebar's bottom area; the same items stay in the
@@ -30,9 +32,15 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly ObservableCollection<IStatusContribution> _sidebarStatusItems = [];
     private readonly Dictionary<IStatusContribution, EventHandler> _statusActionHandlers = new(ReferenceEqualityComparer.Instance);
     internal IReadOnlyDictionary<string, object?>? InitialValues { get; private set; }
-    internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings)
+    internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings, SettingsPageRegistry? settingsPages = null)
     {
         _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs;
+        _settingsPages = settingsPages;
+        if (_settingsPages is not null)
+        {
+            _settingsPages.InitialChoiceCompleted += OnInitialChoiceCompleted;
+            _settingsPages.StartPageRequested += OnStartPageRequested;
+        }
         NavigateCommand = new AsyncRelayCommand<NavigationItem>(NavigateAsync);
         NavigateToViewCommand = new AsyncRelayCommand<string?>(NavigateToViewAsync);
         StatusActionCommand = new RelayCommand<IStatusContribution>(item => item?.RequestAction());
@@ -70,20 +78,16 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
                 await ShellSettingsApplier.ApplyAsync(current);
             }
         }
-        if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
-
-        // First run: the account module owns the auth.accountChoiceMade flag; the shell only
-        // reads it. With no choice made and no server configured, the account page opens so the
-        // user can pick how to start. The view id is looked up in the registry — the account
-        // page is no longer a navigation entry, so navigation items are not consulted.
-        if (_settings is { } settings2 &&
-            _registry.Find("account.home") is not null &&
-            InitialValues is { } initial &&
-            !IsAccountChoiceMade(initial) &&
-            string.IsNullOrWhiteSpace(ReadString(initial, "auth.serverUrl")))
+        if (_settingsPages is not null && InitialValues is { } initial && !IsAccountChoiceMade(initial) &&
+            _settingsPages.Pages.FirstOrDefault() is { } firstPage && _registry.Find("settings.home") is not null)
         {
-            await NavigateToViewAsync("account.home");
+            _firstChoiceActive = true;
+            _settingsPages.IsInitialChoiceActive = true;
+            _settingsPages.InitialGroupId = firstPage.GroupId;
+            await NavigateToViewAsync("settings.home");
+            _settingsPages.InitialGroupId = null;
         }
+        else if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
     }
     internal static bool IsAccountChoiceMade(IReadOnlyDictionary<string, object?> values) =>
         values.TryGetValue("auth.accountChoiceMade", out var raw) && raw is true;
@@ -167,8 +171,23 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         if (NavigateCommand.ExecutionTask is { IsCompleted: false } pending) await pending;
         return _navigation.Current is null || await _navigation.Current.Controller.CanLeaveAsync();
     }
+    private void OnStartPageRequested(object? sender, EventArgs e) => _firstChoiceActive = true;
+
+    private async void OnInitialChoiceCompleted(object? sender, EventArgs e)
+    {
+        if (!_firstChoiceActive) return;
+        _firstChoiceActive = false;
+        if (_settingsPages is not null) _settingsPages.IsInitialChoiceActive = false;
+        if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        if (_settingsPages is not null)
+        {
+            _settingsPages.InitialChoiceCompleted -= OnInitialChoiceCompleted;
+            _settingsPages.StartPageRequested -= OnStartPageRequested;
+        }
         _registry.Changed -= OnContributionsChanged;
         MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
         foreach (var (item, handler) in _statusActionHandlers)

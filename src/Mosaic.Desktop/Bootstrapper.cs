@@ -26,8 +26,9 @@ internal sealed class Bootstrapper : IAsyncDisposable
         _runtime.ModuleStarted += OnModuleStarted;
         _runtime.ModuleStopping += OnModuleStopping;
     }
-    internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs, IDesktopWindowHost windowHost)
+    internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs, IDesktopWindowHost windowHost, bool? configurationExistedAtStartup = null)
     {
+        var configurationExisted = configurationExistedAtStartup ?? File.Exists(paths.ConfigPath);
         var configuration = AppConfiguration.Load(paths);
         var hostSettings = new HostSettingSource(paths, configuration);
         var storage = new StorageConfiguration(
@@ -67,11 +68,22 @@ internal sealed class Bootstrapper : IAsyncDisposable
             dialogs)
         {
             HostSettings = hostSettings,
+            ConfigurationExisted = configurationExisted,
             WindowHost = windowHost
         };
         try
         {
-            await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest));
+            await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest), CancellationToken.None, async (module, token) =>
+            {
+                if (module is not Mosaic.Auth.Core.AuthModule) return;
+                var installationState = _runtime.Resolve<Mosaic.Storage.Contracts.IInstallationState>(new("startup.installation-state", 1), configuredProviders);
+                var classification = await installationState.GetInstallationKindAsync(token);
+                if (!classification.IsSuccess) throw new InvalidOperationException("Cannot determine installation state: " + classification.Error?.Message);
+                var repository = _runtime.Resolve<ISettingRepository>(new("settings.repository", 1), configuredProviders);
+                var initialization = Mosaic.Auth.Core.AuthModule.InitialAccountChoice(classification.Value == Mosaic.Storage.Contracts.InstallationKind.Legacy);
+                var initialized = await repository.InitializeAsync(initialization, token);
+                if (!initialized.IsSuccess) throw new InvalidOperationException("Settings initialization failed: " + initialized.Error?.Message);
+            });
             Presence = context.Presence;
             Floating=context.Floating;
             if (context.ReleaseSummary is { } summary) await summary.RequestStartupReadyAsync();
@@ -79,7 +91,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
             var settingsApi = context.Settings?.Api;
             _settingsCore = settingsApi;
             _shellSettingsRegistration = settingsApi?.Register(new ShellSettingSource());
-            return new ShellWindow(_contributions, dialogs, settingsApi);
+            return new ShellWindow(_contributions, dialogs, settingsApi, context.SettingsPages);
         }
         catch (Exception)
         {

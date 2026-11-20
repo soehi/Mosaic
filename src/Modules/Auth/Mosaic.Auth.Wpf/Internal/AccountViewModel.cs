@@ -15,18 +15,15 @@ namespace Mosaic.Auth.Wpf.Internal;
 internal enum AccountMode
 {
     Login,
-    Register,
-    Forgot,
-    Reset,
     Device
 }
 
 /// <summary>
-/// Drives the account page: optional sign-in, email-code registration, browser (device flow)
-/// sign-in, password reset and explicit backup upload/restore. Nothing here runs at startup unless
-/// the page is opened, and no state-changing action contacts the network before the user acts.
-/// The signed-out login mode is the account-choice screen: browser sign-in, the existing
-/// email+password form, offline use, or connecting a self-hosted server.
+/// Drives the account page: browser (device flow) sign-in, server selection, offline use,
+/// browser-based password recovery and explicit backup upload/restore. Registration, the
+/// email+password form and password reset live entirely in the browser; the desktop offers
+/// exactly four entries. Nothing here runs at startup unless the page is opened, and no
+/// state-changing action contacts the network before the user acts.
 /// </summary>
 internal sealed class AccountViewModel : ObservableObject, IPageController
 {
@@ -42,6 +39,18 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private readonly IDiagnosticSink _diagnostics;
     private readonly Action<Uri> _openUri;
     private readonly Action<string> _copyText;
+    private readonly SettingsPageRegistry? _settingsPages;
+    private bool _showStartPage;
+
+    public bool ShowStartPage
+    {
+        get => _showStartPage;
+        private set
+        {
+            if (SetProperty(ref _showStartPage, value)) OnPropertyChanged(nameof(ShowAccountSettings));
+        }
+    }
+    public bool ShowAccountSettings => !ShowStartPage;
     private readonly CancellationTokenSource _lifetime = new();
 
     private CancellationTokenSource? _devicePolling;
@@ -53,12 +62,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private bool _offlineChosen;
     private bool _disposed;
     private string? _message;
-    private string _email = "";
-    private string _password = "";
-    private string _code = "";
-    private string _confirmPassword = "";
-    private string _newPassword = "";
-    private string _confirmNewPassword = "";
     private string _serverInput = "";
     private string _deviceCode = "";
     private string _deviceUri = "";
@@ -87,7 +90,8 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         IUiDispatcher dispatcher,
         IDiagnosticSink diagnostics,
         Action<Uri>? openUri = null,
-        Action<string>? copyText = null)
+        Action<string>? copyText = null,
+        SettingsPageRegistry? settingsPages = null)
     {
         _auth = auth ?? throw new ArgumentNullException(nameof(auth));
         _sync = sync ?? throw new ArgumentNullException(nameof(sync));
@@ -97,13 +101,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         _openUri = openUri ?? DefaultOpenUri;
         _copyText = copyText ?? DefaultCopy;
+        _settingsPages = settingsPages;
+        ShowStartPage = settingsPages?.IsInitialChoiceActive == true;
         Sessions = new(_sessions);
 
-        LoginCommand = Async(LoginAsync);
-        RegisterCommand = Async(RegisterAsync);
-        SendCodeCommand = Async(SendCodeAsync, () => CooldownSeconds == 0);
-        ForgotCommand = Async(ForgotAsync);
-        ResetCommand = Async(ResetAsync);
         StartDeviceCommand = Async(StartDeviceAsync);
         CancelDeviceCommand = Async(CancelDeviceAsync);
         SaveServerCommand = Async(SaveServerAsync);
@@ -113,9 +114,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         RefreshLatestCommand = Async(RefreshLatestAsync, () => _auth.State.Status == AuthStatus.SignedIn);
         CopyDeviceCodeCommand = new RelayCommand(CopyDeviceCode, () => DeviceCode.Length > 0);
         OpenDeviceUriCommand = new RelayCommand(OpenDeviceUri, () => _deviceVerificationUri is not null);
-        ShowRegisterCommand = new RelayCommand(() => SetMode(AccountMode.Register));
-        ShowForgotCommand = new RelayCommand(() => SetMode(AccountMode.Forgot));
-        BackToLoginCommand = new RelayCommand(() => SetMode(AccountMode.Login));
+        ShowForgotCommand = new RelayCommand(OpenForgotPage);
         UseOfflineCommand = new RelayCommand(UseOffline);
         ConnectCommand = new RelayCommand(Connect);
         ToggleServerPanelCommand = new RelayCommand(() => ShowServerPanel = !ShowServerPanel);
@@ -133,13 +132,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _serverInput = DefaultServerInput;
     }
 
-    public event EventHandler? PasswordsCleared;
-
-    public IAsyncRelayCommand LoginCommand { get; }
-    public IAsyncRelayCommand RegisterCommand { get; }
-    public IAsyncRelayCommand SendCodeCommand { get; }
-    public IAsyncRelayCommand ForgotCommand { get; }
-    public IAsyncRelayCommand ResetCommand { get; }
     public IAsyncRelayCommand StartDeviceCommand { get; }
     public IAsyncRelayCommand CancelDeviceCommand { get; }
     public IAsyncRelayCommand SaveServerCommand { get; }
@@ -149,9 +141,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand RefreshLatestCommand { get; }
     public IRelayCommand CopyDeviceCodeCommand { get; }
     public IRelayCommand OpenDeviceUriCommand { get; }
-    public IRelayCommand ShowRegisterCommand { get; }
     public IRelayCommand ShowForgotCommand { get; }
-    public IRelayCommand BackToLoginCommand { get; }
     public IRelayCommand UseOfflineCommand { get; }
     public IRelayCommand ConnectCommand { get; }
     public IRelayCommand ToggleServerPanelCommand { get; }
@@ -170,11 +160,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         {
             if (!SetProperty(ref _mode, value)) return;
             OnPropertyChanged(nameof(IsLoginMode));
-            OnPropertyChanged(nameof(IsRegisterMode));
-            OnPropertyChanged(nameof(IsForgotMode));
-            OnPropertyChanged(nameof(IsResetMode));
             OnPropertyChanged(nameof(IsDeviceMode));
-            OnPropertyChanged(nameof(IsFormMode));
             OnPropertyChanged(nameof(ModeTitle));
             OnPropertyChanged(nameof(ModeDescription));
             NotifyCommands();
@@ -182,14 +168,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     }
 
     public bool IsLoginMode => Mode == AccountMode.Login;
-    public bool IsRegisterMode => Mode == AccountMode.Register;
-    public bool IsForgotMode => Mode == AccountMode.Forgot;
-    public bool IsResetMode => Mode == AccountMode.Reset;
     public bool IsDeviceMode => Mode == AccountMode.Device;
-    public bool IsFormMode => Mode != AccountMode.Device;
 
-    /// <summary>The signed-out login mode is the account-choice screen: browser sign-in, the
-    /// existing email+password form, offline use or a self-hosted server.</summary>
+    /// <summary>The signed-out login mode is the account-choice screen: browser sign-in,
+    /// a self-hosted server, offline use or browser-based password recovery.</summary>
     public bool ShowAccountChoice => IsSignedOut && !_offlineChosen && Mode == AccountMode.Login;
 
     /// <summary>Form fields stay disabled while another account op runs.</summary>
@@ -231,57 +213,15 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     public string ModeTitle => Mode switch
     {
-        AccountMode.Register => L("Auth.Register.Title", "注册账户"),
-        AccountMode.Forgot => L("Auth.Forgot.Title", "找回密码"),
-        AccountMode.Reset => L("Auth.Reset.Title", "重置密码"),
         AccountMode.Device => L("Auth.Device.Title", "在浏览器中登录"),
         _ => L("Auth.Choice.Title", "选择如何开始")
     };
 
     public string ModeDescription => Mode switch
     {
-        AccountMode.Register => L("Auth.Register.Description", "使用邮箱验证码注册；完成后会自动登录。"),
-        AccountMode.Forgot => L("Auth.Forgot.Description", "输入注册邮箱，我们会发送 6 位验证码用于重置密码。"),
-        AccountMode.Reset => L("Auth.Reset.Description", "输入收到的验证码并设置新密码。"),
         AccountMode.Device => L("Auth.Device.Description", "在浏览器或手机上打开下面的地址，输入授权码完成确认。"),
         _ => L("Auth.Choice.Description", "登录后可备份任务并在其他设备上恢复；不登录也可以完全离线使用。")
     };
-
-    public string Email
-    {
-        get => _email;
-        set => SetProperty(ref _email, value);
-    }
-
-    public string Password
-    {
-        get => _password;
-        set => SetProperty(ref _password, value);
-    }
-
-    public string Code
-    {
-        get => _code;
-        set => SetProperty(ref _code, value);
-    }
-
-    public string ConfirmPassword
-    {
-        get => _confirmPassword;
-        set => SetProperty(ref _confirmPassword, value);
-    }
-
-    public string NewPassword
-    {
-        get => _newPassword;
-        set => SetProperty(ref _newPassword, value);
-    }
-
-    public string ConfirmNewPassword
-    {
-        get => _confirmNewPassword;
-        set => SetProperty(ref _confirmNewPassword, value);
-    }
 
     public string SendCodeLabel => CooldownSeconds > 0
         ? string.Format(CultureInfo.CurrentCulture, L("Auth.Code.Resend", "重新发送（{0} 秒）"), CooldownSeconds)
@@ -516,100 +456,17 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         return ValueTask.CompletedTask;
     }
 
-    private async Task LoginAsync()
-    {
-        if (!ValidateEmail() || !ValidatePassword(Password)) return;
-        var result = await _auth.LoginAsync(Email.Trim(), Password, _lifetime.Token).ConfigureAwait(true);
-        if (!Complete(result, L("Auth.Login.Success", "登录成功。"))) return;
-    }
-
-    private async Task SendCodeAsync()
-    {
-        if (!ValidateEmail()) return;
-        var purpose = Mode switch
-        {
-            AccountMode.Register => AuthEmailCodePurpose.Register,
-            AccountMode.Reset => AuthEmailCodePurpose.Reset,
-            _ => AuthEmailCodePurpose.Login
-        };
-        var result = await _auth.RequestEmailCodeAsync(Email.Trim(), purpose, _lifetime.Token).ConfigureAwait(true);
-        if (!result.IsSuccess)
-        {
-            Fail(AuthLocalization.Error(result.Error));
-            return;
-        }
-        StartCooldown();
-        SetMessage(L("Auth.Code.Sent", "验证码已发送，请查收邮箱。"), isError: false);
-    }
-
-    private async Task RegisterAsync()
-    {
-        if (!ValidateEmail()) return;
-        if (!AuthValidation.IsValidEmailCode(Code))
-        {
-            Fail(L("Auth.Validation.Code", "请输入 6 位数字验证码。"));
-            return;
-        }
-        if (!ValidatePassword(Password)) return;
-        if (!string.Equals(Password, ConfirmPassword, StringComparison.Ordinal))
-        {
-            Fail(L("Auth.Validation.Confirm", "两次输入的密码不一致。"));
-            return;
-        }
-        var result = await _auth.RegisterAsync(Email.Trim(), Code.Trim(), Password, _lifetime.Token).ConfigureAwait(true);
-        Complete(result, L("Auth.Register.Success", "注册成功，已登录。"));
-    }
-
-    private async Task ForgotAsync()
-    {
-        if (!ValidateEmail()) return;
-        var result = await _auth.ForgotPasswordAsync(Email.Trim(), _lifetime.Token).ConfigureAwait(true);
-        if (!result.IsSuccess)
-        {
-            Fail(AuthLocalization.Error(result.Error));
-            return;
-        }
-        Code = "";
-        SetMode(AccountMode.Reset);
-        StartCooldown();
-        SetMessage(L("Auth.Code.Sent", "验证码已发送，请查收邮箱。"), isError: false);
-    }
-
-    private async Task ResetAsync()
-    {
-        if (!ValidateEmail()) return;
-        if (!AuthValidation.IsValidEmailCode(Code))
-        {
-            Fail(L("Auth.Validation.Code", "请输入 6 位数字验证码。"));
-            return;
-        }
-        if (!ValidatePassword(NewPassword)) return;
-        if (!string.Equals(NewPassword, ConfirmNewPassword, StringComparison.Ordinal))
-        {
-            Fail(L("Auth.Validation.Confirm", "两次输入的密码不一致。"));
-            return;
-        }
-        var result = await _auth.ResetPasswordAsync(Email.Trim(), Code.Trim(), NewPassword, _lifetime.Token).ConfigureAwait(true);
-        if (!result.IsSuccess)
-        {
-            Fail(AuthLocalization.Error(result.Error));
-            return;
-        }
-        ClearInput();
-        SetMode(AccountMode.Login);
-        SetMessage(L("Auth.Reset.Success", "密码已重置，请使用新密码登录。"), isError: false);
-    }
-
     private async Task StartDeviceAsync()
     {
         if (!IsServerConfigured)
         {
-            ShowServerPanel = true;
-            Fail(L("Auth.Error.ServerRequired", "请先填写服务器地址。"));
-            return;
+            var configured = await _auth.SetServerAsync(AuthValidation.DefaultServerUrl, _lifetime.Token).ConfigureAwait(true);
+            if (!configured.IsSuccess)
+            {
+                Fail(AuthLocalization.Error(configured.Error));
+                return;
+            }
         }
-        // Starting a sign-in is itself a first-run choice, recorded through the settings journal.
-        await MarkAccountChoiceMadeAsync(null).ConfigureAwait(true);
         var started = await _auth.StartDeviceAuthorizationAsync(_lifetime.Token).ConfigureAwait(true);
         if (!started.IsSuccess)
         {
@@ -650,27 +507,36 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         }
         ShowServerPanel = false;
         _offlineChosen = false;
+        // Saving an address is configuration, not an account choice: return to the four entries.
+        SetMode(AccountMode.Login);
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
+        OnPropertyChanged(nameof(ShowAccountChoice));
         SetMessage(L("Auth.Server.Saved", "服务器地址已保存。"), isError: false);
+        if (_settingsPages?.IsInitialChoiceActive == true) await MarkAccountChoiceMadeAsync(null).ConfigureAwait(true);
     }
 
     private async Task LogoutAsync()
     {
-        var confirmed = await _dialogs.ConfirmAsync(
-            L("Auth.Account.Logout", "退出登录"),
-            L("Auth.Logout.Confirm", "退出后本机保存的登录凭据会被清除，任务数据仍保留在本机。")).ConfigureAwait(true);
-        if (!confirmed) return;
-        var result = await _auth.LogoutAsync(_lifetime.Token).ConfigureAwait(true);
-        if (!result.IsSuccess)
+        if (IsSignedIn)
         {
-            Fail(AuthLocalization.Error(result.Error));
-            return;
+            var confirmed = await _dialogs.ConfirmAsync(
+                L("Auth.Account.Logout", "退出登录"),
+                L("Auth.Logout.Confirm", "退出后本机保存的登录凭据会被清除，任务数据仍保留在本机。"));
+            if (!confirmed) return;
+            var result = await _auth.LogoutAsync(_lifetime.Token).ConfigureAwait(true);
+            if (!result.IsSuccess)
+            {
+                Fail(AuthLocalization.Error(result.Error));
+                return;
+            }
         }
+        _offlineChosen = false;
+        ShowStartPage = true;
+        _settingsPages?.RequestStartPage();
+        OnPropertyChanged(nameof(ShowOfflineNote));
+        OnPropertyChanged(nameof(ShowLoginCard));
         _snapshotSummary = null;
-        // Signing out re-arms the account-choice flow: clearing the flag through the
-        // settings journal brings the choice back on this page and on the next launch.
-        await ClearAccountChoiceAsync().ConfigureAwait(true);
         SetMode(AccountMode.Login);
         SetMessage(L("Auth.Logout.Done", "已退出登录。"), isError: false);
     }
@@ -912,7 +778,9 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         var source = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _devicePolling = source;
         DeviceSecondsLeft = Math.Max(0, expiresInSeconds);
-        _ = PollDeviceAsync(Math.Clamp(intervalSeconds, 2, 30), 0, source.Token);
+        // PollDeviceAsync only polls once the countdown has fallen to the next poll mark. Starting
+        // that mark at zero would skip every poll until the code had already expired.
+        _ = PollDeviceAsync(Math.Clamp(intervalSeconds, 2, 30), Math.Max(0, expiresInSeconds), source.Token);
     }
 
     private async Task PollDeviceAsync(int baseIntervalSeconds, int nextPollAtSeconds, CancellationToken token)
@@ -959,6 +827,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
                             DeviceStatus = L("Auth.Device.Approved", "已在浏览器中确认，登录成功。");
                             SetMode(AccountMode.Login);
                             SetMessage(L("Auth.Login.Success", "登录成功。"), isError: false);
+                            _ = MarkAccountChoiceMadeAsync(null);
                         });
                         return;
                     case DeviceAuthorizationStatus.Denied:
@@ -1051,6 +920,31 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         }
     }
 
+    // Password recovery lives in the browser. The desktop only opens the configured server's
+    // device page in reset mode (the server renders the reset panel there); it never builds a
+    // reset form of its own. Without a configured server the shipped instance is used.
+    private void OpenForgotPage()
+    {
+        var baseUri = _auth.State.Server is { } server
+            ? server.GetLeftPart(UriPartial.Authority)
+            : AuthValidation.DefaultServerUrl.TrimEnd('/');
+        if (!Uri.TryCreate(baseUri.TrimEnd('/') + "/device?mode=reset", UriKind.Absolute, out var uri))
+        {
+            Fail(L("Auth.Error.ServerRequired", "请先填写服务器地址。"));
+            return;
+        }
+        try
+        {
+            _openUri(uri);
+            SetMessage(L("Auth.Forgot.Opened", "已在浏览器中打开密码找回页面，请按页面提示操作。"), isError: false);
+        }
+        catch (Exception ex)
+        {
+            _diagnostics.Report(Guid.NewGuid().ToString("N"), ex);
+            Fail(L("Auth.Device.OpenFailed", "无法打开浏览器，请手动访问服务器地址。"));
+        }
+    }
+
     private void UseOffline()
     {
         _ = MarkAccountChoiceMadeAsync(() =>
@@ -1094,70 +988,29 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
                 {
                     var preview = await edit.PreviewAsync(
                         new Dictionary<string, object?> { [AccountChoiceMadeId] = true }, 1, _lifetime.Token).ConfigureAwait(true);
-                    if (preview.IsSuccess) await edit.CommitAsync(1, _lifetime.Token).ConfigureAwait(true);
+                    if (!preview.IsSuccess || preview.Value.Errors.Count > 0)
+                    {
+                        Fail(L("Auth.Error.Unavailable", "无法保存选择，请重试。"));
+                        return;
+                    }
+                    var commit = await edit.CommitAsync(1, _lifetime.Token).ConfigureAwait(true);
+                    if (!commit.IsSuccess)
+                    {
+                        Fail(AuthLocalization.Error(commit.Error));
+                        return;
+                    }
+                    onDone?.Invoke();
+                    _settingsPages?.CompleteInitialChoice();
+                    return;
                 }
             }
+            Fail(L("Auth.Error.Unavailable", "无法保存选择，请重试。"));
         }
-        catch (Exception ex) { _diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
-        finally { onDone?.Invoke(); }
-    }
-
-    /// <summary>Clears the first-run choice flag (a null value removes it) so the
-    /// account-choice screen returns after sign-out; mirrors the status item's sign-out
-    /// path so both entry points leave the same journal state.</summary>
-    private async Task ClearAccountChoiceAsync()
-    {
-        try
+        catch (Exception ex)
         {
-            var session = await _settings.BeginEditSessionAsync().ConfigureAwait(true);
-            if (session.IsSuccess && session.Value is { } edit)
-            {
-                await using (edit.ConfigureAwait(true))
-                {
-                    var preview = await edit.PreviewAsync(
-                        new Dictionary<string, object?> { [AccountChoiceMadeId] = null }, 1, _lifetime.Token).ConfigureAwait(true);
-                    if (preview.IsSuccess) await edit.CommitAsync(1, _lifetime.Token).ConfigureAwait(true);
-                }
-            }
+            _diagnostics.Report(Guid.NewGuid().ToString("N"), ex);
+            Fail(L("Auth.Error.Unavailable", "无法保存选择，请重试。"));
         }
-        catch (Exception ex) { _diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
-    }
-
-    private bool Complete(OperationResult result, string successMessage)
-    {
-        if (!result.IsSuccess)
-        {
-            Fail(AuthLocalization.Error(result.Error));
-            return false;
-        }
-        ClearInput();
-        PasswordsCleared?.Invoke(this, EventArgs.Empty);
-        SetMode(AccountMode.Login);
-        SetMessage(successMessage, isError: false);
-        return true;
-    }
-
-    private bool ValidateEmail()
-    {
-        if (AuthValidation.IsValidEmail(Email)) return true;
-        Fail(L("Auth.Validation.Email", "请输入有效的邮箱地址。"));
-        return false;
-    }
-
-    private bool ValidatePassword(string password)
-    {
-        if (AuthValidation.IsValidPassword(password)) return true;
-        Fail(L("Auth.Validation.Password", "密码需为 10–256 个字符。"));
-        return false;
-    }
-
-    private void ClearInput()
-    {
-        Password = "";
-        Code = "";
-        ConfirmPassword = "";
-        NewPassword = "";
-        ConfirmNewPassword = "";
     }
 
     private void Fail(string message) => SetMessage(message, isError: true);
@@ -1217,11 +1070,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     private void NotifyCommands()
     {
-        LoginCommand.NotifyCanExecuteChanged();
-        RegisterCommand.NotifyCanExecuteChanged();
-        SendCodeCommand.NotifyCanExecuteChanged();
-        ForgotCommand.NotifyCanExecuteChanged();
-        ResetCommand.NotifyCanExecuteChanged();
         StartDeviceCommand.NotifyCanExecuteChanged();
         CancelDeviceCommand.NotifyCanExecuteChanged();
         SaveServerCommand.NotifyCanExecuteChanged();

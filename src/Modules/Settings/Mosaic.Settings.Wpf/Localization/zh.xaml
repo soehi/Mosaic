@@ -26,6 +26,7 @@
     <sys:String x:Key="Settings.ResetRow">恢复默认</sys:String>
     <sys:String x:Key="Settings.Section.Normal">普通</sys:String>
     <sys:String x:Key="Settings.Section.Tasks">任务</sys:String>
+    <sys:String x:Key="Settings.Section.AccountsAndBackup">账户与备份</sys:String>
     <sys:String x:Key="Settings.Section.Appearance">外观与布局</sys:String>
     <sys:String x:Key="Settings.Section.Storage">存储与系统</sys:String>
     <sys:String x:Key="Settings.Section.Text">文案</sys:String>

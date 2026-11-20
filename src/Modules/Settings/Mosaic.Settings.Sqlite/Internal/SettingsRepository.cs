@@ -54,6 +54,21 @@ internal sealed class SettingsRepository(IDatabaseSession database) : ISettingRe
         return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
     }
 
+    public async Task<OperationResult> InitializeAsync(SettingInitialization initialization, CancellationToken cancellationToken = default)
+    {
+        var result = await database.TransactionAsync(transaction =>
+        {
+            transaction.Execute(new("CREATE TABLE IF NOT EXISTS settings_initializations (migration_id TEXT PRIMARY KEY)"));
+            var parameters = new Dictionary<string, object?> { ["$id"] = initialization.MigrationId };
+            if (transaction.Query(new("SELECT migration_id FROM settings_initializations WHERE migration_id=$id", parameters)).Count != 0) return true;
+            transaction.Execute(new("INSERT OR IGNORE INTO settings(setting_id,value_json) VALUES($key,$value)",
+                new Dictionary<string, object?> { ["$key"] = initialization.SettingId, ["$value"] = JsonSerializer.Serialize(initialization.Value, Options) }));
+            transaction.Execute(new("INSERT INTO settings_initializations(migration_id) VALUES($id)", parameters));
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
+    }
+
     private static object? ToClr(JsonElement element) => element.ValueKind switch
     {
         JsonValueKind.True => true,
