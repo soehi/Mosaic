@@ -123,14 +123,32 @@
         </Control>
       </Dialog>
 
-      <Dialog Id="ProgressDlg" Width="370" Height="270" Title="Mosaic 安装程序" NoMinimize="yes">
+      <!-- 进度页必须非模态：模态进度页会阻塞 InstallUISequence，使 ExecuteAction 永远不被执行，
+           用户只能看到空白的「正在处理」页面。非模态页返回 UI 序列后，安装引擎在执行阶段
+           通过 ActionText / SetProgress 事件更新当前操作与进度条。 -->
+      <Dialog Id="ProgressDlg" Width="370" Height="270" Title="Mosaic 安装程序" Modeless="yes" NoMinimize="yes">
         <Control Id="Title" Type="Text" X="15" Y="15" Width="340" Height="24" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontBold}正在处理，请稍候..." />
-        <Control Id="ActionText" Type="Text" X="15" Y="50" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="[ActionText]" />
+        <Control Id="ActionText" Type="Text" X="15" Y="50" Width="340" Height="30" Transparent="yes" NoPrefix="yes">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
         <Control Id="ScanSummary" Type="Text" X="15" Y="85" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="[MOSAICSCANSUMMARY]" />
         <Control Id="RepairHint" Type="Text" X="15" Y="132" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}发现缺失或损坏时自动使用安装包内的文件修复，用户数据与配置不会被改动。" />
-        <Control Id="ProgressBar" Type="ProgressBar" X="15" Y="210" Width="340" Height="15" ProgressBlocks="yes" Text="正在安装..." />
+        <Control Id="ProgressBar" Type="ProgressBar" X="15" Y="210" Width="340" Height="15" ProgressBlocks="yes" Text="正在安装...">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- 进度页上的取消先询问；「否」返回进度页继续安装，「是」结束 UI 序列并通知安装引擎取消、回滚。 -->
+      <Dialog Id="CancelDlg" Width="260" Height="100" Title="Mosaic 安装程序">
+        <Control Id="Text" Type="Text" X="15" Y="15" Width="230" Height="40" NoPrefix="yes" Text="{\MosaicFont}确定要取消 Mosaic 安装吗？" />
+        <Control Id="Yes" Type="PushButton" X="72" Y="70" Width="56" Height="17" Text="是">
           <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="132" Y="70" Width="56" Height="17" Default="yes" Cancel="yes" Text="否">
+          <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
 

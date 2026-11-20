@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.5",
+  "currentReleaseId": "mosaic-0.17.6",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -640,6 +640,22 @@
         "扫描与修复动作在读取载荷清单后正确关闭 Windows Installer 数据库句柄，安装日志不再出现未关闭句柄的 2769 警告。"
       ],
       "contentSha256": "777313277E4763A3183DF2ACD2BECEA302067E17CB9BD3CDB603C3AF24AB6218"
+    },
+    {
+      "releaseId": "mosaic-0.17.6",
+      "version": "0.17.6",
+      "releasedOn": "2026-11-20",
+      "previousReleaseId": "mosaic-0.17.5",
+      "added": [],
+      "improved": [
+        "完整界面安装的进度页改为非模态并订阅安装引擎事件，显示真实当前操作与进度，不再停在空白“正在处理，请稍候”页面。",
+        "进度页的取消改为弹出确认对话框：选择“否”继续安装，选择“是”通知安装引擎取消并回滚。"
+      ],
+      "fixed": [
+        "修复完整界面安装卡在空白进度页：进度页此前为模态对话框，阻塞界面序列，导致执行阶段永远不被启动；现在进度页在界面序列中返回后由执行阶段驱动，安装可正常完成。",
+        "修复进度条与当前操作不更新：进度条订阅 SetProgress、当前操作文字订阅 ActionText，执行期间显示真实进度。"
+      ],
+      "contentSha256": "D0281954270045AE22FCF4AB1622326176AD4550405E87B2B5C975A6580CDE78"
     }
   ]
 }

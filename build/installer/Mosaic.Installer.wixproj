@@ -1,7 +1,7 @@
 <Project Sdk="WixToolset.Sdk/4.0.6">
   <PropertyGroup>
     <OutputName>Mosaic-$(ProductVersion)-win-x64</OutputName>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">0.17.5</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.17.6</ProductVersion>
     <InstallerPlatform>x64</InstallerPlatform>
     <!-- 原生自定义动作 DLL：包含状态检测、完整性扫描、路径校验与修复后复检。 -->
     <ActionsDll Condition="'$(ActionsDll)' == ''">$(MSBuildThisFileDirectory)actions\bin\MosaicInstallerActions.dll</ActionsDll>

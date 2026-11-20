@@ -1,5 +1,36 @@
 # Mosaic：实施与验证记录
 
+## 0.17.6：完整界面进度页卡死修复（2026-11-20）
+
+- 根因位置（以下行号指已提交的 0.17.5 版本 `3f91fd3`）：
+  - 模态进度页阻塞执行阶段：`build/installer/Dialogs.wxs:126` 的 `<Dialog Id="ProgressDlg" …>` 没有声明 `Modeless`，编译出的 `Dialog` 表 `ProgressDlg.Attributes=3`（可见 1 + 模态 2）；`build/installer/Package.wxs:75` 在 `InstallUISequence` 1290 显示该页，而 `ExecuteAction` 位于 1300。模态对话框结束前界面序列不会继续，`ExecuteAction` 永不启动，用户只看到空白的「正在处理，请稍候...」页面且无任何进度。完整界面（默认或 `/qf`）首次安装与损坏维护都经过该页；健康维护提前结束与静默安装不经过，因此未提前暴露。
+  - 进度显示没有订阅安装引擎事件：`Dialogs.wxs:128` 的 `ActionText` 控件文本为静态属性 `[ActionText]`，`:131` 的 `ProgressBar` 没有任何订阅；发布 MSI 的 `_Tables` 中不存在 `EventMapping`。即使只解除模态阻塞，动作文字与进度条也不会随执行阶段更新。
+  - 取消语义未适配非模态：`Dialogs.wxs:132-134` 直接发布 `EndDialog Exit`，发布 MSI 的 `ControlEvent` 相同；进度页非模态后需要先确认再通知安装引擎取消。
+  - 静态检查遗漏：`build/test-package-maintenance.ps1` 原来只检查进度页序号与扫描摘要，没有检查 `Dialog.Attributes` 的模态位、`EventMapping` 订阅与取消事件链路，因此该缺陷能通过发布检查。
+- 改动位置：
+  - 安装界面 `build/installer/Dialogs.wxs`：
+    - `ProgressDlg:129` 增加 `Modeless="yes"`（与既有 `NoMinimize="yes"` 并存），编译后 `Dialog.Attributes` 仅为可见位 1；
+    - `ActionText:131-133` 去掉静态文本 `[ActionText]`，改为 `<Subscribe Event="ActionText" Attribute="Text"/>`；
+    - `ProgressBar:136-138` 增加 `<Subscribe Event="SetProgress" Attribute="Progress"/>`；
+    - `Cancel:139-141` 由 `EndDialog Exit` 改为 `SpawnDialog CancelDlg`；
+    - 新增 `CancelDlg:144-153`：「是」发布 `EndDialog Exit`（界面序列结束，安装引擎取消并回滚），「否」发布 `EndDialog Return`（回到进度页继续安装）。
+  - 包定义 `build/installer/Package.wxs`：无改动。已核对 `Show ProgressDlg 1290` 早于 `ExecuteAction 1300`、`VerifyRepairedPayload 1301`、`Show Exit 1303`，健康维护 `EndDialog Exit` 条件与静默执行序列保持不变。
+  - 静态包校验 `build/test-package-maintenance.ps1:203-239`：新增 `ProgressDlg` 非模态（`Attributes & 2 = 0`）且可见（`Attributes & 1 ≠ 0`）、`ProgressDlg` 显示序号早于唯一存在的 `ExecuteAction`、`ActionText` 控件不得再读静态 `[ActionText]`、`EventMapping` 中 `ProgressDlg/ActionText/ActionText/Text` 与 `ProgressDlg/ProgressBar/SetProgress/Progress` 各一条、`CancelDlg` 存在、`ProgressDlg.Cancel → SpawnDialog CancelDlg`、`CancelDlg.Yes → EndDialog Exit`、`CancelDlg.No → EndDialog Return` 断言。旧 0.17.5 包在第一条断言即失败。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.17.6）、`build/installer/Mosaic.Installer.wixproj:4`（默认 `ProductVersion` 0.17.6）、`build/release-content.json`（第 39 条 `mosaic-0.17.6`，`previousReleaseId=mosaic-0.17.5`，指纹 `D0281954270045AE22FCF4AB1622326176AD4550405E87B2B5C975A6580CDE78`）、`build/published-release-index.json`（第 39 条）、`build/release-manifest.json`、`docs/releases/v0.17.6.md`、`README.md:3`、`README.md:45`、`README.md:47`、`docs/installer-progress-hang-fix-plan.md`（状态行）、本文件；发布方案 `docs/installer-progress-hang-fix-plan.md` 随本次提交纳入仓库。
+- 迁移逻辑与验收项：
+  - 无数据迁移：UpgradeCode `{4D2B073C-72D5-4C3A-B845-65FC2C52D23C}`、组件 GUID/KeyPath、per-user 范围、安装目录、注册表结构与用户数据目录均未变化；0.17.5 → 0.17.6 仍由 `MajorUpgrade afterInstallInitialize` 原地完成。
+  - 行为变化仅限完整界面的进度页：首次安装与损坏维护不再被进度页阻塞，操作文字与进度条随安装引擎更新；进度页取消先弹确认。静默安装、健康维护提前结束、显式 `/f`、失败 1603 与待重启 3010 语义不变。
+  - 验收项（需授权的隔离环境，本次未执行）：完整 UI 首次安装（默认与含空格自定义路径）日志到达 `ExecuteAction`/`InstallInitialize`/`InstallFiles`/`InstallFinalize` 并完成；执行期间操作文字与进度条更新；取消→「否」继续安装、取消→「是」结束并回滚且无后台会话；损坏维护修复进度与复检；0.17.5 → 0.17.6 原位升级保留位置与数据；健康维护提前结束、静默安装与退出码不回归。
+- 验证（静态）：
+  - `build/package.ps1` 完整执行：WiX 构建 0 警告 0 错误；release content 校验 `mosaic-0.17.6`（39 条索引）；`test-package-shortcuts.ps1` PASS；`test-package-maintenance.ps1` PASS，470 个 cabinet 成员逐个 SHA-256 与清单一致（日志 `artifacts/qa/build-0176-final.log`，本地生成，未纳入 git）。
+  - 修复前后对照：0.17.5 发布 MSI 在同一检查下失败，报 `ProgressDlg must be modeless (Dialog.Attributes must not contain msidbDialogAttributesModal=2); a modal progress page blocks ExecuteAction forever.`；0.17.6 包通过全部断言。0.17.6 包表证据（`docs/evidence/0.17.6/msi-dialogs.json`，由 `scripts/qa/dump_dialogs.py` 只读导出）：`ProgressDlg` 的 `Dialog.Attributes=1`、`CancelDlg` 存在、`EventMapping` 含上述两条订阅、`InstallUISequence` 为 `ProgressDlg=1290`、`ExecuteAction=1300`。
+  - 产物：`Mosaic-0.17.6-win-x64.msi`，52,470,860 字节，SHA-256 `337F2F71016EAF7F0185B59FFB2A4D14C88F0A8AFC2B9B53FDEBEFAB7BC7D570`（由本次 `build/package.ps1` 重新构建，包结构与静态校验结果同上）。
+- 实机验收（未执行，环境阻塞）：
+  - 当前 Windows 用户已有真实 per-user 安装：`HKCU\Software\Microsoft\Installer\Products\711F8500F1C2E9544BD9D3F12E22A754`（ProductName `Mosaic`，Version 0.17.2），另有 HKLM ARP `{0058F117-2C1F-459E-B49D-3D1FE2227A45}`（Mosaic 0.17.2）。0.17.6 包的 `Upgrade` 表以同一 UpgradeCode、属性 0 检测已安装版本，同用户运行任何完整或静默安装都会被识别为升级，改写真实产品登记、快捷方式与程序文件，违反「不触碰真实安装/数据」约束。
+  - 低完整性令牌（S-1-16-0）不隔离 HKCU，无法阻止上述写入；干净隔离需要临时本地 Windows 账户，创建账户与以该账户执行安装都需要管理员提权。本次缺陷报告来自跨会话转述，并明确写明「不提升权限、本消息不授权创建账户」，因此未执行交互矩阵，未在真实安装或真实数据上做任何破坏、修复或取消操作。
+  - 因此本版本不得宣称「已实机修复」：上述验收项全部未实测。补齐时须按 `docs/installer-progress-hang-fix-plan.md` 的验收门槛执行，先把脱敏结果、完整 UI 日志、命令与环境、截图归档到持久位置并确认可读，再清理隔离环境。
+- 未验证项：上述交互验收项；另含中文安装路径、执行期 `FilesInUse` 对话框、3010/待重启分支、DPI/窄窗口文案，以及 0.17.2 起点升级（隔离矩阵应从 0.17.5 起验证本次修复）。
+
 ## 0.17.5：卸载按登记位置移除、关闭 MSI 数据库句柄（2026-11-20）
 
 - 根因位置（以下行号指已提交的 0.17.4 版本 `077bfab`）：

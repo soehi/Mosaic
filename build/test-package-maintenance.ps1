@@ -199,6 +199,45 @@ try {
     }
     $scanSummary = @($controls | Where-Object { $_[0] -ceq 'ProgressDlg' -and $_[1] -ceq 'ScanSummary' -and $_[9] -like '*MOSAICSCANSUMMARY*' })
     if ($scanSummary.Count -ne 1) { Fail 'Automatic repair must show the scan summary on the progress page.' }
+
+    # 进度页必须非模态且可见：模态页会阻塞 UI 序列，ExecuteAction 永远不被执行，安装停在空白进度页。
+    $progress = Find-Row $dialogs 'ProgressDlg' 'Dialog entry'
+    $progressAttributes = [int]$progress[5]
+    if (($progressAttributes -band 2) -ne 0) {
+        Fail 'ProgressDlg must be modeless (Dialog.Attributes must not contain msidbDialogAttributesModal=2); a modal progress page blocks ExecuteAction forever.'
+    }
+    if (($progressAttributes -band 1) -eq 0) {
+        Fail 'ProgressDlg must remain visible (msidbDialogAttributesVisible=1).'
+    }
+    $executeAction = @($uiSequence | Where-Object { $_[0] -ceq 'ExecuteAction' })
+    $progressShow = @($uiSequence | Where-Object { $_[0] -ceq 'ProgressDlg' })
+    if ($executeAction.Count -ne 1 -or $progressShow.Count -ne 1 -or [int]$progressShow[0][2] -ge [int]$executeAction[0][2]) {
+        Fail 'InstallUISequence must show ProgressDlg before an existing ExecuteAction.'
+    }
+    # 引擎事件订阅：ActionText 更新当前操作文字，SetProgress 驱动进度条。
+    $actionTextControl = @($controls | Where-Object { $_[0] -ceq 'ProgressDlg' -and $_[1] -ceq 'ActionText' })
+    if ($actionTextControl.Count -ne 1 -or $actionTextControl[0][9] -like '*[[]ActionText[]]*') {
+        Fail 'ProgressDlg ActionText must subscribe to the engine event instead of reading a static [ActionText] property.'
+    }
+    $eventMappings = Read-MsiRows $database 'SELECT * FROM EventMapping' 4
+    foreach ($mapping in @(@('ActionText', 'ActionText', 'Text'), @('ProgressBar', 'SetProgress', 'Progress'))) {
+        $control = $mapping[0]; $event = $mapping[1]; $attribute = $mapping[2]
+        if (@($eventMappings | Where-Object { $_[0] -ceq 'ProgressDlg' -and $_[1] -ceq $control -and $_[2] -ceq $event -and $_[3] -ceq $attribute }).Count -ne 1) {
+            Fail "EventMapping must subscribe ProgressDlg.$control to $event/$attribute."
+        }
+    }
+    # 取消必须确认，并通知安装引擎取消；非模态进度页不能直接 EndDialog 跳过确认。
+    if (@($dialogs | Where-Object { $_[0] -ceq 'CancelDlg' }).Count -ne 1) { Fail 'CancelDlg must exist for progress-page cancellation confirmation.' }
+    if (@($events | Where-Object { $_[0] -ceq 'ProgressDlg' -and $_[1] -ceq 'Cancel' -and $_[2] -ceq 'SpawnDialog' -and $_[3] -ceq 'CancelDlg' }).Count -ne 1) {
+        Fail 'ProgressDlg Cancel must spawn CancelDlg for confirmation.'
+    }
+    if (@($events | Where-Object { $_[0] -ceq 'CancelDlg' -and $_[1] -ceq 'Yes' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Exit' }).Count -ne 1) {
+        Fail 'CancelDlg Yes must end the UI sequence so the engine cancels and rolls back.'
+    }
+    if (@($events | Where-Object { $_[0] -ceq 'CancelDlg' -and $_[1] -ceq 'No' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Return' }).Count -ne 1) {
+        Fail 'CancelDlg No must return to the progress page and continue installing.'
+    }
+
     $exitTitle = @($controls | Where-Object { $_[0] -ceq 'Exit' -and $_[1] -ceq 'Title' -and $_[9] -like '*MOSAICEXITTITLE*' })
     if ($exitTitle.Count -ne 1) { Fail 'Exit must show a result title that distinguishes success from reboot-pending.' }
     $styles = Read-MsiRows $database 'SELECT * FROM TextStyle' 5
