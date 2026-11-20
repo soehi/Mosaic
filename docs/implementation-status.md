@@ -33,6 +33,7 @@
   - 对卸载：`DetectInstallState`/`ScanPayload`/`VerifyRepairedPayload` 均带 `NOT REMOVE`，`/x` 与 MajorUpgrade 移除旧产品都不会进入扫描或修复；`StartupCleanup` 的 `NOT WIX_UPGRADE_DETECTED` 语义未变。
   - 对用户数据：扫描只读，不写 `%LOCALAPPDATA%\Mosaic`；修复只通过 Windows Installer 组件事务替换产品载荷与快捷方式；路径校验禁止安装目录与数据目录重叠。验收：静态测试的路径/清单断言 + 用户侧实机数据保留项。
 - 验证：`build/package.ps1` 完整执行（publish → verify-published → release content → Payload.wxs → 原生 DLL → Manifest → WiX → MSI → 快捷方式检查 → 维护静态检查），退出码 0，WiX 构建 0 警告 0 错误；`test-package-shortcuts.ps1` PASS；`test-package-maintenance.ps1` 对 470 个 cabinet 成员逐个复算 SHA-256 后 PASS。首轮完整构建后补上了「位置无法确认即阻断」的判断，再用 `build/package.ps1 -NoPublish` 重编并复跑静态检查，同样 PASS。最终产物 `artifacts/installer/Mosaic-0.17.3-win-x64.msi`：52,490,813 字节，SHA-256 `5ca876b8ce210b95dba253a259aab5556b1398c4c49cd6754d147babb4e09241`。`build/test.ps1 -SkipDesktop`（跳过桌面冒烟项目）15 个测试项目 369 项全部通过，0 失败。
+- 发布核验（0.17.3）：提交 `ba54e76`（`main`）；tag `v0.17.3` 指向 `ba54e76`；Release <https://github.com/soehi/Mosaic/releases/tag/v0.17.3>，资产 `Mosaic-0.17.3-win-x64.msi` 52,490,813 字节，GitHub digest `sha256:5ca876b8ce210b95dba253a259aab5556b1398c4c49cd6754d147babb4e09241` 与本地一致。
 - 未验证项：本机没有隔离 Windows 用户或可回滚 VM，未执行真实安装、同版本维护、删除文件/整目录、同大小篡改、快捷方式改坏、文件锁定、取消/回滚/3010、0.17.2 实机升级、静默路径失败、显式 `/f`、`/x` 与降级分流的实机矩阵；UI 文案与窄窗口/DPI 表现、FilesInUse 的实际触发、BlockedDlg 的可见性（启动条件在序列 100 先失败）也未实测。
 
 ## 0.17.2：设置页排版收口、维护页重排与服务器地址入口隐藏（2026-11-20）
