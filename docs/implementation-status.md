@@ -24,6 +24,7 @@
   - 显式 `/f`：扫描不清除调用方的 `REINSTALL`，健康页不显示（`NOT REINSTALL`），继续到修复并由 1301/6700 复检。
   - 验收（静态）：`test-package-maintenance.ps1` 对上述序列、条件、按钮事件与源码契约逐项断言；实机项见下。
 - 验证：`build/installer/actions/build-actions.ps1` 编译通过（`Built …MosaicInstallerActions.dll`）；`build/package.ps1` 完整执行，release content 校验 `mosaic-0.17.4`，WiX 构建 0 警告 0 错误，`test-package-shortcuts.ps1` PASS；首轮 `test-package-maintenance.ps1` 因断言自身把 `InstallUISequence` 索引 1（Condition）当成事件名而误报，修正为按 Action 过滤后对 470 个 cabinet 成员逐个复算 SHA-256 并 PASS（`PASS: MSI static structure, maintenance routing, dialogs, payload manifest and cabinet integrity verified for 0.17.4.`）。产物 `artifacts/installer/0.17.4/Mosaic-0.17.4-win-x64.msi`：52,495,032 字节，SHA-256 `6DE45B7ADF57769ED13EFCBB2AC4E42279C49384A7AC27A2894C4859A8BB025B`。`build/test.ps1 -SkipDesktop` 15 个测试项目 369 项全部通过，0 失败。
+- 发布核验（0.17.4）：提交 `077bfab`（`main`）；tag `v0.17.4` 指向 `077bfab`；Release <https://github.com/soehi/Mosaic/releases/tag/v0.17.4>，资产 `Mosaic-0.17.4-win-x64.msi` 52,495,032 字节，GitHub digest `sha256:6de45b7adf57769ed13efcbb2ac4e42279c49384a7ac27a2894c4859a8bb025b` 与本地一致。
 - 未验证项（环境阻塞）：本机没有隔离 Windows 用户或可回滚 VM，未对真实安装执行任何删除、篡改、锁定或卸载测试。因此真实安装后自动扫描、删除单文件/整目录修复、文件锁定与重启后替换（3010）、复检失败落错误页、`/qn` 失败返回 1603、显式 `/f`、0.17.3→0.17.4 实机升级与随后同版本维护，均未实测；静态包检查与源码契约不能代替这些验收。另：交互健康维护以 `EndDialog Exit` 结束 UI，不进入执行阶段；该路径的进程返回码属 Windows Installer 的用户结束语义（通常 1602），与静默路径的 0 不同，需在实机项中确认并对调用方说明。
 
 ## 0.17.3：可选安装位置 + 同版本 MSI「检查与修复」（2026-11-20）
