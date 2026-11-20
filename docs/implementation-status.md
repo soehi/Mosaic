@@ -18,8 +18,8 @@
   - 未登记位置的旧安装（0.17.2 及更早）：`RestoreInstallFolderForRemoval` 读取为空或相对路径时只写日志，卸载保持默认目录语义，与旧行为一致；动作 `Return="ignore"`，不新增卸载失败路径。
   - 验收项（实机，隔离用户 `MosaicQA`）：自定义位置卸载后目录内文件数为 0 且目录不存在、产品登记被移除；默认位置卸载删除负载并保留用户哨兵文件；全部安装/维护日志不再出现 `did not close`/2769；0.17.4 → 0.17.5 升级保留自定义位置；健康维护零写入；删除 EXE 与同尺寸篡改 DLL 后修复恢复；显式 `/f` 重写 470 个文件；拒绝读取时静默安装返回 1603；应用运行中修复由 Restart Manager 关闭并在完成后重启应用（返回 0）；文件被非重启管理器进程占用时修复返回 1603 并整体回滚，释放占用后再修复返回 0 且内容恢复。
 - 验证（静态）：`build/package.ps1` 完整执行，WiX 0 警告 0 错误；release content 校验 `mosaic-0.17.5`（38 条索引）；`test-package-shortcuts.ps1` PASS；`test-package-maintenance.ps1` PASS（含新增源码与序列断言）；470 个 cabinet 成员逐文件 SHA-256 与清单一致。产物 `Mosaic-0.17.5-win-x64.msi`，52,466,396 字节，SHA-256 `F8F23394EAF0B82F36454C3C83A3C89D4888CCC3C3D177C4321B82C3C405B433`。
-- 实机验收（0.17.5 MSI，隔离用户 `MosaicQA`，独立 profile `C:\Users\MosaicQA`）：
-  - 首轮维护矩阵 39 项，38 项一次通过；唯一未通过项是测试脚本自身的时区比较缺陷（`[datetime]'…Z'` 在 PowerShell 5.1 被转成本地时间，与 `LastWriteTimeUtc` 的 ticks 不等），同一步的 `explicit-f-rewrites-files` 以哨兵年份变化、mtime 恢复为包内时间与日志 `FileCopy=470` 判定通过，非产品缺陷。修正断言后复跑（22:11–22:13，同一隔离用户与独立 profile）：39 项全部通过，`result-0175.json` 记录 `ok=true`、失败项为空；证据日志为 `logs-0175\01`–`10`。
+- 实机验收（0.17.5 MSI，隔离用户 `MosaicQA`，独立 profile `C:\Users\MosaicQA`；以下结论为执行时记录，原始证据保留状态见本节末条）：
+  - 首轮维护矩阵 39 项，38 项一次通过；唯一未通过项是测试脚本自身的时区比较缺陷（`[datetime]'…Z'` 在 PowerShell 5.1 被转成本地时间，与 `LastWriteTimeUtc` 的 ticks 不等），同一步的 `explicit-f-rewrites-files` 以哨兵年份变化、mtime 恢复为包内时间与日志 `FileCopy=470` 判定通过，非产品缺陷。修正断言后复跑（22:11–22:13，同一隔离用户与独立 profile）：39 项全部通过，当时的 `result-0175.json` 记录 `ok=true`、失败项为空；日志为当时的 `logs-0175\01`–`10`。
   - 修复点 1 实测：0.17.4 → 0.17.5 升级保留 `C:\Users\Public\MosaicQA\Install Folder`；`/x` 日志先执行 `RestoreInstallFolderForRemoval` 并记录 `Mosaic: 卸载位置 C:\Users\Public\MosaicQA\Install Folder`（返回值 1，`Return=ignore`），卸载后 `files=0`、目录不存在、ARP 登记为空。
   - 修复点 2 实测：0.17.5 的 01–04 号安装/维护/修复/显式 `/f` 日志中 `2769` 与 `did not close` 计数均为 0，全量日志扫描断言通过；0.17.4 同场景曾每次扫描出现一条。
   - 其他通过项：默认位置安装与 ARP/快捷方式登记；健康维护零写入且哨兵文件哈希与修改时间不变；删除 EXE + 同尺寸清零 DLL 后修复恢复内容与快捷方式；拒绝读取时 `/qn` 返回 1603 且不误报；默认位置卸载删除负载、保留 `%LOCALAPPDATA%\Mosaic` 哨兵与移除 ARP；0.17.4 → 0.17.5 升级版本与位置正确、未在默认目录另装；升级后健康维护零写入。
@@ -28,6 +28,7 @@
     - 文件被非重启管理器进程占用（ASUS 侧以 `FileShare.Read` 持有读共享锁，EXE 已清零）：`Executing op: FileCopy(… Mosaic.Desktop.exe …)` 之后立即记录 `Note: 1: 2205 2: 3: Error` 与 `Note: 1: 2228 … Error = 1603`，引擎重试约 3 分钟后以 `MainEngineThread is returning 1603` 结束并整体回滚；回滚后 EXE 仍为清零内容（哈希 `04DB6BC9…09E3`），安装集其余文件未被破坏。
     - 释放占用后再执行同一修复：引擎返回 0，470 个 `FileCopy`，EXE 哈希恢复为 `34F1F22E…D124`，脚本记录 `healthy=true`。
     - 待重启（3010）分支在本矩阵未被触发：两种占用分别由 Restart Manager 关闭重启或以 1603 失败回滚，没有出现「由 Windows Installer 安排到重启后替换」的情形；`IsRebootPending` 与 3010 语义仍由静态断言与代码审查覆盖。
+  - 证据保留状态（2026-11-20 补记）：上述 39/39 与文件占用三项结论，是执行时依据 `result-0175.json`、`result-locked.json`、`result-appf2.json` 以及 `logs-0175\01`–`10`、`12-locked-repair-1/2.log`、`14-app-running-reinstall-all.log` 记录的结果。这些文件只存在于隔离测试目录 `C:\Users\Public\MosaicQA`，从未纳入 git，也未归档到仓库；验收完成、发布核对通过后的环境清理中随该目录整体删除，现无可提供的路径，也无法逐项独立复核。上文出现的日志名与日志片段是当时的摘录，不是现在可以读取的证据。此状况只说明证据未归档，不改变「当时实测通过」的历史记录，也不等于验收失败或测试失败。当前可独立复核的仅为静态材料：`3f91fd3` 中的源码契约与序列断言（`build/test-package-maintenance.ps1:93-101`、`:106-109`）、发布资产的字节数与 SHA-256，以及包内 470 个 cabinet 成员哈希——它们不能替代实机结论。今后如需实机复核，须在隔离环境重跑，并先将脱敏后的结果 JSON、命令与运行环境、日志归档入库，再清理测试目录。
 - 未验证项：中文安装路径（矩阵只覆盖含空格的英文路径）、位置校验/取消路径（卷根、UNC、无权限、数据目录冲突）、交互 UI 的 FilesInUse 对话框与取消/回滚路径、3010/待重启语义、降级拒绝、0.17.2 起点升级（矩阵以 0.17.4 为旧版）、DPI/窄窗口文案、Windows 10 实机、ARM64、干净 VM 与真实安装介质；后几项与 0.17.4 保持相同的验证边界，不影响本次两项修复的判定。
 
 ## 0.17.4：同版本维护自动扫描、健康分支提前结束与失败/待重启状态传播（2026-11-20）
