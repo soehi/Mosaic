@@ -134,9 +134,19 @@ with io.open(PAYLOAD, 'w', encoding='utf-8', newline='\n') as f:
     f.write('\n'.join(lines) + '\n')
 print('wrote %s: %d files, %d directories' % (PAYLOAD, len(components), len(directories) - 1))
 
+# 原生自定义动作与清单必须与本次 Payload.wxs 从同一发布目录生成，才能保证三者一致。
+ACTIONS_PS1 = os.path.join(ROOT, 'build', 'installer', 'actions', 'build-actions.ps1')
+ACTIONS_DLL = os.path.join(ROOT, 'build', 'installer', 'actions', 'bin', 'MosaicInstallerActions.dll')
+MANIFEST = os.path.join(PKGDIR, 'Manifest.tsv')
+if subprocess.call(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ACTIONS_PS1], cwd=ROOT):
+    sys.exit('Installer action build failed.')
+if subprocess.call([sys.executable, '-I', os.path.join(ROOT, 'scripts', 'generate_installer_manifest.py'), PUBLISH, MANIFEST], cwd=ROOT):
+    sys.exit('Installer manifest generation failed.')
+
 out = os.path.join(PKGDIR, VERSION) + os.sep
 args = ['dotnet', 'build', 'build/installer/Mosaic.Installer.wixproj', '-c', 'Release', '-m:1',
-        '-p:ProductVersion=' + VERSION, '-p:PayloadFile=' + PAYLOAD, '-p:OutputPath=' + out]
+        '-p:ProductVersion=' + VERSION, '-p:PayloadFile=' + PAYLOAD, '-p:OutputPath=' + out,
+        '-p:ActionsDll=' + ACTIONS_DLL, '-p:ManifestFile=' + MANIFEST]
 if SKIP_VALIDATION:
     args.append('-p:SuppressValidation=true')
 print('+', ' '.join(args))

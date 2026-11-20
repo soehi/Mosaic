@@ -6,8 +6,25 @@ $mosaicBase = Join-Path $mosaicPackages "Mosaic-$BaseVersion-win-x64.msi"
 $mosaicUpgrade = Join-Path $mosaicPackages "Mosaic-$UpgradeVersion-win-x64.msi"
 if (-not (Test-Path $mosaicBase) -or -not (Test-Path $mosaicUpgrade)) { throw 'Build both test MSI versions before running this check.' }
 $mosaicRegistryPaths = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')
-$mosaicExisting = $mosaicRegistryPaths | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } | Where-Object DisplayName -eq 'Mosaic'
+function Get-MosaicArpEntry {
+    return $mosaicRegistryPaths | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } | Where-Object DisplayName -eq 'Mosaic'
+}
+function Remove-MosaicTrailingSeparator([string]$Path) {
+    # PowerShell 5.1 的 .NET Framework 没有 [IO.Path]::TrimEndingDirectorySeparator。
+    $trimmed = $Path.TrimEnd('\', '/')
+    if ($trimmed.Length -eq 2 -and $trimmed[1] -eq ':') { return $trimmed + '\' }
+    return $trimmed
+}
+function Get-MosaicInstallLocation($Existing) {
+    # 以「应用和功能」登记的位置为准，其次读取安装器写入的元数据；旧版本两者都没有时才回退到旧固定默认目录。
+    if ($Existing -and $Existing.InstallLocation) { return Remove-MosaicTrailingSeparator $Existing.InstallLocation }
+    $registered = Get-ItemProperty -Path 'HKCU:\Software\Mosaic\Installer' -Name InstallLocation -ErrorAction SilentlyContinue
+    if ($registered -and $registered.InstallLocation) { return Remove-MosaicTrailingSeparator $registered.InstallLocation }
+    return Join-Path $env:LOCALAPPDATA 'Programs\Mosaic'
+}
+$mosaicExisting = Get-MosaicArpEntry
 if ($mosaicExisting -and (-not $UseExistingTestInstallation -or $mosaicExisting.DisplayVersion -ne $BaseVersion)) { throw 'An existing Mosaic installation must be left untouched. Use a clean test user.' }
+$mosaicLocation = Get-MosaicInstallLocation $mosaicExisting
 function Invoke-MosaicInstaller([string]$Action, [string]$Package, [string]$LogName) {
     $arguments = @($Action, ('"{0}"' -f $Package), '/qn', '/norestart', '/l*v', ('"{0}"' -f (Join-Path $mosaicPackages $LogName)))
     $process = Start-Process msiexec.exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
@@ -23,8 +40,8 @@ function Assert-MosaicDesktopShortcut([string]$ExpectedExecutable) {
     $actual = [IO.Path]::GetFullPath($shortcut.TargetPath)
     $expected = [IO.Path]::GetFullPath($ExpectedExecutable)
     if ($actual -ne $expected) { throw "Desktop shortcut target mismatch: $actual" }
-    $actualWorkingDirectory = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($shortcut.WorkingDirectory))
-    $expectedWorkingDirectory = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Split-Path $expected -Parent)))
+    $actualWorkingDirectory = Remove-MosaicTrailingSeparator ([IO.Path]::GetFullPath($shortcut.WorkingDirectory))
+    $expectedWorkingDirectory = Remove-MosaicTrailingSeparator ([IO.Path]::GetFullPath((Split-Path $expected -Parent)))
     if ($actualWorkingDirectory -ne $expectedWorkingDirectory) {
         throw "Desktop shortcut working directory mismatch: $($shortcut.WorkingDirectory)"
     }
@@ -53,27 +70,30 @@ $mosaicInstalled = [bool]$mosaicExisting
 try {
     if (-not $mosaicInstalled) {
         Invoke-MosaicInstaller '/i' $mosaicBase 'install-test.log'; $mosaicInstalled = $true
+        $mosaicLocation = Get-MosaicInstallLocation (Get-MosaicArpEntry)
         if (Test-MosaicPackageDesktopShortcut $mosaicBase) {
-            Assert-MosaicDesktopShortcut (Join-Path $env:LOCALAPPDATA 'Programs/Mosaic/Mosaic.Desktop.exe')
+            Assert-MosaicDesktopShortcut (Join-Path $mosaicLocation 'Mosaic.Desktop.exe')
         }
     }
     $mosaicPreviousExe = $env:MOSAIC_SMOKE_EXE
     try {
-        $env:MOSAIC_SMOKE_EXE = Join-Path $env:LOCALAPPDATA 'Programs/Mosaic/Mosaic.Desktop.exe'
+        $env:MOSAIC_SMOKE_EXE = Join-Path $mosaicLocation 'Mosaic.Desktop.exe'
         dotnet (Join-Path $mosaicRoot 'tests/Mosaic.Desktop.SmokeTests/bin/Release/net10.0-windows/Mosaic.Desktop.SmokeTests.dll') -method- '*Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds'
         if ($LASTEXITCODE) { throw 'Installed application smoke tests failed.' }
         Invoke-MosaicInstaller '/i' $mosaicUpgrade 'upgrade-test.log'
-        Assert-MosaicDesktopShortcut (Join-Path $env:LOCALAPPDATA 'Programs/Mosaic/Mosaic.Desktop.exe')
+        $mosaicUpgradedLocation = Get-MosaicInstallLocation (Get-MosaicArpEntry)
+        if ($mosaicUpgradedLocation -ne $mosaicLocation) { throw "Upgrade changed the install location: $mosaicUpgradedLocation" }
+        Assert-MosaicDesktopShortcut (Join-Path $mosaicUpgradedLocation 'Mosaic.Desktop.exe')
         if ((Get-FileHash -LiteralPath $mosaicSentinel).Hash -ne $mosaicBefore) { throw 'Upgrade modified user data.' }
         dotnet (Join-Path $mosaicRoot 'tests/Mosaic.Desktop.SmokeTests/bin/Release/net10.0-windows/Mosaic.Desktop.SmokeTests.dll') -method- '*Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds'
         if ($LASTEXITCODE) { throw 'Upgraded application smoke tests failed.' }
     } finally { $env:MOSAIC_SMOKE_EXE = $mosaicPreviousExe }
     Invoke-MosaicInstaller '/x' $mosaicUpgrade 'uninstall-test.log'; $mosaicInstalled = $false
     if ((Get-FileHash -LiteralPath $mosaicSentinel).Hash -ne $mosaicBefore) { throw 'Uninstall modified user data.' }
-    if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs/Mosaic/Mosaic.Desktop.exe')) { throw 'Uninstall left installed binaries.' }
+    if (Test-Path (Join-Path $mosaicLocation 'Mosaic.Desktop.exe')) { throw 'Uninstall left installed binaries.' }
     $desktopShortcut = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)) 'Mosaic.lnk'
     if (Test-Path -LiteralPath $desktopShortcut) { throw 'Uninstall left the desktop shortcut.' }
-    Write-Output 'PASS: per-user install, desktop shortcut, upgrade, two desktop smoke runs, uninstall, and user data preservation.'
+    Write-Output 'PASS: per-user install, desktop shortcut, location-preserving upgrade, two desktop smoke runs, uninstall, and user data preservation.'
 } finally {
     if ($mosaicInstalled) { Write-Warning 'Test installation remains present; inspect installer logs before removing it.' }
     Remove-Item -LiteralPath $mosaicSentinel

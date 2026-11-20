@@ -42,6 +42,7 @@ if ($mosaicNeedsPythonPackaging) {
     if ($LASTEXITCODE) { throw 'Installer build failed.' }
     Copy-Item -LiteralPath (Join-Path $mosaicBuildOutput "Mosaic-$ProductVersion-win-x64.msi") -Destination $mosaicPackage -Force
     & (Join-Path $PSScriptRoot 'test-package-shortcuts.ps1') -PackagePath $mosaicPackage
+    & (Join-Path $PSScriptRoot 'test-package-maintenance.ps1') -PackagePath $mosaicPackage -ExpectedVersion $ProductVersion
     exit 0
 }
 $mosaicNamespace = 'http://wixtoolset.org/schemas/v4/wxs'
@@ -82,12 +83,20 @@ Add-MosaicNode $cleanup 'RemoveFolder' @{ Id = 'RemoveUserProgramsIfEmpty'; Dire
 foreach ($directory in $mosaicDirectories.Values) { Add-MosaicNode $cleanup 'RemoveFolder' @{ Id = 'R' + (Get-MosaicId $directory); Directory = $directory; On = 'uninstall' } | Out-Null }
 Add-MosaicNode $cleanup 'RegistryValue' @{ Root = 'HKCU'; Key = 'Software\Mosaic\Installer'; Name = 'Directories'; Type = 'integer'; Value = '1'; KeyPath = 'yes' } | Out-Null
 $mosaicXml.Save($payload)
+# 原生自定义动作与清单必须与本次 Payload.wxs 从同一发布目录生成，才能保证三者一致。
+& (Join-Path $mosaicRoot 'build/installer/actions/build-actions.ps1')
+$mosaicActionsDll = Join-Path $mosaicRoot 'build/installer/actions/bin/MosaicInstallerActions.dll'
+$mosaicManifest = Join-Path $mosaicPackageDir 'Manifest.tsv'
+& python -I (Join-Path $mosaicRoot 'scripts/generate_installer_manifest.py') $mosaicPublish $mosaicManifest
+if ($LASTEXITCODE) { throw 'Installer manifest generation failed.' }
 Push-Location $mosaicRoot
 try {
     $mosaicBuildArguments = @(
         'build', 'build/installer/Mosaic.Installer.wixproj', '-c', 'Release', '-m:1',
         "-p:ProductVersion=$ProductVersion",
         "-p:PayloadFile=$payload",
+        "-p:ActionsDll=$mosaicActionsDll",
+        "-p:ManifestFile=$mosaicManifest",
         "-p:OutputPath=$mosaicBuildOutput/"
     )
     if ($SkipValidation) { $mosaicBuildArguments += '-p:SuppressValidation=true' }
@@ -97,4 +106,5 @@ try {
     $mosaicPackage = Join-Path $mosaicPackageDir "Mosaic-$ProductVersion-win-x64.msi"
     Copy-Item -LiteralPath (Join-Path $mosaicBuildOutput "Mosaic-$ProductVersion-win-x64.msi") -Destination $mosaicPackage -Force
     & (Join-Path $PSScriptRoot 'test-package-shortcuts.ps1') -PackagePath $mosaicPackage
+    & (Join-Path $PSScriptRoot 'test-package-maintenance.ps1') -PackagePath $mosaicPackage -ExpectedVersion $ProductVersion
 } finally { Pop-Location }

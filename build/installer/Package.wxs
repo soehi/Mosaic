@@ -3,7 +3,14 @@
     <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Mosaic。" Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
     <Property Id="WINDOWSBUILD"><RegistrySearch Id="WindowsBuildNumber" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion" Name="CurrentBuildNumber" Type="raw" Bitness="always64"/></Property>
+    <Property Id="MOSAICUPGRADECODE" Value="{4D2B073C-72D5-4C3A-B845-65FC2C52D23C}" Hidden="yes" />
+    <Property Id="ErrorDialog" Value="FatalError" Hidden="yes" />
+    <Property Id="MOSAICLOCATIONMISSING" Hidden="yes" />
+    <Property Id="DefaultUIFont" Value="MosaicFont" />
+    <UIRef Id="MosaicUI" />
     <Launch Condition="Installed OR (VersionNT64 AND WINDOWSBUILD &gt;= 19041)" Message="Mosaic 需要 64 位 Windows 10 2004 或更高版本。" />
+    <!-- 同版本但产品身份不同、或版本比本包新时停止安装，避免误修复或双份登记。 -->
+    <Launch Condition="NOT MOSAICBLOCKED" Message="[MOSAICSTATEERROR] 安装已停止。请使用与已安装版本匹配的安装包，或先在「应用和功能」中卸载现有 Mosaic。" />
     <StandardDirectory Id="LocalAppDataFolder"><Directory Id="UserPrograms" Name="Programs"><Directory Id="INSTALLFOLDER" Name="Mosaic" /></Directory></StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder"><Directory Id="MosaicMenu" Name="Mosaic">
       <Component Id="StartMenu" Guid="{EE2D7997-D220-49B1-9DDC-90C9C61F2FC8}">
@@ -18,12 +25,57 @@
         <RegistryValue Root="HKCU" Key="Software\Mosaic\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
+    <!-- 记录最终安装位置；随安装事务提交，维护与修复时保留。 -->
+    <Component Id="InstallPathMetadata" Guid="{3B8E5C41-6F2A-4D77-9C10-8A1B4E2D6F59}" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\Mosaic\Installer" Name="InstallLocation" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+    </Component>
     <!-- 仅在完整卸载时清理本工作区写入的登录启动项；升级走 MajorUpgrade，安装中检测到旧版本时跳过清理。 -->
     <Component Id="StartupCleanup" Guid="{7F1A2B93-3A11-4E6C-9A2B-2D1F0C7A6E55}" Directory="INSTALLFOLDER" Condition="NOT WIX_UPGRADE_DETECTED">
       <RegistryValue Root="HKCU" Key="Software\Mosaic\Startup" Name="DataRoot" Type="string" Value="" KeyPath="yes" />
       <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Mosaic" Id="RemoveStartupRun" />
       <RemoveRegistryValue Root="HKCU" Key="Software\Mosaic\Startup" Name="DataRoot" Id="RemoveStartupOwnership" />
     </Component>
-    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/><ComponentRef Id="DesktopShortcut"/><ComponentRef Id="StartupCleanup"/></Feature>
+    <Feature Id="Application" Title="Mosaic" Level="1"><ComponentGroupRef Id="Payload"/><ComponentRef Id="StartMenu"/><ComponentRef Id="DesktopShortcut"/><ComponentRef Id="InstallPathMetadata"/><ComponentRef Id="StartupCleanup"/></Feature>
+    <!-- 原生自定义动作不依赖安装目录、.NET 或 VC 运行库，安装目录被删除后仍可扫描。 -->
+    <Binary Id="MosaicActions" SourceFile="$(var.ActionsDll)" />
+    <Binary Id="MosaicPayloadManifest" SourceFile="$(var.ManifestFile)" />
+    <CustomAction Id="DetectInstallState" BinaryRef="MosaicActions" DllEntry="DetectInstallState" Execute="immediate" Return="check" />
+    <CustomAction Id="ScanPayload" BinaryRef="MosaicActions" DllEntry="ScanPayload" Execute="immediate" Return="check" />
+    <CustomAction Id="ValidateInstallFolder" BinaryRef="MosaicActions" DllEntry="ValidateInstallFolder" Execute="immediate" Return="check" />
+    <CustomAction Id="EnforceInstallFolder" BinaryRef="MosaicActions" DllEntry="EnforceInstallFolder" Execute="immediate" Return="check" />
+    <CustomAction Id="RestoreDefaultInstallFolder" BinaryRef="MosaicActions" DllEntry="RestoreDefaultInstallFolder" Execute="immediate" Return="check" />
+    <CustomAction Id="BrowseInstallFolder" BinaryRef="MosaicActions" DllEntry="BrowseInstallFolder" Execute="immediate" Return="check" />
+    <CustomAction Id="VerifyRepairedPayload" BinaryRef="MosaicActions" DllEntry="VerifyRepairedPayload" Execute="immediate" Return="check" />
+    <CustomAction Id="SetArpInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" />
+    <InstallExecuteSequence>
+      <Custom Action="DetectInstallState" Sequence="26" Condition="NOT REMOVE" />
+      <!-- 静默安装先校验 INSTALLFOLDER：无效路径直接失败，不静默退回默认目录。 -->
+      <Custom Action="EnforceInstallFolder" Sequence="950" Condition="NOT Installed AND NOT REMOVE" />
+      <Custom Action="ScanPayload" Sequence="990" Condition="NOT REMOVE AND MOSAICSTATE = &quot;Maintenance&quot;" />
+      <!-- InstallLocation 在安装、升级与已确认位置的维护中都要写入；位置未能确认的旧版本
+           维护和卸载不写入，避免把猜测出的默认目录登记成真实位置。 -->
+      <Custom Action="SetArpInstallLocation" After="CostFinalize" Condition="NOT Installed OR MOSAICLOCATIONINHERITED" />
+      <!-- 修复后复检在事务提交之后执行，只负责给出结论，不回滚已完成的修复。 -->
+      <Custom Action="VerifyRepairedPayload" Sequence="6700" Condition="NOT REMOVE AND (REINSTALL OR MOSAICREPAIRNEEDED)" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <Custom Action="DetectInstallState" Sequence="30" Condition="NOT REMOVE" />
+      <Show Dialog="FreshStartDlg" Sequence="1001" Condition="MOSAICSTATE = &quot;Fresh&quot;" />
+      <Show Dialog="MaintStartDlg" Sequence="1002" Condition="MOSAICSTATE = &quot;Maintenance&quot;" />
+      <Show Dialog="UpgradeDlg" Sequence="1003" Condition="MOSAICSTATE = &quot;Upgrade&quot;" />
+      <Show Dialog="BlockedDlg" Sequence="1004" Condition="MOSAICSTATE = &quot;BlockedSameVersion&quot; OR MOSAICSTATE = &quot;BlockedNewer&quot;" />
+      <Show Dialog="UnknownDlg" Sequence="1005" Condition="MOSAICSTATE = &quot;Unknown&quot;" />
+      <Show Dialog="ProgressDlg" Sequence="1290" />
+      <!-- 修复完成后在 UI 侧复检并显示结果；静默安装由 ExecuteSequence 6700 记录复检结论。 -->
+      <Custom Action="VerifyRepairedPayload" Sequence="1301" Condition="NOT REMOVE AND MOSAICREPAIRNEEDED" />
+      <Show Dialog="Exit" Sequence="1303" />
+      <Show Dialog="FatalError" OnExit="error" />
+      <Show Dialog="UserExit" OnExit="cancel" />
+    </InstallUISequence>
+    <AdminUISequence>
+      <Show Dialog="Exit" Sequence="1301" />
+      <Show Dialog="FatalError" OnExit="error" />
+      <Show Dialog="UserExit" OnExit="cancel" />
+    </AdminUISequence>
   </Package>
 </Wix>

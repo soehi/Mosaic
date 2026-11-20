@@ -1,14 +1,24 @@
 <Project Sdk="WixToolset.Sdk/4.0.6">
   <PropertyGroup>
     <OutputName>Mosaic-$(ProductVersion)-win-x64</OutputName>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">0.17.2</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.17.3</ProductVersion>
     <InstallerPlatform>x64</InstallerPlatform>
-    <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
+    <!-- 原生自定义动作 DLL：包含状态检测、完整性扫描、路径校验与修复后复检。 -->
+    <ActionsDll Condition="'$(ActionsDll)' == ''">$(MSBuildThisFileDirectory)actions\bin\MosaicInstallerActions.dll</ActionsDll>
+    <!-- 安装包内嵌的受管文件清单，扫描以其为唯一可信依据。 -->
+    <ManifestFile Condition="'$(ManifestFile)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\installer\Manifest.tsv</ManifestFile>
+    <DefineConstants>ProductVersion=$(ProductVersion);ActionsDll=$(ActionsDll);ManifestFile=$(ManifestFile)</DefineConstants>
     <!-- ICE91 concerns per-machine installs; this package is strictly per-user.
          ICE60 flags the upstream language-neutral e_sqlite3.dll version resource.
          ICE46 reports the launch condition using WINDOWSBUILD while the property is declared
-         as WindowsBuild; both are the same case-insensitive MSI property, so it is a false positive. -->
-    <SuppressIces>ICE91;ICE60;ICE46</SuppressIces>
+         as WindowsBuild; both are the same case-insensitive MSI property, so it is a false positive.
+         ICE17 is inapplicable to FilesInUse: its list box is populated by the installer at run time,
+         so it cannot have a ListBox table row (the dialog itself is authored with Property FileInUseProcess).
+         ICE20's checks assume the WixUI library layout; this package authors its own Chinese UI and
+         verifies the equivalent facts directly in the built MSI (ErrorDialog has ErrorText as
+         Control_First plus the standard ErrorOk..ErrorAbort buttons; FatalError/UserExit/Exit are
+         present in InstallUISequence/AdminUISequence) - see build/test-package-maintenance.ps1. -->
+    <SuppressIces>ICE91;ICE60;ICE46;ICE17;ICE20</SuppressIces>
   </PropertyGroup>
   <ItemGroup><Compile Include="$(PayloadFile)" /></ItemGroup>
 </Project>
