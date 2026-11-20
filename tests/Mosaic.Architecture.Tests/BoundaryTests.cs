@@ -47,12 +47,13 @@ public sealed class BoundaryTests
     private static bool IsWindowsProject(string name) =>
         name is "Mosaic.Desktop" or "Mosaic.Shell.Wpf" or "Mosaic.Presentation.Contracts" or "Mosaic.Presentation.Wpf"
             or "Mosaic.Tasks.Wpf" or "Mosaic.Settings.Wpf" or "Mosaic.DesktopPresence.Wpf" or "Mosaic.FloatingWindows.Wpf"
-            or "Mosaic.Auth.Windows" or "Mosaic.Auth.Wpf";
+            or "Mosaic.Auth.Windows" or "Mosaic.Auth.Wpf"
+            or "Mosaic.Maintenance.Windows" or "Mosaic.Maintenance.Wpf";
     private static void CheckFramework(string project, string dependency)
     {
         if (dependency.StartsWith("Microsoft.Data.Sqlite", StringComparison.Ordinal) || dependency.StartsWith("SQLitePCLRaw", StringComparison.Ordinal)) Assert.Equal("Mosaic.Storage.Sqlite", project);
-        if (dependency.StartsWith("CommunityToolkit.Mvvm", StringComparison.Ordinal)) Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf", "Mosaic.FloatingWindows.Wpf", "Mosaic.Auth.Wpf" });
-        if (dependency is "PresentationFramework" or "PresentationCore" or "WindowsBase") Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf", "Mosaic.FloatingWindows.Wpf", "Mosaic.Auth.Wpf" });
+        if (dependency.StartsWith("CommunityToolkit.Mvvm", StringComparison.Ordinal)) Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf", "Mosaic.FloatingWindows.Wpf", "Mosaic.Auth.Wpf", "Mosaic.Maintenance.Wpf" });
+        if (dependency is "PresentationFramework" or "PresentationCore" or "WindowsBase") Assert.Contains(project, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Contracts", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf", "Mosaic.FloatingWindows.Wpf", "Mosaic.Auth.Wpf", "Mosaic.Maintenance.Wpf" });
         if (dependency.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)) Assert.Equal("Mosaic.Desktop", project);
     }
     [Fact]
@@ -72,7 +73,7 @@ public sealed class BoundaryTests
                 // WPF may emit this one compiler helper on clean builds and omit it incrementally.
                 if (metadata.GetString(type.Namespace) == "XamlGeneratedNamespace" && metadata.GetString(type.Name) == "GeneratedInternalTypeHelper")
                 {
-                    Assert.Contains(name, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf", "Mosaic.FloatingWindows.Wpf", "Mosaic.Auth.Wpf" });
+                    Assert.Contains(name, new[] { "Mosaic.Desktop", "Mosaic.Shell.Wpf", "Mosaic.Presentation.Wpf", "Mosaic.Tasks.Wpf", "Mosaic.Settings.Wpf", "Mosaic.DesktopPresence.Wpf", "Mosaic.FloatingWindows.Wpf", "Mosaic.Auth.Wpf", "Mosaic.Maintenance.Wpf" });
                     continue;
                 }
                 if ((type.Attributes & TypeAttributes.VisibilityMask) is TypeAttributes.Public or TypeAttributes.NestedPublic)

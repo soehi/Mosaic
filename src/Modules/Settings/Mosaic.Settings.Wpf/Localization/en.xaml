@@ -30,6 +30,7 @@
     <sys:String x:Key="Settings.Section.Appearance">Appearance and layout</sys:String>
     <sys:String x:Key="Settings.Section.Storage">Storage and system</sys:String>
     <sys:String x:Key="Settings.Section.Text">Text</sys:String>
+    <sys:String x:Key="Settings.Section.Maintenance">Maintenance</sys:String>
     <sys:String x:Key="Settings.Navigation">Settings</sys:String>
     <sys:String x:Key="Settings.ResetSection.Detail">Restore this section to its defaults. This cannot be undone.</sys:String>
     <sys:String x:Key="Settings.ResetAll.Detail">Restore every setting to its default. This cannot be undone.</sys:String>

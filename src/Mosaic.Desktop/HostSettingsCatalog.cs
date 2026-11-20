@@ -22,8 +22,8 @@ internal static class HostSettingsCatalog
                 "Settings.Setting.StartupHeight.Description"),
             Text("storage.filename", "Settings.Setting.DatabaseFilename", DefaultStorageFilename,
                 "数据库文件名", "SQLite 数据库文件名", "Settings.Setting.DatabaseFilename.Description"),
-            Text("storage.location", "Settings.Setting.DatabaseLocation", DefaultStorageLocation,
-                "数据库位置", "数据库存储位置", "Settings.Setting.DatabaseLocation.Description"),
+            // storage.location stays a host override written by the maintenance page after a verified
+            // migration; editing it as plain text created an empty database at the new path.
             new SettingDefinition("host.modules", ModuleId, "启用模块", "重启时启用的模块列表",
                 SettingValueKind.ModuleList, BuiltInModuleCatalog.DefaultModules.ToArray(), null, null, null,
                 SettingsGroup.StorageSystem, SettingCategory.Advanced, SettingApplyMode.Restart,

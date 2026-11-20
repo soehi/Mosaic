@@ -5,6 +5,9 @@ using Mosaic.Auth.Wpf;
 using Mosaic.Contracts;
 using Mosaic.FloatingWindows.Sqlite;
 using Mosaic.FloatingWindows.Wpf;
+using Mosaic.Maintenance.Contracts;
+using Mosaic.Maintenance.Windows;
+using Mosaic.Maintenance.Wpf;
 using Mosaic.ReleaseSummary;
 using System.Reflection;
 using Mosaic.Presentation.Contracts;
@@ -12,6 +15,7 @@ using Mosaic.Settings.Core;
 using Mosaic.Settings.Contracts;
 using Mosaic.Settings.Sqlite;
 using Mosaic.Settings.Wpf;
+using Mosaic.Storage.Contracts;
 using Mosaic.Storage.Sqlite;
 using Mosaic.Sync.Core;
 using Mosaic.Sync.Http;
@@ -61,6 +65,8 @@ internal sealed class ModuleRuntimeContext(
     internal AuthModule? Auth { get; set; }
     internal HttpSyncModule? SyncTransport { get; set; }
     internal SyncModule? Sync { get; set; }
+    internal WindowsMaintenanceService? Maintenance { get; set; }
+    internal IApplicationLifecycle? Lifecycle { get; init; }
 }
 
 internal static class BuiltInModuleCatalog
@@ -71,15 +77,17 @@ internal static class BuiltInModuleCatalog
     {
         [SqliteModule.Definition.Id] = new(SqliteModule.Definition, context =>
         {
+            var databasePath = context.Paths.Database(context.StorageConfiguration);
             context.Storage = new(new(
-                context.Paths.Database(context.StorageConfiguration),
+                databasePath,
                 StorageIntSetting(context.HostSettings, "storage.queueCapacity"),
                 StorageIntSetting(context.HostSettings, "storage.busyTimeoutSeconds"),
                 StorageIntSetting(context.HostSettings, "storage.backupRetention"),
                 context.HostSettings?.GetValue("storage.journalMode") as string == "Wal" ? SqliteJournalMode.Wal : SqliteJournalMode.Delete,
                 context.HostSettings?.GetValue("storage.connectionMode") as string == "PooledPerOperation" ? SqliteConnectionMode.PooledPerOperation : SqliteConnectionMode.ReusedSingle,
                 context.ConfigurationExisted),
-                context.Diagnostics);
+                context.Diagnostics,
+                new SqliteStorageRelocation(databasePath, context.Paths.ConfigDirectory));
             context.DeferredSettingSources.Add(context.Storage.Settings);
             return context.Storage;
         }),
@@ -213,6 +221,19 @@ internal static class BuiltInModuleCatalog
                 context.Sync?.Api ?? throw new InvalidOperationException("Backup API was not assembled before account UI."),
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings API was not assembled before account UI."),
                 context.Dispatcher,
+                context.Dialogs,
+                context.Diagnostics,
+                context.SettingsPages));
+        }),
+        [MaintenanceUiModule.Definition.Id] = new(MaintenanceUiModule.Definition, context =>
+        {
+            var relocation = context.Storage?.GetCapability(new("storage.relocation", 1)) as IStorageRelocation
+                ?? throw new InvalidOperationException("Storage relocation capability was not assembled before maintenance UI.");
+            context.Maintenance = new(context.Paths.Root);
+            return new MaintenanceUiModule(new(
+                relocation,
+                context.Maintenance,
+                context.Lifecycle ?? throw new InvalidOperationException("Application lifecycle was not supplied to maintenance UI."),
                 context.Dialogs,
                 context.Diagnostics,
                 context.SettingsPages));

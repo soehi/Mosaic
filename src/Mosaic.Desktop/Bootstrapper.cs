@@ -7,6 +7,7 @@ using Mosaic.Presentation.Contracts;
 using Mosaic.Settings.Contracts;
 using Mosaic.Shell.Wpf;
 using Mosaic.DesktopPresence.Contracts;
+using Mosaic.Maintenance.Contracts;
 
 namespace Mosaic.Desktop;
 
@@ -26,11 +27,12 @@ internal sealed class Bootstrapper : IAsyncDisposable
         _runtime.ModuleStarted += OnModuleStarted;
         _runtime.ModuleStopping += OnModuleStopping;
     }
-    internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs, IDesktopWindowHost windowHost, bool? configurationExistedAtStartup = null)
+    internal async Task<ShellWindow> StartAsync(AppPaths paths, IUiDispatcher dispatcher, IUserDialogService dialogs, IDesktopWindowHost windowHost, bool? configurationExistedAtStartup = null, IApplicationLifecycle? lifecycle = null)
     {
         var configurationExisted = configurationExistedAtStartup ?? File.Exists(paths.ConfigPath);
         var configuration = AppConfiguration.Load(paths);
         var hostSettings = new HostSettingSource(paths, configuration);
+        await StartupStorageRelocation.RunAsync(paths, configuration, hostSettings);
         var storage = new StorageConfiguration(
             "sqlite",
             hostSettings.GetValue("storage.location") as string ?? configuration.Storage.Location,
@@ -69,21 +71,25 @@ internal sealed class Bootstrapper : IAsyncDisposable
         {
             HostSettings = hostSettings,
             ConfigurationExisted = configurationExisted,
-            WindowHost = windowHost
+            WindowHost = windowHost,
+            Lifecycle = lifecycle
         };
-        try
+        await _runtime.DisposeAsync();
+        _runtime.ModuleStarted -= OnModuleStarted;
+        _runtime.ModuleStopping -= OnModuleStopping;
+        // ModuleRuntime holds no start-time state; disposing it cannot affect the next launch.
+        // A second StartAsync mirrors a restart after a queued storage relocation or repair.
+        await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest), CancellationToken.None, async (module, token) =>
         {
-            await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest), CancellationToken.None, async (module, token) =>
-            {
-                if (module is not Mosaic.Auth.Core.AuthModule) return;
-                var installationState = _runtime.Resolve<Mosaic.Storage.Contracts.IInstallationState>(new("startup.installation-state", 1), configuredProviders);
-                var classification = await installationState.GetInstallationKindAsync(token);
-                if (!classification.IsSuccess) throw new InvalidOperationException("Cannot determine installation state: " + classification.Error?.Message);
-                var repository = _runtime.Resolve<ISettingRepository>(new("settings.repository", 1), configuredProviders);
-                var initialization = Mosaic.Auth.Core.AuthModule.InitialAccountChoice(classification.Value == Mosaic.Storage.Contracts.InstallationKind.Legacy);
-                var initialized = await repository.InitializeAsync(initialization, token);
-                if (!initialized.IsSuccess) throw new InvalidOperationException("Settings initialization failed: " + initialized.Error?.Message);
-            });
+            if (module is not Mosaic.Auth.Core.AuthModule) return;
+            var installationState = _runtime.Resolve<Mosaic.Storage.Contracts.IInstallationState>(new("startup.installation-state", 1), configuredProviders);
+            var classification = await installationState.GetInstallationKindAsync(token);
+            if (!classification.IsSuccess) throw new InvalidOperationException("Cannot determine installation state: " + classification.Error?.Message);
+            var repository = _runtime.Resolve<ISettingRepository>(new("settings.repository", 1), configuredProviders);
+            var initialization = Mosaic.Auth.Core.AuthModule.InitialAccountChoice(classification.Value == Mosaic.Storage.Contracts.InstallationKind.Legacy);
+            var initialized = await repository.InitializeAsync(initialization, token);
+            if (!initialized.IsSuccess) throw new InvalidOperationException("Settings initialization failed: " + initialized.Error?.Message);
+        });
             Presence = context.Presence;
             Floating=context.Floating;
             if (context.ReleaseSummary is { } summary) await summary.RequestStartupReadyAsync();
@@ -92,17 +98,6 @@ internal sealed class Bootstrapper : IAsyncDisposable
             _settingsCore = settingsApi;
             _shellSettingsRegistration = settingsApi?.Register(new ShellSettingSource());
             return new ShellWindow(_contributions, dialogs, settingsApi, context.SettingsPages);
-        }
-        catch (Exception)
-        {
-            try { await DisposeAsync(); }
-            catch (Exception cleanupError)
-            {
-                var correlationId = Guid.NewGuid().ToString("N");
-                try { diagnostics.Report(correlationId, cleanupError); } catch { }
-            }
-            throw;
-        }
     }
     public async ValueTask DisposeAsync()
     {

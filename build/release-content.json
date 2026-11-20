@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.16.6",
+  "currentReleaseId": "mosaic-0.17.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -537,6 +537,21 @@
         "修复全新安装被误判为旧安装的问题：单实例初始化会提前创建默认配置，改为在进程启动时先记录配置存在性。"
       ],
       "contentSha256": "EEEAD1058CDF7B8762BCED82DB042B1D36A3BC064C5D9ED486040BC40306AD5D"
+    },
+    {
+      "releaseId": "mosaic-0.17.0",
+      "version": "0.17.0",
+      "releasedOn": "2026-11-20",
+      "previousReleaseId": "mosaic-0.16.6",
+      "added": [
+        "设置新增「维护」页：应用内卸载本软件（可选同时删除用户数据，经两次确认，退出后由助手进程执行 msiexec /x，等待父进程结束）、修复安装（msiexec /famus），便携/开发构建自动隐藏不可用的安装操作",
+        "存储位置迁移：维护页选择目标文件夹后重启即迁移数据库（含 WAL 检查点与完整性校验），默认保留旧库可选删除，目标目录已有库时拒绝，迁移结果重启后展示"
+      ],
+      "improved": [
+        "移除公开可编辑的存储路径文本设置，数据库位置改由维护页通过校验后的迁移流程写入，避免直接改路径导致新位置出现空库、旧数据被留下"
+      ],
+      "fixed": [],
+      "contentSha256": "820F365C3E33B3E4A18030DE4BE6CE4A31F510FA9E98AD1CD7896611B2E2DBCE"
     }
   ]
 }

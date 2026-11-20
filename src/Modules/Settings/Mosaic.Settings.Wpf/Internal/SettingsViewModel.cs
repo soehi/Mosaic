@@ -16,7 +16,8 @@ internal enum SettingsSection
     Text,
     DesktopPresence,
     FloatingWindows,
-    AccountsAndBackup
+    AccountsAndBackup,
+    Maintenance
 }
 
 internal sealed class SettingRow : ObservableObject
@@ -643,6 +644,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         SettingsGroup.DesktopPresence => SettingsSection.DesktopPresence,
         SettingsGroup.FloatingWindows => SettingsSection.FloatingWindows,
         SettingsGroup.AccountsAndBackup => SettingsSection.AccountsAndBackup,
+        SettingsGroup.Maintenance => SettingsSection.Maintenance,
         _ => SettingsSection.Tasks
     };
     private void ApplySectionFilter()
@@ -756,6 +758,7 @@ internal sealed class SettingsSectionNameConverter : System.Windows.Data.IValueC
         SettingsSection.DesktopPresence => SettingsLocalization.Localize("Settings.Section.DesktopPresence", "驻留与边缘"),
         SettingsSection.FloatingWindows => SettingsLocalization.Localize("Settings.Section.FloatingWindows", "悬浮任务窗"),
         SettingsSection.AccountsAndBackup => SettingsLocalization.Localize("Settings.Section.AccountsAndBackup", "账户与备份"),
+        SettingsSection.Maintenance => SettingsLocalization.Localize("Settings.Section.Maintenance", "维护"),
         _ => string.Empty
     };
 

@@ -18,6 +18,7 @@ public partial class App : Application
     private IDisposable? _desktopLocalization;
     private readonly DesktopWindowHost _windowHost = new();
     private ShutdownCoordinator? _coordinator;
+    private DesktopApplicationLifecycle? _lifecycle;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -54,11 +55,13 @@ public partial class App : Application
                 else if (_windowHost.Window is not null) await _windowHost.RestoreMainWindowAsync();
                 else MainWindow?.Activate();
             })));
-            shell = await _bootstrapper.StartAsync(_paths, new UiDispatcher(Dispatcher), new UserDialogService(), _windowHost, configurationExisted);
+            _lifecycle = DesktopApplicationLifecycle.Create();
+            shell = await _bootstrapper.StartAsync(_paths, new UiDispatcher(Dispatcher), new UserDialogService(), _windowHost, configurationExisted, _lifecycle);
             _shell = shell;
             _windowHost.Window = shell;
             await shell.InitializeAsync();
             _coordinator = new ShutdownCoordinator(shell, _bootstrapper, FinishAsync, ReportFailure);
+            _lifecycle.Coordinator = _coordinator;
             _windowHost.Coordinator = _coordinator;
             _coordinator.Attach();
             MainWindow = shell;

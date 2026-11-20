@@ -10,8 +10,8 @@ $mosaicPublish = if ([IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirec
 if (-not (Test-Path -LiteralPath (Join-Path $mosaicPublish 'Mosaic.Desktop.exe'))) { throw 'Publish the application first.' }
 & (Join-Path $PSScriptRoot 'verify-published.ps1') -PublishDirectory $mosaicPublish -ProductVersion $ProductVersion
 # PowerShell 5.1 cannot parse release-content.ps1 on a zh-CN host (UTF-8 without BOM);
-    # python release_content_verify.py already runs the identical checks and rewrites the manifest.
-    & python -I (Join-Path $env:TEMP 'claude/83a0b83b7ae46749/release_content_verify.py')
+    # the tracked python port already runs the identical checks and rewrites the manifest.
+    & python -I (Join-Path $mosaicRoot 'scripts/release_content_verify.py')
     if ($LASTEXITCODE) { throw 'Release content verification failed.' }
 $mosaicRuntimeDataDirectories = @('Data', 'Config', 'Logs')
 function Test-MosaicPayloadItem([IO.FileSystemInfo]$Item) {
@@ -31,7 +31,7 @@ $mosaicPackage = Join-Path $mosaicPackageDir "Mosaic-$ProductVersion-win-x64.msi
 # the MSI; the WiX project and Package.wxs stay the single source of truth either way.
 $mosaicNeedsPythonPackaging = $null -eq [IO.Path].GetMethod('GetRelativePath', [type[]]@([string], [string]))
 if ($mosaicNeedsPythonPackaging) {
-    & python -I (Join-Path $env:TEMP 'claude/83a0b83b7ae46749/package_payload.py') $ProductVersion $(if ($SkipValidation) { 'skip-validation' })
+    & python -I (Join-Path $mosaicRoot 'scripts/package_payload.py') $ProductVersion $(if ($SkipValidation) { 'skip-validation' })
     if ($LASTEXITCODE) { throw 'Installer build failed.' }
     Copy-Item -LiteralPath (Join-Path $mosaicBuildOutput "Mosaic-$ProductVersion-win-x64.msi") -Destination $mosaicPackage -Force
     & (Join-Path $PSScriptRoot 'test-package-shortcuts.ps1') -PackagePath $mosaicPackage

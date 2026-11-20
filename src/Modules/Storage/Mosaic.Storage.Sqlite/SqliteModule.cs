@@ -57,19 +57,26 @@ public sealed class SqliteModule : IModuleActivation, ICapabilityProvider
 {
     private readonly SqliteOptions _options;
     private readonly IDiagnosticSink _diagnostics;
+    private readonly IStorageRelocation? _relocation;
     private DatabaseWorker? _worker;
     public ISettingSource Settings { get; } = new StorageSettingSource();
-    public SqliteModule(SqliteOptions options, IDiagnosticSink diagnostics) { _options = options; _diagnostics = diagnostics; }
+    public SqliteModule(SqliteOptions options, IDiagnosticSink diagnostics, IStorageRelocation? relocation = null)
+    {
+        _options = options;
+        _diagnostics = diagnostics;
+        _relocation = relocation ?? new SqliteStorageRelocation(options.DatabasePath, Path.Combine(Path.GetDirectoryName(options.DatabasePath)!, "..", "Config"));
+    }
     public static ModuleManifest Definition { get; } = new(
         "storage-sqlite",
-        [new("sqlite.session", 1), new("startup.installation-state", 1)],
+        [new("sqlite.session", 1), new("startup.installation-state", 1), new("storage.relocation", 1)],
         [],
-        "Owns the SQLite connection, serialized execution queue, migrations and backups.");
+        "Owns the SQLite connection, serialized execution queue, migrations, backups and database relocation.");
     public ModuleManifest Manifest => Definition;
     public object? GetCapability(CapabilityId capability) => capability.Name switch
     {
         "sqlite.session" when capability.MajorVersion == 1 => Session,
         "startup.installation-state" when capability.MajorVersion == 1 => Session as IInstallationState,
+        "storage.relocation" when capability.MajorVersion == 1 => _relocation,
         _ => null
     };
     public IDatabaseSession Session => _worker ?? throw new InvalidOperationException("Storage is not active.");

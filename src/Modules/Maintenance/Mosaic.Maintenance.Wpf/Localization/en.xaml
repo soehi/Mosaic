@@ -1,0 +1,37 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Maintenance.Title">Maintenance</sys:String>
+    <sys:String x:Key="Maintenance.Subtitle">Relocate the database, or repair and uninstall Mosaic. Actions that exit the app take effect on the next start.</sys:String>
+    <sys:String x:Key="Maintenance.Busy">Working…</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Title">Storage location</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Current">Current database</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Size">Database size</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Target">New storage folder</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Browse">Choose folder</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Migrate">Migrate and restart</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Hint">Only the database is copied; credentials, logs and configuration stay in the original data folder. The app restarts when the copy is done, and the original data is kept.</sys:String>
+    <sys:String x:Key="Maintenance.App.Title">Application</sys:String>
+    <sys:String x:Key="Maintenance.App.DataRoot">Local data folder</sys:String>
+    <sys:String x:Key="Maintenance.App.DeleteData">Also delete local data on uninstall (cannot be undone)</sys:String>
+    <sys:String x:Key="Maintenance.App.Repair">Repair install</sys:String>
+    <sys:String x:Key="Maintenance.App.Uninstall">Uninstall Mosaic</sys:String>
+    <sys:String x:Key="Maintenance.App.Hint">The MSI build supports uninstalling and repairing from here; portable or development builds must be removed manually.</sys:String>
+
+    <sys:String x:Key="Maintenance.Install.Installed">Installed {0} · {1}</sys:String>
+    <sys:String x:Key="Maintenance.Install.Portable">Portable or development build; in-app uninstall is unavailable</sys:String>
+    <sys:String x:Key="Maintenance.Install.Unavailable">Installation state is unknown</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.ConfirmTitle">Migrate database</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.ConfirmMessage">The database will be copied to {0}, verified, and the app will switch to the new location and restart. The original data is kept. Credentials, logs and configuration are not migrated.</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.Scheduled">Migration queued; it runs as soon as the app exits.</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.Failed">The previous migration did not finish: </sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.Title">Uninstall Mosaic</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.Confirm">Mosaic will be uninstalled. Local data is kept so a reinstall can continue where you left off.</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.ConfirmWithData">Mosaic will be uninstalled and the local data folder (database, credentials, logs and configuration) deleted. This cannot be undone.</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.DeleteDataTitle">Delete local data too?</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.Started">Uninstall starts after the app exits.</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Title">Repair install</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Confirm">Windows Installer will repair Mosaic and restart the app when it finishes.</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Started">Repair starts after the app exits.</sys:String>
+    <sys:String x:Key="Maintenance.Error.Unknown">The action did not complete. Try again later.</sys:String>
+</ResourceDictionary>

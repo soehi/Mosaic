@@ -17,7 +17,8 @@ internal sealed record AppConfiguration(
     private const string ReleaseSummaryMigration = "release-summary-v1";
     private const string FloatingMigration="floating-windows-v1";
     private const string AuthSyncMigration = "auth-sync-v1";
-    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration,FloatingMigration,AuthSyncMigration];
+    private const string MaintenanceMigration = "maintenance-v1";
+    private static readonly string[] KnownMigrations = [PresenceMigration, ReleaseSummaryMigration,FloatingMigration,AuthSyncMigration,MaintenanceMigration];
 
     internal static AppConfiguration Load(AppPaths paths)
     {
@@ -53,6 +54,9 @@ internal sealed record AppConfiguration(
 
         if (!appliedMigrations.Contains(AuthSyncMigration, StringComparer.Ordinal))
             configuration = ApplyAuthSyncMigration(configuration);
+
+        if (!appliedMigrations.Contains(MaintenanceMigration, StringComparer.Ordinal))
+            configuration = ApplyMaintenanceMigration(configuration);
 
         if (configuration != original)
         {
@@ -277,6 +281,35 @@ internal sealed record AppConfiguration(
             Providers = overrideModules || overrideProviders ? configuration.Providers : providers,
             Settings = settings,
             AppliedMigrations = MarkMigration(configuration, AuthSyncMigration)
+        };
+    }
+
+    private static AppConfiguration ApplyMaintenanceMigration(AppConfiguration configuration)
+    {
+        var settings = configuration.Settings is null
+            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            : new Dictionary<string, JsonElement>(configuration.Settings, StringComparer.Ordinal);
+        var overrideModules = settings.ContainsKey("host.modules");
+        var overrideProviders = settings.ContainsKey("host.providers");
+        var modules = (ReadModuleOverride(configuration) ?? configuration.Modules).ToList();
+        var providers = new Dictionary<string, string>(ReadProviderOverride(configuration) ?? configuration.Providers, StringComparer.Ordinal);
+        if (modules.Contains("settings-ui", StringComparer.Ordinal))
+        {
+            // Existing installs without the maintenance modules would fail ModuleGraph.Resolve because
+            // storage-sqlite now also provides storage.relocation@1 and maintenance-ui needs a binding.
+            if (!modules.Contains("storage-sqlite", StringComparer.Ordinal)) modules.Add("storage-sqlite");
+            if (!modules.Contains("maintenance-ui", StringComparer.Ordinal)) modules.Add("maintenance-ui");
+            providers.TryAdd("storage.relocation@1", "storage-sqlite");
+            providers.TryAdd("app.maintenance@1", "maintenance-ui");
+        }
+        if (overrideModules) settings["host.modules"] = JsonSerializer.SerializeToElement(modules.ToArray());
+        if (overrideModules || overrideProviders) settings["host.providers"] = JsonSerializer.SerializeToElement(providers);
+        return configuration with
+        {
+            Modules = overrideModules ? configuration.Modules : modules.ToArray(),
+            Providers = overrideModules || overrideProviders ? configuration.Providers : providers,
+            Settings = settings,
+            AppliedMigrations = MarkMigration(configuration, MaintenanceMigration)
         };
     }
 

@@ -1,0 +1,37 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Maintenance.Title">维护</sys:String>
+    <sys:String x:Key="Maintenance.Subtitle">迁移数据库位置，或修复、卸载 Mosaic。涉及退出应用的操作会在下次启动时生效。</sys:String>
+    <sys:String x:Key="Maintenance.Busy">正在处理…</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Title">存储位置</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Current">当前数据库</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Size">数据库大小</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Target">新的存储文件夹</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Browse">选择文件夹</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Migrate">迁移并重启</sys:String>
+    <sys:String x:Key="Maintenance.Storage.Hint">迁移只复制数据库，登录凭据、日志和配置仍留在原数据目录。迁移完成后会自动重启；原位置的数据默认保留。</sys:String>
+    <sys:String x:Key="Maintenance.App.Title">应用</sys:String>
+    <sys:String x:Key="Maintenance.App.DataRoot">本机数据目录</sys:String>
+    <sys:String x:Key="Maintenance.App.DeleteData">卸载时同时删除本机数据（不可撤销）</sys:String>
+    <sys:String x:Key="Maintenance.App.Repair">修复安装</sys:String>
+    <sys:String x:Key="Maintenance.App.Uninstall">卸载 Mosaic</sys:String>
+    <sys:String x:Key="Maintenance.App.Hint">从安装包运行的版本支持应用内卸载和修复；便携或开发运行请手动删除程序文件。</sys:String>
+
+    <sys:String x:Key="Maintenance.Install.Installed">已安装 {0} · {1}</sys:String>
+    <sys:String x:Key="Maintenance.Install.Portable">便携或开发运行，不支持应用内卸载</sys:String>
+    <sys:String x:Key="Maintenance.Install.Unavailable">无法确定安装状态</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.ConfirmTitle">迁移数据库</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.ConfirmMessage">将把数据库复制到 {0}，校验通过后切换到新位置并重启。原位置的数据会保留。登录凭据、日志和配置不会迁移。</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.Scheduled">迁移已排队，应用退出后会立即执行。</sys:String>
+    <sys:String x:Key="Maintenance.Migrate.Failed">上次迁移未完成：</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.Title">卸载 Mosaic</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.Confirm">将卸载 Mosaic，本机数据会保留，重新安装后可以继续使用。</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.ConfirmWithData">将卸载 Mosaic，并删除本机数据目录（数据库、登录凭据、日志和配置）。此操作不可撤销。</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.DeleteDataTitle">同时删除本机数据？</sys:String>
+    <sys:String x:Key="Maintenance.Uninstall.Started">卸载将在应用退出后开始。</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Title">修复安装</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Confirm">将调用 Windows 安装程序修复 Mosaic，完成后自动重新启动。</sys:String>
+    <sys:String x:Key="Maintenance.Repair.Started">修复将在应用退出后开始。</sys:String>
+    <sys:String x:Key="Maintenance.Error.Unknown">操作未完成，请稍后再试。</sys:String>
+</ResourceDictionary>

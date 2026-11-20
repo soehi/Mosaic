@@ -97,7 +97,10 @@
     "Mosaic.Auth.Wpf",
     "Mosaic.Sync.Contracts",
     "Mosaic.Sync.Core",
-    "Mosaic.Sync.Http"
+    "Mosaic.Sync.Http",
+    "Mosaic.Maintenance.Contracts",
+    "Mosaic.Maintenance.Windows",
+    "Mosaic.Maintenance.Wpf"
   ],
   "Mosaic.DesktopPresence.Contracts": [
     "Mosaic.Contracts"
@@ -183,5 +186,20 @@
   "Mosaic.Sync.Http": [
     "Mosaic.Contracts",
     "Mosaic.Sync.Contracts"
+  ],
+  "Mosaic.Maintenance.Contracts": [
+    "Mosaic.Contracts"
+  ],
+  "Mosaic.Maintenance.Windows": [
+    "Mosaic.Contracts",
+    "Mosaic.Maintenance.Contracts"
+  ],
+  "Mosaic.Maintenance.Wpf": [
+    "Mosaic.Contracts",
+    "Mosaic.Maintenance.Contracts",
+    "Mosaic.Storage.Contracts",
+    "Mosaic.Settings.Contracts",
+    "Mosaic.Presentation.Contracts",
+    "Mosaic.Presentation.Wpf"
   ]
 }

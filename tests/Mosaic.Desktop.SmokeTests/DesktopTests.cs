@@ -357,6 +357,52 @@ public sealed partial class DesktopTests
         finally{Cleanup(process);}
     }
 
+    [Theory]
+    [InlineData("top")]
+    [InlineData("both")]
+    [InlineData("modules")]
+    [InlineData("providers")]
+    public void Maintenance_migration_registers_the_page_and_its_bindings(string scenario)
+    {
+        // 0.16.6 and earlier have neither maintenance-ui nor the storage.relocation/app.maintenance
+        // bindings. storage-sqlite now also provides storage.relocation@1, so an upgraded install
+        // without the binding would fail ModuleGraph.Resolve at startup.
+        var root=NewRoot();var path=Path.Combine(root,"Config/appsettings.json");Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var config=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(File.ReadAllText(Path.Combine(Root,"src/Mosaic.Desktop/appsettings.json")))!;
+        var modules=config["modules"].Deserialize<string[]>()!.Where(id=>id!="maintenance-ui").ToArray();
+        var providers=config["providers"].Deserialize<Dictionary<string,string>>()!
+            .Where(item=>item.Key is not ("storage.relocation@1" or "app.maintenance@1")).ToDictionary();
+        config["modules"]=JsonSerializer.SerializeToElement(modules);
+        config["providers"]=JsonSerializer.SerializeToElement(providers);
+        config["appliedMigrations"]=JsonSerializer.SerializeToElement(new[]{"desktop-presence-v1","release-summary-v1","floating-windows-v1","auth-sync-v1"});
+        var settings=new Dictionary<string,object>();
+        if(scenario is "both" or "modules")settings["host.modules"]=modules;
+        if(scenario is "both" or "providers")settings["host.providers"]=providers;
+        config["settings"]=JsonSerializer.SerializeToElement(settings);
+        File.WriteAllText(path,JsonSerializer.Serialize(config));
+
+        var configuration=AppConfiguration.Load(new AppPaths(root));
+
+        var effectiveModules=configuration.Settings!.TryGetValue("host.modules",out var moduleOverride)
+            ? moduleOverride.Deserialize<string[]>()!
+            : configuration.Modules;
+        var effectiveProviders=configuration.Settings!.TryGetValue("host.providers",out var providerOverride)
+            ? providerOverride.Deserialize<Dictionary<string,string>>()!
+            : configuration.Providers;
+        Assert.Contains("maintenance-ui",effectiveModules);
+        Assert.Equal("storage-sqlite",effectiveProviders["storage.relocation@1"]);
+        Assert.Equal("maintenance-ui",effectiveProviders["app.maintenance@1"]);
+        Assert.Contains("maintenance-v1",configuration.AppliedMigrations!);
+        using var document=JsonDocument.Parse(File.ReadAllText(path));var json=document.RootElement;
+        var moduleScope=scenario is "both" or "modules"?json.GetProperty("settings").GetProperty("host.modules"):json.GetProperty("modules");
+        var providerScope=scenario is "top"?json.GetProperty("providers"):json.GetProperty("settings").GetProperty("host.providers");
+        Assert.Contains("maintenance-ui",moduleScope.EnumerateArray().Select(item=>item.GetString()));
+        Assert.Equal("storage-sqlite",providerScope.GetProperty("storage.relocation@1").GetString());
+        Assert.Equal("maintenance-ui",providerScope.GetProperty("app.maintenance@1").GetString());
+        Assert.Contains("maintenance-v1",json.GetProperty("appliedMigrations").EnumerateArray().Select(item=>item.GetString()));
+        Assert.True(File.Exists(path+".pre-migration"));
+    }
+
     [Fact]
     public void Healthy_configuration_keeps_its_bindings_and_file_untouched()
     {

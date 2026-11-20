@@ -30,6 +30,7 @@
     <sys:String x:Key="Settings.Section.Appearance">外观与布局</sys:String>
     <sys:String x:Key="Settings.Section.Storage">存储与系统</sys:String>
     <sys:String x:Key="Settings.Section.Text">文案</sys:String>
+    <sys:String x:Key="Settings.Section.Maintenance">维护</sys:String>
     <sys:String x:Key="Settings.Navigation">设置</sys:String>
     <sys:String x:Key="Settings.ResetSection.Detail">将把当前分区的设置恢复为默认值，且不可撤销。</sys:String>
     <sys:String x:Key="Settings.ResetAll.Detail">将清除所有修改过的设置并恢复默认值，且不可撤销。</sys:String>

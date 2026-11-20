@@ -1,0 +1,114 @@
+<UserControl x:Class="Mosaic.Maintenance.Wpf.Views.MaintenanceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf"
+             Background="Transparent"
+             Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"
+             FontSize="14" ClipToBounds="True" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="22"/>
+            <Setter Property="Margin" Value="0,0,0,16"/>
+        </Style>
+        <Style x:Key="CardTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style x:Key="PathText" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Segoe UI"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="HintText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,8,0,0"/>
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="820" HorizontalAlignment="Left" Margin="0,0,24,24">
+            <TextBlock Text="{DynamicResource Maintenance.Title}" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBlock Text="{DynamicResource Maintenance.Subtitle}" Style="{StaticResource HintText}" Margin="0,0,0,20"/>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource Maintenance.Storage.Title}" Style="{StaticResource CardTitle}"/>
+                    <TextBlock Text="{DynamicResource Maintenance.Storage.Current}" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding CurrentDatabase}" Style="{StaticResource PathText}"/>
+                    <TextBlock Text="{DynamicResource Maintenance.Storage.Size}" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding DatabaseSize}" Margin="0,0,0,12"/>
+                    <TextBlock Text="{DynamicResource Maintenance.Storage.Target}" Style="{StaticResource FieldLabel}"/>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding TargetFolder, UpdateSourceTrigger=PropertyChanged}"
+                                 MinHeight="40" Padding="12,8" VerticalContentAlignment="Center"
+                                 Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                                 Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"
+                                 BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.ControlHoverBorderBrushKey}}"
+                                 AutomationProperties.AutomationId="StorageTargetBox"/>
+                        <Button Grid.Column="1" Content="{DynamicResource Maintenance.Storage.Browse}"
+                                Command="{Binding BrowseCommand}" Margin="10,0,0,0" MinHeight="40"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                AutomationProperties.AutomationId="StorageBrowseButton"/>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="{DynamicResource Maintenance.Storage.Migrate}" Command="{Binding MigrateCommand}"
+                                MinHeight="38" Padding="18,0"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
+                                AutomationProperties.AutomationId="StorageMigrateButton"/>
+                        <TextBlock Text="{DynamicResource Maintenance.Busy}" VerticalAlignment="Center" Margin="14,0,0,0"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"
+                                   Visibility="{Binding IsBusy, Converter={StaticResource BoolVisibility}}"/>
+                    </StackPanel>
+                    <TextBlock Text="{DynamicResource Maintenance.Storage.Hint}" Style="{StaticResource HintText}"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource Maintenance.App.Title}" Style="{StaticResource CardTitle}"/>
+                    <TextBlock Text="{Binding InstallSummary}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                    <TextBlock Text="{DynamicResource Maintenance.App.DataRoot}" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding DataRoot}" Style="{StaticResource PathText}"/>
+                    <CheckBox Content="{DynamicResource Maintenance.App.DeleteData}" IsChecked="{Binding DeleteUserData}"
+                              IsEnabled="{Binding IsInstalled}" Margin="0,0,0,14"
+                              AutomationProperties.AutomationId="DeleteUserDataCheck"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="{DynamicResource Maintenance.App.Repair}" Command="{Binding RepairCommand}"
+                                MinHeight="38" Padding="18,0" Margin="0,0,10,0"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                AutomationProperties.AutomationId="RepairInstallButton"/>
+                        <Button Content="{DynamicResource Maintenance.App.Uninstall}" Command="{Binding UninstallCommand}"
+                                MinHeight="38" Padding="18,0"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
+                                AutomationProperties.AutomationId="UninstallButton"/>
+                    </StackPanel>
+                    <TextBlock Text="{DynamicResource Maintenance.App.Hint}" Style="{StaticResource HintText}"/>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                    BorderThickness="1" CornerRadius="8" Padding="14,10"
+                    Visibility="{Binding HasStatus, Converter={StaticResource BoolVisibility}}">
+                <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

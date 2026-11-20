@@ -36,4 +36,10 @@
 <ProjectReference Include="../Modules/Sync/Mosaic.Sync.Contracts/Mosaic.Sync.Contracts.csproj" />
 <ProjectReference Include="../Modules/Sync/Mosaic.Sync.Core/Mosaic.Sync.Core.csproj" />
 <ProjectReference Include="../Modules/Sync/Mosaic.Sync.Http/Mosaic.Sync.Http.csproj" />
-</ItemGroup></Project>
+</ItemGroup>
+<ItemGroup>
+<ProjectReference Include="../Modules/Maintenance/Mosaic.Maintenance.Contracts/Mosaic.Maintenance.Contracts.csproj" />
+<ProjectReference Include="../Modules/Maintenance/Mosaic.Maintenance.Windows/Mosaic.Maintenance.Windows.csproj" />
+<ProjectReference Include="../Modules/Maintenance/Mosaic.Maintenance.Wpf/Mosaic.Maintenance.Wpf.csproj" />
+</ItemGroup>
+</Project>

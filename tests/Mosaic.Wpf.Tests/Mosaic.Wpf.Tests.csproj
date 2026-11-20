@@ -22,4 +22,9 @@
 <ProjectReference Include="..\..\src\Modules\Auth\Mosaic.Auth.Wpf\Mosaic.Auth.Wpf.csproj" />
 <ProjectReference Include="..\..\src\Modules\Auth\Mosaic.Auth.Windows\Mosaic.Auth.Windows.csproj" />
 <ProjectReference Include="..\..\src\Modules\Sync\Mosaic.Sync.Contracts\Mosaic.Sync.Contracts.csproj" />
+</ItemGroup>
+<ItemGroup>
+<ProjectReference Include="..\..\src\Modules\Storage\Mosaic.Storage.Contracts\Mosaic.Storage.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Maintenance\Mosaic.Maintenance.Contracts\Mosaic.Maintenance.Contracts.csproj" />
+<ProjectReference Include="..\..\src\Modules\Maintenance\Mosaic.Maintenance.Wpf\Mosaic.Maintenance.Wpf.csproj" />
 </ItemGroup></Project>
