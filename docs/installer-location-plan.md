@@ -1,6 +1,6 @@
 # Mosaic：安装位置选择、同程序替换与桌面快捷方式计划
 
-状态：2026-11-20，基于 0.17.2 重新规划。桌面快捷方式子项已在 0.9.1 实施；自定义安装位置与同版本 MSI 文件扫描修复尚未实施。本次用户确认的交付范围、技术路径和验收以第 10 节为准；第 1–9 节保留历史设计与结果，其中跨位置替换及无登记目录覆盖不作为本次自动执行行为。
+状态：2026-11-20，基于 0.17.2 重新规划（0.17.3 实施、0.17.4 修正维护流程）。桌面快捷方式子项已在 0.9.1 实施；自定义安装位置与同版本 MSI 文件扫描修复已在 0.17.3 实施，0.17.4 修正为自动扫描、健康分支在写入前结束并传播失败/待重启状态；实机矩阵仍待隔离环境验收。本次用户确认的交付范围、技术路径和验收以第 10 节为准；第 1–9 节保留历史设计与结果，其中跨位置替换及无登记目录覆盖不作为本次自动执行行为。
 
 关联：[架构原则](architecture-principles.md)、[总实施计划](implementation-plan.md)、[实施与验证记录](implementation-status.md)。
 
@@ -252,7 +252,9 @@ AppConfiguration、用户数据配置迁移和数据库模块无需为安装目�
 
 交付记录逐项区分静态包检查、自动化逻辑测试与真实 Windows Installer 执行结果。安装成功截图不能代替损坏修复实验；构建成功不能代替 MSI UI 维护验收。版本号在实施时按最新正式版分配，源码、测试、文案、迁移兼容说明、Release 与 MSI 一次交付。
 
-### 10.9 实施状态（0.17.3，2026-11-20）
+### 10.9 实施状态（0.17.4，2026-11-20）
+
+- 0.17.4 修正（对应 §10.5/§10.6 的调度与结果传播要求）：维护页不再需要手动点「下一步」，UI 序列 1002 在执行任何页面之前自动 `ScanPayload`；扫描健康且无显式 `/f` 时只显示健康结果页，`完成` 以 `EndDialog Exit` 在 `ExecuteAction` 之前结束，不改写 ARP 登记、不进入修复事务；异常或 `/f` 才继续到修复与复检。`ScanPayload`/`VerifyRepairedPayload` 遇到不可读、清单错误、复检失败时通过标准错误消息返回 `ERROR_INSTALL_FAILURE`（静默 `/qn` 为 1603）；被占用而待重启替换的文件归类 `PendingReboot`，页面显示「需要重启后完成修复」并保留 3010；健康/待重启/失败三种结果各自显示，不再共用完成文案。改动落位：`build/installer/actions/MosaicInstallerActions.cpp`（`ReportError`、`IsRebootPending`、`ScanPayload`、`VerifyRepairedPayload`）、`build/installer/Package.wxs`（`MOSAICEXITTITLE`、UI 1002、健康页显示条件、执行扫描 `NOT MOSAICSCANSTATUS`、ARP 条件、复检条件）、`build/installer/Dialogs.wxs`（删除 `MaintStartDlg`、健康结果页、进度页摘要、动态结果标题）、`build/test-package-maintenance.ps1`（序列/事件/控件与源码契约断言）。
 
 - 已实施：位置选择页（输入/浏览/恢复默认）、路径校验与数据目录隔离、状态检测与维护/升级/阻断路由、内嵌原生扫描器与载荷清单、同版本维护只读扫描、缺失/损坏时自动 `REINSTALL=ALL` + `REINSTALLMODE=amus`、提交后复检、`ARPINSTALLLOCATION` 与 `HKCU\Software\Mosaic\Installer\InstallLocation` 登记、升级原位继承与 ≤0.17.2 回退。实际落位：`build/installer/actions/MosaicInstallerActions.cpp`、`build/installer/actions/build-actions.ps1`、`build/installer/Dialogs.wxs`、`build/installer/Package.wxs`、`build/installer/Mosaic.Installer.wixproj`、`scripts/generate_installer_manifest.py`、`scripts/package_payload.py`、`build/package.ps1`、`build/test-package-maintenance.ps1`、`build/test-install.ps1`。
 - 已通过（静态包检查）：`build/test-package-maintenance.ps1` 对 ProductVersion/UpgradeCode、七个自定义动作、两个 Binary、执行与 UI/AdminUI 序列、错误对话框与文件占用列表、位置页事件、启动条件、位置元数据、清单与 `File` 表一致性、快捷方式目标、cabinet 覆盖与逐文件 SHA-256 全部断言通过；已接入 `build/package.ps1` 两条打包链。

@@ -65,6 +65,23 @@ void LogInfo(MSIHANDLE hInstall, const std::wstring& message)
     MsiProcessMessage(hInstall, INSTALLMESSAGE_INFO, record);
 }
 
+void ReportError(MSIHANDLE hInstall, const std::wstring& message)
+{
+    // 错误必须走标准错误消息：静默安装得到非 0 退出码，交互安装显示错误页。
+    // 只设置属性会把失败留在日志里，而 /qn 仍以 0 返回。
+    PMSIHANDLE record = MsiCreateRecord(1);
+    MsiRecordSetStringW(record, 0, message.c_str());
+    MsiProcessMessage(hInstall, INSTALLMESSAGE_ERROR, record);
+    LogInfo(hInstall, message);
+}
+
+bool IsRebootPending(MSIHANDLE hInstall)
+{
+    if (!GetProperty(hInstall, L"REBOOT").empty())
+        return true;
+    return MsiGetMode(hInstall, MSIRUNMODE_REBOOTATEND) || MsiGetMode(hInstall, MSIRUNMODE_REBOOTNOW);
+}
+
 std::wstring Trim(const std::wstring& value)
 {
     size_t begin = 0;
@@ -977,13 +994,26 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
     ScanOutcome outcome = ScanInstallRoot(hInstall);
     PublishScanProperties(hInstall, outcome, L"MOSAICSCAN");
     std::wstring state = GetProperty(hInstall, L"MOSAICSTATE");
-    bool needsRepair = state == L"Maintenance" && outcome.errorMessage.empty() &&
-                       (outcome.missing > 0 || outcome.damaged > 0);
+    std::wstring explicitReinstall = GetProperty(hInstall, L"REINSTALL");
+
+    // 无法读取、清单损坏或位置不可确认属于检查失败：既不能当健康继续，
+    // 也不能仅靠设置属性把 /qn 变成成功返回。
+    if (!outcome.errorMessage.empty() || outcome.errors > 0)
+    {
+        SetProperty(hInstall, L"MOSAICREPAIRNEEDED", L"");
+        SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"");
+        ReportError(hInstall, L"Mosaic 完整性检查未通过：" + GetProperty(hInstall, L"MOSAICSCANSUMMARY"));
+        return ERROR_INSTALL_FAILURE;
+    }
+
+    bool healthy = outcome.missing == 0 && outcome.damaged == 0;
+    bool needsRepair = state == L"Maintenance" && !healthy;
+    SetProperty(hInstall, L"MOSAICMAINTBUTTONTEXT", healthy && explicitReinstall.empty() ? L"完成" : L"修复");
     if (needsRepair)
     {
         SetProperty(hInstall, L"MOSAICREPAIRNEEDED", L"1");
         // 仅当调用方没有显式传入 /f 时自动进入修复；显式 /f 保留其自身的修复语义。
-        if (GetProperty(hInstall, L"REINSTALL").empty())
+        if (explicitReinstall.empty())
         {
             SetProperty(hInstall, L"REINSTALL", L"ALL");
             SetProperty(hInstall, L"REINSTALLMODE", L"amus");
@@ -1005,16 +1035,31 @@ extern "C" __declspec(dllexport) UINT __stdcall VerifyRepairedPayload(MSIHANDLE 
     PublishScanProperties(hInstall, outcome, L"MOSAICVERIFY");
     std::wstring status = GetProperty(hInstall, L"MOSAICVERIFYSTATUS");
     std::wstring summary = GetProperty(hInstall, L"MOSAICVERIFYSUMMARY");
-    std::wstring message;
     if (status == L"Healthy")
-        message = L"修复已完成，全部受管文件与快捷方式均通过复检。";
-    else if (status == L"Repair")
-        message = L"修复后复检仍未通过：" + summary + L" 请重新运行安装包再次修复；若文件被其他程序占用，关闭后重试或重启电脑。";
-    else
-        message = L"修复后无法完成完整性复检：" + summary;
+    {
+        SetProperty(hInstall, L"MOSAICEXITTITLE", L"修复已完成");
+        SetProperty(hInstall, L"MOSAICVERIFYMESSAGE", L"修复已完成，全部受管文件与快捷方式均通过复检。");
+        LogInfo(hInstall, L"Mosaic: 修复后核实通过。");
+        return ERROR_SUCCESS;
+    }
+    // 被占用而安排到重启后替换的文件在重启前必然哈希不符：这是「待重启」而不是
+    // 「修复成功」，也不是失败；保留 3010 让调用方看到需重启状态。
+    if (IsRebootPending(hInstall))
+    {
+        SetProperty(hInstall, L"MOSAICVERIFYSTATUS", L"PendingReboot");
+        SetProperty(hInstall, L"MOSAICEXITTITLE", L"需要重启后完成修复");
+        SetProperty(hInstall, L"MOSAICVERIFYMESSAGE",
+                    L"部分文件已安排重启后替换，重启前复检不会把它们算作已修复。请重启电脑后再次运行本安装包复查。");
+        LogInfo(hInstall, L"Mosaic: 修复后复检待重启，未宣称修复成功。");
+        return ERROR_SUCCESS;
+    }
+    std::wstring message = status == L"Repair"
+        ? L"修复后复检仍未通过：" + summary + L" 请重新运行安装包再次修复；若文件被其他程序占用，关闭后重试或重启电脑。"
+        : L"修复后无法完成完整性复检：" + summary;
+    SetProperty(hInstall, L"MOSAICEXITTITLE", L"修复未通过复检");
     SetProperty(hInstall, L"MOSAICVERIFYMESSAGE", message);
-    LogInfo(hInstall, L"Mosaic: 修复后核实 " + message);
-    return ERROR_SUCCESS;
+    ReportError(hInstall, message);
+    return ERROR_INSTALL_FAILURE;
 }
 
 namespace {

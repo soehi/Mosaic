@@ -6,6 +6,7 @@
     <Property Id="MOSAICUPGRADECODE" Value="{4D2B073C-72D5-4C3A-B845-65FC2C52D23C}" Hidden="yes" />
     <Property Id="ErrorDialog" Value="FatalError" Hidden="yes" />
     <Property Id="MOSAICLOCATIONMISSING" Hidden="yes" />
+    <Property Id="MOSAICEXITTITLE" Value="操作已完成" Hidden="yes" />
     <Property Id="DefaultUIFont" Value="MosaicFont" />
     <UIRef Id="MosaicUI" />
     <Launch Condition="Installed OR (VersionNT64 AND WINDOWSBUILD &gt;= 19041)" Message="Mosaic 需要 64 位 Windows 10 2004 或更高版本。" />
@@ -51,23 +52,26 @@
       <Custom Action="DetectInstallState" Sequence="26" Condition="NOT REMOVE" />
       <!-- 静默安装先校验 INSTALLFOLDER：无效路径直接失败，不静默退回默认目录。 -->
       <Custom Action="EnforceInstallFolder" Sequence="950" Condition="NOT Installed AND NOT REMOVE" />
-      <Custom Action="ScanPayload" Sequence="990" Condition="NOT REMOVE AND MOSAICSTATE = &quot;Maintenance&quot;" />
+      <!-- 有 UI 时扫描已在 UI 序列完成，这里复用同一结果；静默安装没有 UI 序列，在此扫描。 -->
+      <Custom Action="ScanPayload" Sequence="990" Condition="NOT REMOVE AND MOSAICSTATE = &quot;Maintenance&quot; AND NOT MOSAICSCANSTATUS" />
       <!-- InstallLocation 在安装、升级与已确认位置的维护中都要写入；位置未能确认的旧版本
-           维护和卸载不写入，避免把猜测出的默认目录登记成真实位置。 -->
-      <Custom Action="SetArpInstallLocation" After="CostFinalize" Condition="NOT Installed OR MOSAICLOCATIONINHERITED" />
+           维护和卸载不写入，避免把猜测出的默认目录登记成真实位置。健康维护不做任何登记变更。 -->
+      <Custom Action="SetArpInstallLocation" After="CostFinalize" Condition="NOT Installed OR (MOSAICLOCATIONINHERITED AND NOT (MOSAICSCANSTATUS = &quot;Healthy&quot; AND NOT REINSTALL))" />
       <!-- 修复后复检在事务提交之后执行，只负责给出结论，不回滚已完成的修复。 -->
       <Custom Action="VerifyRepairedPayload" Sequence="6700" Condition="NOT REMOVE AND (REINSTALL OR MOSAICREPAIRNEEDED)" />
     </InstallExecuteSequence>
     <InstallUISequence>
       <Custom Action="DetectInstallState" Sequence="30" Condition="NOT REMOVE" />
       <Show Dialog="FreshStartDlg" Sequence="1001" Condition="MOSAICSTATE = &quot;Fresh&quot;" />
-      <Show Dialog="MaintStartDlg" Sequence="1002" Condition="MOSAICSTATE = &quot;Maintenance&quot;" />
-      <Show Dialog="UpgradeDlg" Sequence="1003" Condition="MOSAICSTATE = &quot;Upgrade&quot;" />
-      <Show Dialog="BlockedDlg" Sequence="1004" Condition="MOSAICSTATE = &quot;BlockedSameVersion&quot; OR MOSAICSTATE = &quot;BlockedNewer&quot;" />
-      <Show Dialog="UnknownDlg" Sequence="1005" Condition="MOSAICSTATE = &quot;Unknown&quot;" />
+      <!-- 再次双击同版本 MSI：先自动完成只读扫描，再按结果决定显示健康页还是直接进入修复。 -->
+      <Custom Action="ScanPayload" Sequence="1002" Condition="NOT REMOVE AND MOSAICSTATE = &quot;Maintenance&quot;" />
+      <Show Dialog="MaintenanceDlg" Sequence="1003" Condition="MOSAICSTATE = &quot;Maintenance&quot; AND MOSAICSCANSTATUS = &quot;Healthy&quot; AND NOT REINSTALL" />
+      <Show Dialog="UpgradeDlg" Sequence="1004" Condition="MOSAICSTATE = &quot;Upgrade&quot;" />
+      <Show Dialog="BlockedDlg" Sequence="1005" Condition="MOSAICSTATE = &quot;BlockedSameVersion&quot; OR MOSAICSTATE = &quot;BlockedNewer&quot;" />
+      <Show Dialog="UnknownDlg" Sequence="1006" Condition="MOSAICSTATE = &quot;Unknown&quot;" />
       <Show Dialog="ProgressDlg" Sequence="1290" />
-      <!-- 修复完成后在 UI 侧复检并显示结果；静默安装由 ExecuteSequence 6700 记录复检结论。 -->
-      <Custom Action="VerifyRepairedPayload" Sequence="1301" Condition="NOT REMOVE AND MOSAICREPAIRNEEDED" />
+      <!-- 修复完成后在 UI 侧复检并显示结论（成功、待重启或失败）；静默安装由 ExecuteSequence 6700 复检。 -->
+      <Custom Action="VerifyRepairedPayload" Sequence="1301" Condition="NOT REMOVE AND (REINSTALL OR MOSAICREPAIRNEEDED)" />
       <Show Dialog="Exit" Sequence="1303" />
       <Show Dialog="FatalError" OnExit="error" />
       <Show Dialog="UserExit" OnExit="cancel" />

@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
-    [string]$ExpectedVersion = '0.17.3',
+    [string]$ExpectedVersion = '0.17.4',
     [switch]$SkipPayloadHash
 )
 $ErrorActionPreference = 'Stop'
@@ -81,6 +81,15 @@ try {
         $binaryRows = Read-MsiRows $database "SELECT Name FROM Binary WHERE Name='$binary'" 1
         if ($binaryRows.Count -ne 1) { Fail "Binary '$binary' is missing." }
     }
+    # 扫描/复检失败必须传播为真实失败，重启安排必须单独归类；这些是行为契约的源码级回归，
+    # 防止又退回「只设置提示属性、/qn 仍返回 0」。
+    $actionsSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'installer/actions/MosaicInstallerActions.cpp') -Raw
+    foreach ($needle in @('INSTALLMESSAGE_ERROR', 'IsRebootPending', 'MSIRUNMODE_REBOOTATEND', 'MOSAICMAINTBUTTONTEXT', 'PendingReboot')) {
+        if ($actionsSource -notlike "*$needle*") { Fail "Native actions must implement '$needle'." }
+    }
+    if ([regex]::Matches($actionsSource, 'return ERROR_INSTALL_FAILURE').Count -lt 2) {
+        Fail 'ScanPayload and VerifyRepairedPayload must both return ERROR_INSTALL_FAILURE on failure.'
+    }
 
     # 执行序列：状态检测早于成本计算，扫描在成本计算前设置 REINSTALL，复检在提交之后。
     $executeSequence = Read-MsiRows $database 'SELECT * FROM InstallExecuteSequence' 3
@@ -91,6 +100,9 @@ try {
     $scan = Find-Row $executeSequence 'ScanPayload' 'InstallExecuteSequence entry'
     if ($scan[2] -ne '990' -or $scan[1] -notlike '*MOSAICSTATE*Maintenance*' -or $scan[1] -notlike '*NOT REMOVE*') {
         Fail 'ScanPayload must run at 990 for maintenance only and never on uninstall.'
+    }
+    if ($scan[1] -notlike '*NOT MOSAICSCANSTATUS*') {
+        Fail 'Silent maintenance must scan in the execute sequence, while UI scans reuse their result.'
     }
     $verify = Find-Row $executeSequence 'VerifyRepairedPayload' 'InstallExecuteSequence entry'
     if ($verify[2] -ne '6700' -or $verify[1] -notlike '*REINSTALL*') { Fail 'VerifyRepairedPayload must run at 6700 after the transaction.' }
@@ -103,8 +115,8 @@ try {
     $uiSequence = Read-MsiRows $database 'SELECT * FROM InstallUISequence' 3
     $expectedUi = @{
         FatalError = -3; UserExit = -2; FindRelatedProducts = 25; DetectInstallState = 30
-        FreshStartDlg = 1001; MaintStartDlg = 1002; UpgradeDlg = 1003
-        BlockedDlg = 1004; UnknownDlg = 1005; ProgressDlg = 1290
+        FreshStartDlg = 1001; ScanPayload = 1002; MaintenanceDlg = 1003; UpgradeDlg = 1004
+        BlockedDlg = 1005; UnknownDlg = 1006; ProgressDlg = 1290
         VerifyRepairedPayload = 1301; Exit = 1303
     }
     foreach ($name in $expectedUi.Keys) {
@@ -112,6 +124,15 @@ try {
         if (@($uiSequence | Where-Object { $_[0] -ceq $name -and [int]$_[2] -eq $sequence }).Count -eq 0) {
             Fail "InstallUISequence must contain '$name' at $sequence."
         }
+    }
+    # 再次双击同版本 MSI 必须先自动扫描；健康结果才显示维护页，且显式 /f 不被健康页截断。
+    $uiScan = Find-Row $uiSequence 'ScanPayload' 'InstallUISequence entry'
+    if ($uiScan[1] -notlike '*MOSAICSTATE*Maintenance*' -or $uiScan[1] -notlike '*NOT REMOVE*') {
+        Fail 'InstallUISequence ScanPayload must run automatically for maintenance only.'
+    }
+    $uiMaintenanceShow = @($uiSequence | Where-Object { $_[0] -ceq 'MaintenanceDlg' })
+    if ($uiMaintenanceShow.Count -ne 1 -or $uiMaintenanceShow[0][1] -notlike '*MOSAICSCANSTATUS*Healthy*' -or $uiMaintenanceShow[0][1] -notlike '*NOT REINSTALL*') {
+        Fail 'MaintenanceDlg must only be shown for a healthy scan without an explicit /f repair.'
     }
     $adminUi = Read-MsiRows $database 'SELECT * FROM AdminUISequence' 3
     if (@($adminUi | Where-Object { $_[0] -ceq 'Exit' -and [int]$_[2] -eq 1301 }).Count -eq 0) {
@@ -149,9 +170,25 @@ try {
     if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[2] -ceq 'NewDialog' -and $_[3] -ceq 'ConfirmDlg' }).Count -eq 0) {
         Fail 'LocationDlg must continue to ConfirmDlg.'
     }
-    if (@($events | Where-Object { $_[0] -ceq 'MaintStartDlg' -and $_[2] -ceq 'DoAction' -and $_[3] -ceq 'ScanPayload' }).Count -eq 0) {
-        Fail 'MaintStartDlg must run ScanPayload before continuing.'
+    if (@($dialogs | Where-Object { $_[0] -ceq 'MaintStartDlg' }).Count -ne 0) {
+        Fail 'Maintenance must not wait behind an extra MaintStartDlg page.'
     }
+    # 健康维护以 Exit 结束，绝不进入 ExecuteAction 写文件；异常或显式 /f 才 Return 继续修复。
+    $healthyExit = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Exit' })
+    if ($healthyExit.Count -ne 1 -or $healthyExit[0][4] -notlike '*MOSAICSCANSTATUS*Healthy*' -or $healthyExit[0][4] -notlike '*NOT REINSTALL*') {
+        Fail 'Healthy maintenance must end the UI before the file-writing execution phase.'
+    }
+    $repairContinue = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Return' })
+    if ($repairContinue.Count -ne 1 -or $repairContinue[0][4] -notlike '*REINSTALL*') {
+        Fail 'Maintenance must continue to MSI repair when files are missing/damaged or /f was explicit.'
+    }
+    if (@($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[2] -ceq 'DoAction' -and $_[3] -ceq 'ScanPayload' }).Count -eq 0) {
+        Fail 'MaintenanceDlg must allow re-scanning without leaving the page.'
+    }
+    $scanSummary = @($controls | Where-Object { $_[0] -ceq 'ProgressDlg' -and $_[1] -ceq 'ScanSummary' -and $_[9] -like '*MOSAICSCANSUMMARY*' })
+    if ($scanSummary.Count -ne 1) { Fail 'Automatic repair must show the scan summary on the progress page.' }
+    $exitTitle = @($controls | Where-Object { $_[0] -ceq 'Exit' -and $_[1] -ceq 'Title' -and $_[9] -like '*MOSAICEXITTITLE*' })
+    if ($exitTitle.Count -ne 1) { Fail 'Exit must show a result title that distinguishes success from reboot-pending.' }
     $styles = Read-MsiRows $database 'SELECT * FROM TextStyle' 5
     if (@($styles | Where-Object { $_[0] -ceq 'MosaicFont' }).Count -eq 0) { Fail 'TextStyle MosaicFont is missing.' }
 

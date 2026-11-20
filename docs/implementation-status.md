@@ -1,5 +1,31 @@
 # Mosaic：实施与验证记录
 
+## 0.17.4：同版本维护自动扫描、健康分支提前结束与失败/待重启状态传播（2026-11-20）
+
+- 根因位置（以下行号指已提交的 0.17.3 版本 `ba54e76`）：
+  - 维护必须手动点「下一步」才开始扫描：`build/installer/Dialogs.wxs:69` 的 `MaintStartDlg` 是维护的唯一入口，`ScanPayload` 只挂在该页按钮事件 `:77` 上；`build/installer/Package.wxs:64` 在 UI 序列 1002 直接显示这一页。于是「再次运行安装包先自动扫描」并未实现，健康判断也晚于用户交互。
+  - 健康分支仍进入写文件的执行阶段，且「无写入」没有执行序列依据：`Dialogs.wxs:85` 的维护页按钮 `:96` 是无条件 `EndDialog Return`，健康时也继续到 `ExecuteAction`/`InstallFinalize`；`Package.wxs:57` 的 `SetArpInstallLocation` 条件 `NOT Installed OR MOSAICLOCATIONINHERITED` 会在健康维护时也改写 `ARPINSTALLLOCATION`。健康「不写文件」仅靠「扫描后没有设置 `REINSTALL`」间接推断，执行序列里没有任何基于扫描结论的分流。
+  - 扫描与复检失败恒为成功：`build/installer/actions/MosaicInstallerActions.cpp:975-999`（`ScanPayload`）与 `:1002-1017`（`VerifyRepairedPayload`）在所有分支都只写属性并 `return ERROR_SUCCESS`（`:999`、`:1017`）。安装目录不可读、载荷清单损坏、位置无法确认、修复后哈希仍不符时，`/qn` 依然返回 0，交互安装依然落到完成页；自定义动作声明了 `Return="check"` 但从未返回失败码，等于没有失败传播。
+  - 待重启与失败没有区分：`VerifyRepairedPayload` 未检查 `REBOOT`、`MSIRUNMODE_REBOOTATEND`/`MSIRUNMODE_REBOOTNOW`。被占用而由 Windows Installer 安排到重启后替换的文件，在重启前哈希必然不符，旧实现会把它当作「修复成功」（完成文案）或普通失败（无 3010 语义），两者都不符合计划要求。
+- 改动位置：
+  - 原生动作 `build/installer/actions/MosaicInstallerActions.cpp`：
+    - 新增 `ReportError:68`：用 `MsiCreateRecord(1)` + `MsiRecordSetStringW(record, 0, …)` + `MsiProcessMessage(hInstall, INSTALLMESSAGE_ERROR, …)` 走标准错误消息，同时写日志；只设属性不会让 `/qn` 失败，也不会让 UI 进入错误页。
+    - 新增 `IsRebootPending:78`：检查 `REBOOT` 属性与 `MsiGetMode` 的 `MSIRUNMODE_REBOOTATEND`/`MSIRUNMODE_REBOOTNOW`。
+    - `ScanPayload:992` 重写：读取失败、清单错误或位置不可确认（`:1001-1007`）清空修复属性后 `ReportError` 并 `return ERROR_INSTALL_FAILURE`；健康/需修复分别发布 `MOSAICMAINTBUTTONTEXT`（`:1011`）；仅在调用方未显式设置 `REINSTALL` 时才自动写入 `REINSTALL=ALL`/`REINSTALLMODE=amus`（`:1016-1021`），显式 `/f` 原样保留；健康时不置 `MOSAICREPAIRNEEDED`。
+    - `VerifyRepairedPayload:1032` 重写：复检健康 → `MOSAICVERIFYSTATUS=Healthy`、标题「修复已完成」并成功（`:1039-1045`）；复检不健康但 `IsRebootPending` → `MOSAICVERIFYSTATUS=PendingReboot`、标题「需要重启后完成修复」，返回成功以保留 3010（`:1047-1056`）；其余情况 `ReportError` 并 `return ERROR_INSTALL_FAILURE`（`:1058-1063`）。
+  - 包定义 `build/installer/Package.wxs`：`:9` 新增 `MOSAICEXITTITLE`（结果页动态标题）；`:56` 执行序列 `ScanPayload` 增加 `NOT MOSAICSCANSTATUS`（有 UI 时复用 UI 扫描结果，`/qn` 无 UI 时在此扫描）；`:59` `SetArpInstallLocation` 条件增加 `NOT (MOSAICSCANSTATUS = "Healthy" AND NOT REINSTALL)`（健康维护不做登记变更）；`:61` 复检条件改为 `REINSTALL OR MOSAICREPAIRNEEDED`；`:67` UI 序列新增 `ScanPayload` 1002（维护态自动扫描）；`:68` `MaintenanceDlg` 只在 `MOSAICSCANSTATUS = "Healthy" AND NOT REINSTALL` 时显示；`:74` UI 侧复检同样覆盖显式 `/f`。
+  - 安装界面 `build/installer/Dialogs.wxs`：删除 `MaintStartDlg`；`MaintenanceDlg:72-92` 改为健康结果页（标题「安装完整，无需修复」，列出安装位置、扫描摘要、计数与「完成不会重装」提示；`Rescan:81-84` 重新检查；`Next:85-88` 在健康且无 `/f` 时 `EndDialog Exit`，异常或 `/f` 时 `EndDialog Return`）；`ProgressDlg` 增加 `ScanSummary:129` 与 `RepairHint:130`；`Exit` 标题改为绑定 `[MOSAICEXITTITLE]`（`:138`）。
+  - 静态包校验 `build/test-package-maintenance.ps1`：执行序列扫描条件增加 `NOT MOSAICSCANSTATUS` 断言（`:104-106`）；UI 期望序列改为 Fresh 1001、Scan 1002、Maintenance 1003、Upgrade 1004、Blocked 1005、Unknown 1006（`:116-121`）；新增 UI 自动扫描条件与健康页显示条件断言（`:128-136`）；删除 `MaintStartDlg` 残留断言，改为「不存在该页」、健康 `EndDialog Exit`、异常/`/f` `EndDialog Return`、重新检查 `DoAction`、进度页扫描摘要、结果页动态标题（`:173-191`）；新增原生源码行为契约断言（`:84-92`：`INSTALLMESSAGE_ERROR`、`IsRebootPending`、`MSIRUNMODE_REBOOTATEND`、`MOSAICMAINTBUTTONTEXT`、`PendingReboot` 必须出现，`return ERROR_INSTALL_FAILURE` 至少两处）。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.17.4）、`build/installer/Mosaic.Installer.wixproj`（默认 `ProductVersion` 0.17.4）、`build/release-content.json`（第 37 条 `mosaic-0.17.4`，`previousReleaseId=mosaic-0.17.3`，指纹 `E2DED972E1E1670A3D4DDF249818995E4910D0C15CFC9A63BDFC2642D7E3A428`，`currentReleaseId=mosaic-0.17.4`）、`build/published-release-index.json`（第 37 条）、`build/release-manifest.json`、`docs/releases/v0.17.4.md`、`README.md:3` 与当前版本说明/下载链接、本文件、`docs/installer-location-plan.md` §10.9。
+- 迁移逻辑与验收项：
+  - 既有安装（0.17.3 及更早）：组件 GUID、KeyPath、UpgradeCode、per-user 范围、数据目录与注册表结构均未变，升级仍由 `MajorUpgrade afterInstallInitialize` 完成，无需数据迁移。0.17.4 安装后首次再次双击同版本包时，行为变化为「自动扫描、健康即结束」。
+  - 兼容性变化：同版本维护扫描/复检失败时静默安装返回码由 0 变为 1603，UI 从完成页改为错误页；调用方若以退出码判断结果，需按非 0 处理（错误页与日志含具体原因）。待重启时返回 0 并保留 3010，页面明确显示「需要重启后完成修复」。
+  - 健康维护：交互路径 `EndDialog Exit` 在 `ExecuteAction` 之前结束，不进入修复事务，也不改写 `ARPINSTALLLOCATION`；静默路径不设 `REINSTALL`、不写 ARP 登记，安装事务中组件均为已安装状态。
+  - 显式 `/f`：扫描不清除调用方的 `REINSTALL`，健康页不显示（`NOT REINSTALL`），继续到修复并由 1301/6700 复检。
+  - 验收（静态）：`test-package-maintenance.ps1` 对上述序列、条件、按钮事件与源码契约逐项断言；实机项见下。
+- 验证：`build/installer/actions/build-actions.ps1` 编译通过（`Built …MosaicInstallerActions.dll`）；`build/package.ps1` 完整执行，release content 校验 `mosaic-0.17.4`，WiX 构建 0 警告 0 错误，`test-package-shortcuts.ps1` PASS；首轮 `test-package-maintenance.ps1` 因断言自身把 `InstallUISequence` 索引 1（Condition）当成事件名而误报，修正为按 Action 过滤后对 470 个 cabinet 成员逐个复算 SHA-256 并 PASS（`PASS: MSI static structure, maintenance routing, dialogs, payload manifest and cabinet integrity verified for 0.17.4.`）。产物 `artifacts/installer/0.17.4/Mosaic-0.17.4-win-x64.msi`：52,495,032 字节，SHA-256 `6DE45B7ADF57769ED13EFCBB2AC4E42279C49384A7AC27A2894C4859A8BB025B`。`build/test.ps1 -SkipDesktop` 15 个测试项目 369 项全部通过，0 失败。
+- 未验证项（环境阻塞）：本机没有隔离 Windows 用户或可回滚 VM，未对真实安装执行任何删除、篡改、锁定或卸载测试。因此真实安装后自动扫描、删除单文件/整目录修复、文件锁定与重启后替换（3010）、复检失败落错误页、`/qn` 失败返回 1603、显式 `/f`、0.17.3→0.17.4 实机升级与随后同版本维护，均未实测；静态包检查与源码契约不能代替这些验收。另：交互健康维护以 `EndDialog Exit` 结束 UI，不进入执行阶段；该路径的进程返回码属 Windows Installer 的用户结束语义（通常 1602），与静默路径的 0 不同，需在实机项中确认并对调用方说明。
+
 ## 0.17.3：可选安装位置 + 同版本 MSI「检查与修复」（2026-11-20）
 
 - 根因位置：
