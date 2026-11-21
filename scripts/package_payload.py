@@ -122,10 +122,31 @@ for dir_id in directories.values():
 cleanup.append('<RegistryValue Root="HKCU" Key="Software\\Mosaic\\Installer" Name="Directories" Type="integer" Value="1" KeyPath="yes" />')
 cleanup.append('</Component>')
 
+# 子目录解析修复：UI 序列的 CostFinalize 先于路径校验运行，子目录属性一旦按默认
+# %LOCALAPPDATA% 路径解析，执行序列改写 INSTALLFOLDER 后不会重算，资源文件会落进
+# 默认目录。这里为每个子目录生成显式 Type-51 动作（Property=子目录 Id），执行序列在
+# CostFinalize 之后按当前 INSTALLFOLDER 重设子目录目标；Package.wxs 统一调度排序。
+setdir = []
+for r, dir_id in sorted(directories.items()):
+    if not r:
+        continue
+    name = r.replace('/', '\\')
+    # INSTALLFOLDER 由自定义动作设置时不带尾分隔符，必须显式补 \，否则拼成 Mosaiccs。
+    setdir.append('<CustomAction Id="SetDir%s" Property="%s" Value="[INSTALLFOLDER]\\%s" />' % (dir_id, dir_id, esc(name)))
+
 lines.append('    <ComponentGroup Id="Payload">')
 for c in components + cleanup:
     lines.append('      ' + c)
 lines.append('    </ComponentGroup>')
+for s in setdir:
+    lines.append('      ' + s)
+lines.append('    <InstallExecuteSequence>')
+for i, s in enumerate(setdir):
+    sid = s.split('Id="')[1].split('"')[0]
+    # 必须在 CostFinalize(1000) 之前（ICE12），且在 EnforceInstallFolder(950) 之后；
+    # 取 960 起的空位（990 是 ScanPayload，1000 是 CostFinalize）。
+    lines.append('      <Custom Action="%s" Sequence="%d" Condition="NOT REMOVE" />' % (sid, 960 + i))
+lines.append('    </InstallExecuteSequence>')
 lines.append('  </Fragment>')
 lines.append('</Wix>')
 

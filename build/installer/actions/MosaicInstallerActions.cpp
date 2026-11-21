@@ -1040,12 +1040,12 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
     {
         SetProperty(hInstall, L"MOSAICREPAIRNEEDED", L"1");
         // 仅当调用方没有显式传入 /f 时自动进入修复；显式 /f 保留其自身的修复语义。
-        if (explicitReinstall.empty())
-        {
-            SetProperty(hInstall, L"REINSTALL", L"ALL");
-            SetProperty(hInstall, L"REINSTALLMODE", L"amus");
-            SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"1");
-        }
+        // 注意：REINSTALL 属性在 UI 序列设置时不会随属性快照传给服务端会话
+        // （实测服务端只有 REINSTALLMODE 与 MOSAICREPAIRNEEDED），因此这里只发布
+        // MOSAICREPAIRNEEDED/MOSAICREPAIRAUTOMATIC 标记；真正的 REINSTALL=ALL
+        // 由执行序列 CostFinalize 之前的 ApplyRepairRequest 在服务端会话内设置。
+        SetProperty(hInstall, L"REINSTALLMODE", L"amus");
+        SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"1");
     }
     else
     {
@@ -1053,6 +1053,22 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
         SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"");
     }
     LogInfo(hInstall, L"Mosaic: 扫描 " + GetProperty(hInstall, L"MOSAICSCANSUMMARY"));
+    return ERROR_SUCCESS;
+}
+
+// 修复请求落地：REINSTALL 不能从 UI 序列传给服务端会话（见 ScanPayload 注释），
+// 这里在执行序列 CostFinalize 之前根据扫描标记设置 REINSTALL=ALL，使组件重装计划
+// 在 InstallValidate 前生效；显式 /f（命令行 REINSTALL）优先，不覆盖。
+extern "C" __declspec(dllexport) UINT __stdcall ApplyRepairRequest(MSIHANDLE hInstall)
+{
+    std::wstring repairNeeded = GetProperty(hInstall, L"MOSAICREPAIRNEEDED");
+    std::wstring automatic = GetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC");
+    std::wstring reinstall = GetProperty(hInstall, L"REINSTALL");
+    if (repairNeeded != L"1" || automatic != L"1" || !reinstall.empty())
+        return ERROR_SUCCESS;
+    SetProperty(hInstall, L"REINSTALL", L"ALL");
+    SetProperty(hInstall, L"REINSTALLMODE", L"amus");
+    LogInfo(hInstall, L"Mosaic: 自动修复 REINSTALL=ALL REINSTALLMODE=amus");
     return ERROR_SUCCESS;
 }
 

@@ -175,7 +175,7 @@ try {
     # 安装位置控件与按钮事件：浏览、恢复默认、校验后再确认。
     $pathEdit = @($controls | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[2] -ceq 'PathEdit' })
     if ($pathEdit.Count -ne 1 -or $pathEdit[0][8] -cne 'MOSAICINSTALLPATH') { Fail 'LocationDlg must edit MOSAICINSTALLPATH.' }
-    $events = Read-MsiRows $database 'SELECT * FROM ControlEvent' 5
+    $events = Read-MsiRows $database 'SELECT * FROM ControlEvent' 6
     if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[2] -ceq 'DoAction' -and $_[3] -ceq 'ValidateInstallFolder' }).Count -eq 0) {
         Fail 'LocationDlg must validate the path before continuing.'
     }
@@ -185,14 +185,20 @@ try {
     if (@($dialogs | Where-Object { $_[0] -ceq 'MaintStartDlg' }).Count -ne 0) {
         Fail 'Maintenance must not wait behind an extra MaintStartDlg page.'
     }
-    # 健康维护以 Exit 结束，绝不进入 ExecuteAction 写文件；异常或显式 /f 才 Return 继续修复。
-    $healthyExit = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Exit' })
-    if ($healthyExit.Count -ne 1 -or $healthyExit[0][4] -notlike '*MOSAICSCANSTATUS*Healthy*' -or $healthyExit[0][4] -notlike '*NOT REINSTALL*') {
-        Fail 'Healthy maintenance must end the UI before the file-writing execution phase.'
+    # 健康维护在扫描健康时提前结束 UI（不进入写文件的执行阶段）；结束动作必须是
+    # EndDialog Return，Exit 参数代表用户取消（1602），会让 msiexec 误报取消。
+    $healthyExit = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Return' -and $_[4] -like '*MOSAICSCANSTATUS*Healthy*' -and $_[4] -like '*NOT REINSTALL*' })
+    if ($healthyExit.Count -ne 1) {
+        Fail 'Healthy maintenance must end the UI with EndDialog Return before the file-writing execution phase.'
     }
-    $repairContinue = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Return' })
-    if ($repairContinue.Count -ne 1 -or $repairContinue[0][4] -notlike '*REINSTALL*') {
+    # 第二个 Return 事件的条件是 MOSAICSCANSTATUS <> "Healthy" OR REINSTALL（区分健康
+    # 提前结束：健康条件的 NOT REINSTALL 同样包含子串 REINSTALL，需用 <> 锚定）。
+    $repairContinue = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Return' -and $_[4] -like '*Healthy*" OR REINSTALL*' })
+    if ($repairContinue.Count -ne 1) {
         Fail 'Maintenance must continue to MSI repair when files are missing/damaged or /f was explicit.'
+    }
+    if ($healthyExit[0][4] -ceq $repairContinue[0][4]) {
+        Fail 'Healthy early-exit and repair continuation must use distinct conditions.'
     }
     if (@($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[2] -ceq 'DoAction' -and $_[3] -ceq 'ScanPayload' }).Count -eq 0) {
         Fail 'MaintenanceDlg must allow re-scanning without leaving the page.'
@@ -238,6 +244,46 @@ try {
         Fail 'CancelDlg No must return to the progress page and continue installing.'
     }
 
+    # 成功收尾与提前结束必须是 EndDialog Return：Exit 参数代表用户取消（1602），
+    # 会让成功安装显示「安装已取消」并返回错误退出码。
+    if (@($events | Where-Object { $_[0] -ceq 'Exit' -and $_[1] -ceq 'Finish' -and $_[2] -ceq 'EndDialog' -and $_[3] -ceq 'Return' }).Count -ne 1) {
+        Fail 'Exit Finish must end with EndDialog Return; the Exit argument reports a user cancellation (1602).'
+    }
+    $healthyEnd = @($events | Where-Object { $_[0] -ceq 'MaintenanceDlg' -and $_[1] -ceq 'Next' -and $_[2] -ceq 'EndDialog' })
+    if (@($healthyEnd | Where-Object { $_[3] -ceq 'Exit' }).Count -ne 0) {
+        Fail 'MaintenanceDlg must not use EndDialog Exit; healthy early exit must be Return so msiexec returns success.'
+    }
+
+    # 子目录解析：每个载荷子目录必须有执行序列的 Type-51 动作，在 CostFinalize 之前
+    # （ICE12 要求）且在 EnforceInstallFolder(950) 之后按当前 INSTALLFOLDER 重设目标，
+    # 否则 UI 自定义路径安装时语言资源文件会落进默认目录（UI 序列 CostFinalize 先于
+    # 路径校验解析了默认值，执行序列不会重算已存在的目录属性）。
+    $directoryTable = Read-MsiRows $database 'SELECT * FROM Directory' 3
+    $payloadDirs = @($directoryTable | Where-Object { $_[1] -ceq 'INSTALLFOLDER' })
+    if ($payloadDirs.Count -eq 0) { Fail 'Directory table must contain payload subdirectories under INSTALLFOLDER.' }
+    $customActions = Read-MsiRows $database 'SELECT * FROM CustomAction' 4
+    $execSequence = Read-MsiRows $database 'SELECT * FROM InstallExecuteSequence' 4
+    $costFinalize = @($execSequence | Where-Object { $_[0] -ceq 'CostFinalize' })
+    $enforce = @($execSequence | Where-Object { $_[0] -ceq 'EnforceInstallFolder' })
+    if ($costFinalize.Count -ne 1 -or $enforce.Count -ne 1) { Fail 'InstallExecuteSequence must contain EnforceInstallFolder and CostFinalize.' }
+    foreach ($dirRow in $payloadDirs) {
+        $dirId = $dirRow[0]
+        if ($dirId -ceq 'INSTALLFOLDER') { continue }
+        $actionId = 'SetDir' + $dirId
+        $ca = @($customActions | Where-Object { $_[0] -ceq $actionId })
+        if ($ca.Count -ne 1 -or $ca[0][1] -ne '51' -or $ca[0][2] -ne $dirId) {
+            Fail "Subdirectory '$dirId' must have a Type-51 custom action (SetDir$dirId) targeting itself."
+        }
+        $seq = @($execSequence | Where-Object { $_[0] -ceq $actionId })
+        if ($seq.Count -ne 1) { Fail "InstallExecuteSequence must schedule $actionId." }
+        $seqNo = [int]$seq[0][2]
+        if ($seqNo -ge [int]$costFinalize[0][2]) {
+            Fail "$actionId must run before CostFinalize (ICE12: a Type-51 targeting a directory cannot follow it)."
+        }
+        if ($seqNo -le [int]$enforce[0][2]) {
+            Fail "$actionId must run after EnforceInstallFolder so [INSTALLFOLDER] already holds the final path."
+        }
+    }
     $exitTitle = @($controls | Where-Object { $_[0] -ceq 'Exit' -and $_[1] -ceq 'Title' -and $_[9] -like '*MOSAICEXITTITLE*' })
     if ($exitTitle.Count -ne 1) { Fail 'Exit must show a result title that distinguishes success from reboot-pending.' }
     $styles = Read-MsiRows $database 'SELECT * FROM TextStyle' 5

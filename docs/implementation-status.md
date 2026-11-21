@@ -25,11 +25,23 @@
   - `build/package.ps1` 完整执行：WiX 构建 0 警告 0 错误；release content 校验 `mosaic-0.17.6`（39 条索引）；`test-package-shortcuts.ps1` PASS；`test-package-maintenance.ps1` PASS，470 个 cabinet 成员逐个 SHA-256 与清单一致（日志 `artifacts/qa/build-0176-final.log`，本地生成，未纳入 git）。
   - 修复前后对照：0.17.5 发布 MSI 在同一检查下失败，报 `ProgressDlg must be modeless (Dialog.Attributes must not contain msidbDialogAttributesModal=2); a modal progress page blocks ExecuteAction forever.`；0.17.6 包通过全部断言。0.17.6 包表证据（`docs/evidence/0.17.6/msi-dialogs.json`，由 `scripts/qa/dump_dialogs.py` 只读导出）：`ProgressDlg` 的 `Dialog.Attributes=1`、`CancelDlg` 存在、`EventMapping` 含上述两条订阅、`InstallUISequence` 为 `ProgressDlg=1290`、`ExecuteAction=1300`。
   - 产物：`Mosaic-0.17.6-win-x64.msi`，52,470,860 字节，SHA-256 `337F2F71016EAF7F0185B59FFB2A4D14C88F0A8AFC2B9B53FDEBEFAB7BC7D570`（由本次 `build/package.ps1` 重新构建，包结构与静态校验结果同上）。
-- 实机验收（未执行，环境阻塞）：
-  - 当前 Windows 用户已有真实 per-user 安装：`HKCU\Software\Microsoft\Installer\Products\711F8500F1C2E9544BD9D3F12E22A754`（ProductName `Mosaic`，Version 0.17.2），另有 HKLM ARP `{0058F117-2C1F-459E-B49D-3D1FE2227A45}`（Mosaic 0.17.2）。0.17.6 包的 `Upgrade` 表以同一 UpgradeCode、属性 0 检测已安装版本，同用户运行任何完整或静默安装都会被识别为升级，改写真实产品登记、快捷方式与程序文件，违反「不触碰真实安装/数据」约束。
-  - 低完整性令牌（S-1-16-0）不隔离 HKCU，无法阻止上述写入；干净隔离需要临时本地 Windows 账户，创建账户与以该账户执行安装都需要管理员提权。本次缺陷报告来自跨会话转述，并明确写明「不提升权限、本消息不授权创建账户」，因此未执行交互矩阵，未在真实安装或真实数据上做任何破坏、修复或取消操作。
-  - 因此本版本不得宣称「已实机修复」：上述验收项全部未实测。补齐时须按 `docs/installer-progress-hang-fix-plan.md` 的验收门槛执行，先把脱敏结果、完整 UI 日志、命令与环境、截图归档到持久位置并确认可读，再清理隔离环境。
-- 未验证项：上述交互验收项；另含中文安装路径、执行期 `FilesInUse` 对话框、3010/待重启分支、DPI/窄窗口文案，以及 0.17.2 起点升级（隔离矩阵应从 0.17.5 起验证本次修复）。
+- 实机验收（已执行，2026-11-21，隔离账户 `MosaicQa0176`，完整交互 UI）：
+  - 用户以「授权验收」授权一次 UAC 提权创建临时本地账户并执行交互矩阵。隔离方式：`scripts/qa/qa_win.py` 用 `CreateProcessWithLogonW(LOGON_WITH_PROFILE)` 以该账户启动全部安装会话（显式环境把 USERPROFILE/LOCALAPPDATA/APPDATA/TEMP 指向 `C:\Users\MosaicQa0176`）；QA 结果只写 `C:\Users\Public\MosaicQA0176`。真实安装（ASUS 账户 0.17.2）验收前后逐值比对 `HKCU\Software\Mosaic`、产品注册与程序文件哈希：无任何改动（结论见 `docs/evidence/0.17.6/ui-matrix/summary.json` 的 `real_install_check`）。
+  - 矩阵 8 场景全部通过（`scripts/qa/ui_matrix.py`，结论 `docs/evidence/0.17.6/ui-matrix/summary.json`，原始记录 `results.json`，完整 /L*V! 日志 25 个压缩于 `C:\Users\Public\MosaicQA0176\archive\ui-matrix-logs.zip`，关键截图 8 张随本提交归档）：
+    - S1 0.17.5 `/qf` 首装（含中文与空格自定义路径）：复现卡死——进度页停留 14 秒以上、动作文本仅静态提示、进度值恒 0、挂起时日志无 `ExecuteAction`，点取消后 1602，无安装目录与登记；
+    - S2 0.17.6 `/qf` 首装（同路径）：进度页实时动作文本+进度条连续推进（16 个不同进度值）、完成页、退出码 0、483 个文件全部落位（470 主清单 + 13 语言子目录）、单一 ARP 登记 0.17.6、桌面与开始菜单快捷方式齐全；
+    - S3 健康维护：显示「安装完整，无需修复 / 已检查 470 个文件」，点完成退出码 0，文件哈希与修改时间零改动；
+    - S4 损坏维护：删除 1 个文件 + 篡改 1 个 DLL 后扫描正确报告「1 个文件缺失，1 个文件损坏」，修复后复检「修复已完成，全部受管文件与快捷方式均通过复检」，两个文件哈希恢复；
+    - S5 升级：0.17.5 静默安装（自定义路径+哨兵数据）→ 0.17.6 `/qf` 显示升级页并正确列出「0.17.5 将升级到 0.17.6」「安装位置保持不变」，升级后位置保留、哨兵数据保留、二进制已替换、单一登记 0.17.6、退出码 0；
+    - S6a 取消→否：确认弹窗出现、选「否」回到进度页并完成安装（退出码 0，文件与登记齐全）；
+    - S6b 取消→是：确认弹窗出现、选「是」进入「安装已取消」页、1602 结束、回滚干净（无目录、无 ARP 登记）；
+    - S7 静默回归：`/qn` 安装、维护、卸载全程无任何窗口，返回码均 0，卸载后目录清空。
+  - 验收过程中发现并已修复的三个新增包缺陷（同属本次交付单元）：
+    - UI 自定义路径安装丢失 156 个语言资源文件：UI 序列 `CostFinalize` 先于路径校验把子目录属性按默认 `%LOCALAPPDATA%` 解析，执行序列不会重算已存在的目录属性，资源 DLL 落进默认目录，维护扫描误报缺失并 1603。修复：`scripts/package_payload.py` 与 `build/package.ps1` 为 13 个子目录生成 Type-51 动作（`SetDir<目录Id>`，序 960-972，在 `EnforceInstallFolder`(950) 之后、`CostFinalize`(1000) 之前，值 `[INSTALLFOLDER]\<lang>` 显式补分隔符）；静态检查新增逐子目录断言（Type-51 存在、序号区间正确）。
+    - 成功收尾被误报为取消：`Dialogs.wxs` Exit 页「完成」与健康维护提前结束原为 `EndDialog Exit`（MSI 语义=用户取消 1602，随后误入 UserExit 页）；改为 `EndDialog Return`，静态检查断言 Exit.Finish 与 MaintenanceDlg 健康分支必须 Return。
+    - 修复请求传递缺陷：`ScanPayload` 在 UI 序列设置的 `REINSTALL=ALL` 不会随属性快照传入服务端会话（实测服务端只收到 `REINSTALLMODE` 与 `MOSAICREPAIRNEEDED`），损坏修复复制数为 0。修复：`MosaicInstallerActions.cpp` 新增 `ApplyRepairRequest`（执行序列 995，`CostFinalize` 之前），在服务端会话内依据扫描标记设置 `REINSTALL=ALL`；显式 `/f` 优先不覆盖。静态检查新增源码契约与序列断言。0.17.5 旧包在新断言下失败（红），重建后 0.17.6 通过（绿）。
+  - 重新构建产物：`artifacts/installer/0.17.6/Mosaic-0.17.6-win-x64.msi`，52,516,553 字节，SHA-256 `9CC92403A6CF569CC76F6EAC11FA982B426C6902CFBC1EFEB8FDBF07201AE437`（构建日志 `artifacts/qa/build-0176-final5.log`/`build-0176-final6.log`/`build-0176-final7.log`，本地生成）。
+- 未验证项：执行期 `FilesInUse` 对话框、3010/待重启分支，以及 FatalError 页的 MSI 2814 控件链告警（仅在安装失败弹 FatalError 时出现的次生显示缺陷，本次未复现修复）。中文安装路径已在 S2/S5/S6/S7 覆盖；验收账户 140% DPI 下界面正常显示。
 
 ## 0.17.5：卸载按登记位置移除、关闭 MSI 数据库句柄（2026-11-20）
 

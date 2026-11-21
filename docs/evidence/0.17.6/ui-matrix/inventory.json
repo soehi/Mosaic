@@ -1,0 +1,61 @@
+{
+ "generated": "2026-11-21 11:37:46",
+ "note": "summary/results 为验收矩阵结论与原始记录；完整 MSI 日志 25 个压缩归档于 C:/Users/Public/MosaicQA0176/archive/ui-matrix-logs.zip（2.3MB），含每场景 /L*V! 全量日志。",
+ "files": [
+  {
+   "path": "inventory.json",
+   "size": 12837,
+   "sha256": "696bbf4bc20be490ba46a640b0ee595db2079551d141527140a5f3a3a3b973d4"
+  },
+  {
+   "path": "results.json",
+   "size": 68153,
+   "sha256": "f260269d1748d2168855b062d514365de081e02879b69252a28309c58bddb05e"
+  },
+  {
+   "path": "summary.json",
+   "size": 1814,
+   "sha256": "47daaa614b165bf003ba1a1df425c5278e99d9048b7eea2289aa54a88cf45c04"
+  },
+  {
+   "path": "shots\\s1-hang-14s.png",
+   "size": 11272,
+   "sha256": "7a274d605636acc38beabe0c3ebc03c0566339fe249f9fedbf3f603fafadb1a5"
+  },
+  {
+   "path": "shots\\s2-done.png",
+   "size": 6471,
+   "sha256": "d2c55c5ee29decdfe362a6e5c4f76644395ddc21304579c8a61378610b530276"
+  },
+  {
+   "path": "shots\\s2-progress.png",
+   "size": 12425,
+   "sha256": "aaa6361c148905972503d882048f2a01c24f8b1b0d16376616d14aa201520e6c"
+  },
+  {
+   "path": "shots\\s3-healthy.png",
+   "size": 15058,
+   "sha256": "ac52874d5d28d3382095fa3826271140f3cddddf408add23ecfe0ab7a39de8d4"
+  },
+  {
+   "path": "shots\\s5-upgrade.png",
+   "size": 15777,
+   "sha256": "2d47c744d2d075f93010e1e5c459b03ebf4cdc9d9463be102319b5e1fbe06798"
+  },
+  {
+   "path": "shots\\s6a-cancel-prompt.png",
+   "size": 5763,
+   "sha256": "afb7aee1b8dbac135de37a25ea9ac21c8acaf4480a01051113e7606177e65387"
+  },
+  {
+   "path": "shots\\s6b-cancel-prompt.png",
+   "size": 5763,
+   "sha256": "afb7aee1b8dbac135de37a25ea9ac21c8acaf4480a01051113e7606177e65387"
+  },
+  {
+   "path": "shots\\s6b-userexit.png",
+   "size": 10461,
+   "sha256": "3c2542dfc108cce00d33454d9acdf4eef6ea57d7a0fb02d2732037c652a71b83"
+  }
+ ]
+}

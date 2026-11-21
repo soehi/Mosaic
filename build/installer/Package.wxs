@@ -42,6 +42,8 @@
     <Binary Id="MosaicPayloadManifest" SourceFile="$(var.ManifestFile)" />
     <CustomAction Id="DetectInstallState" BinaryRef="MosaicActions" DllEntry="DetectInstallState" Execute="immediate" Return="check" />
     <CustomAction Id="ScanPayload" BinaryRef="MosaicActions" DllEntry="ScanPayload" Execute="immediate" Return="check" />
+    <!-- REINSTALL 无法从 UI 序列传给服务端会话：修复请求由扫描标记在执行序列落地。 -->
+    <CustomAction Id="ApplyRepairRequest" BinaryRef="MosaicActions" DllEntry="ApplyRepairRequest" Execute="immediate" Return="check" />
     <CustomAction Id="ValidateInstallFolder" BinaryRef="MosaicActions" DllEntry="ValidateInstallFolder" Execute="immediate" Return="check" />
     <CustomAction Id="EnforceInstallFolder" BinaryRef="MosaicActions" DllEntry="EnforceInstallFolder" Execute="immediate" Return="check" />
     <CustomAction Id="RestoreInstallFolderForRemoval" BinaryRef="MosaicActions" DllEntry="RestoreInstallFolderForRemoval" Execute="immediate" Return="ignore" />
@@ -57,6 +59,8 @@
       <Custom Action="EnforceInstallFolder" Sequence="950" Condition="NOT Installed AND NOT REMOVE" />
       <!-- 有 UI 时扫描已在 UI 序列完成，这里复用同一结果；静默安装没有 UI 序列，在此扫描。 -->
       <Custom Action="ScanPayload" Sequence="990" Condition="NOT REMOVE AND MOSAICSTATE = &quot;Maintenance&quot; AND NOT MOSAICSCANSTATUS" />
+      <!-- 自动修复的 REINSTALL=ALL 在服务端会话落地（UI 序列设置的 REINSTALL 不会传递）。 -->
+      <Custom Action="ApplyRepairRequest" Sequence="995" Condition="NOT REMOVE" />
       <!-- InstallLocation 在安装、升级与已确认位置的维护中都要写入；位置未能确认的旧版本
            维护和卸载不写入，避免把猜测出的默认目录登记成真实位置。健康维护不做任何登记变更。 -->
       <Custom Action="SetArpInstallLocation" After="CostFinalize" Condition="NOT Installed OR (MOSAICLOCATIONINHERITED AND NOT (MOSAICSCANSTATUS = &quot;Healthy&quot; AND NOT REINSTALL))" />

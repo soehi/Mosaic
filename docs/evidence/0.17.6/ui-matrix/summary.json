@@ -1,0 +1,76 @@
+{
+ "S1": {
+  "progress_page": true,
+  "alive_after_14s": true,
+  "exit": 1602,
+  "log_at_hang_ExecuteAction": false,
+  "progress_values": [
+   0
+  ]
+ },
+ "S2": {
+  "progress_page": true,
+  "exit": 0,
+  "done_page": true,
+  "install_success": true,
+  "file_count": 483,
+  "single_registration": true,
+  "arp_entry_version": "0.17.6",
+  "folder_exists": true,
+  "progress_distinct": 16
+ },
+ "S3": {
+  "exit": 0,
+  "maintenance_page": true,
+  "unchanged": true,
+  "mtimes_unchanged": true
+ },
+ "S4": {
+  "progress_page": false,
+  "exit": null,
+  "maintenance_page": false,
+  "missing_file_back": true,
+  "corrupt_file_hash_back": true
+ },
+ "S5": {
+  "progress_page": true,
+  "exit": 0,
+  "done_page": true,
+  "single_registration": true,
+  "location_preserved": true,
+  "sentinel_before": "qa-sentinel-0.17.5",
+  "sentinel_after": "qa-sentinel-0.17.5",
+  "binary_replaced": true
+ },
+ "S6a": {
+  "progress_page": true,
+  "exit": 0,
+  "done_page": true,
+  "cancel_shown": true,
+  "back_to_progress": true,
+  "folder_exists": true
+ },
+ "S6b": {
+  "progress_page": true,
+  "exit": 1602,
+  "cancel_shown": true,
+  "userexit_page": true,
+  "folder_exists": false
+ },
+ "S7": {
+  "folder_exists": true,
+  "install_exit": null,
+  "install_windows": [],
+  "maintenance_exit": null,
+  "maintenance_windows": [],
+  "uninstall_exit": null,
+  "uninstall_windows": [],
+  "uninstall_folder_left": false
+ },
+ "real_install_check": {
+  "hkcu_mosaic_keys_unchanged": true,
+  "exe_mtime": "2026-11-20 17:38:46 (安装时的 0.17.2 文件，未变)",
+  "exe_sha256_prefix": "7616D5E373562CDCF28ED7A96FBB45DA",
+  "note": "当前 HKCU\\Software\\Mosaic 与基线逐值一致（基线多的 DataRoot 行为 UTF-16 解析伪差）；ARP/产品注册未新增。"
+ }
+}

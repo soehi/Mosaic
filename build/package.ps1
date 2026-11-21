@@ -82,6 +82,26 @@ $cleanup = Add-MosaicNode $mosaicGroup 'Component' @{ Id = 'DirectoryCleanup'; D
 Add-MosaicNode $cleanup 'RemoveFolder' @{ Id = 'RemoveUserProgramsIfEmpty'; Directory = 'UserPrograms'; On = 'uninstall' } | Out-Null
 foreach ($directory in $mosaicDirectories.Values) { Add-MosaicNode $cleanup 'RemoveFolder' @{ Id = 'R' + (Get-MosaicId $directory); Directory = $directory; On = 'uninstall' } | Out-Null }
 Add-MosaicNode $cleanup 'RegistryValue' @{ Root = 'HKCU'; Key = 'Software\Mosaic\Installer'; Name = 'Directories'; Type = 'integer'; Value = '1'; KeyPath = 'yes' } | Out-Null
+# 子目录解析修复：UI 序列的 CostFinalize 先于路径校验运行，子目录属性一旦按默认
+# %LOCALAPPDATA% 路径解析，执行序列改写 INSTALLFOLDER 后不会重算，资源文件会落进
+# 默认目录。这里为每个子目录生成 SetDirectory（Type-51）动作，执行序列在
+# CostFinalize 之后按当前 INSTALLFOLDER 重设子目录目标；与 scripts/package_payload.py 保持一致。
+# 子目录解析修复：为每个子目录生成显式 Type-51 动作（Property=子目录 Id），执行序列
+# 在 CostFinalize 之后按当前 INSTALLFOLDER 重设子目录目标；与 scripts/package_payload.py
+# 保持一致。
+foreach ($relative in ($mosaicDirectories.Keys | Where-Object { $_ -ne '' } | Sort-Object)) {
+    $id = $mosaicDirectories[$relative]
+    # INSTALLFOLDER 由自定义动作设置时不带尾分隔符，必须显式补 \，否则拼成 Mosaiccs。
+    Add-MosaicNode $mosaicFragment 'CustomAction' @{ Id = "SetDir$id"; Property = $id; Value = '[INSTALLFOLDER]\' + ($relative -replace '/', '\') } | Out-Null
+}
+$mosaicSequence = Add-MosaicNode $mosaicFragment 'InstallExecuteSequence'
+$setDirSeq = 960
+foreach ($relative in ($mosaicDirectories.Keys | Where-Object { $_ -ne '' } | Sort-Object)) {
+    $id = $mosaicDirectories[$relative]
+    # 必须在 CostFinalize(1000) 之前（ICE12），且在 EnforceInstallFolder(950) 之后。
+    Add-MosaicNode $mosaicSequence 'Custom' @{ Action = "SetDir$id"; Sequence = $setDirSeq; Condition = 'NOT REMOVE' } | Out-Null
+    $setDirSeq++
+}
 $mosaicXml.Save($payload)
 # 原生自定义动作与清单必须与本次 Payload.wxs 从同一发布目录生成，才能保证三者一致。
 & (Join-Path $mosaicRoot 'build/installer/actions/build-actions.ps1')
