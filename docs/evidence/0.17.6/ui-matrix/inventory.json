@@ -56,6 +56,11 @@
    "path": "shots\\s6b-userexit.png",
    "size": 10461,
    "sha256": "3c2542dfc108cce00d33454d9acdf4eef6ea57d7a0fb02d2732037c652a71b83"
+  },
+  {
+   "path": "ui-matrix-logs.zip",
+   "size": 2289167,
+   "sha256": "7b767b23e447e8c6f9febeadc367b77e18c3bba094434da8aa34aa55908cdd71"
   }
  ]
 }
