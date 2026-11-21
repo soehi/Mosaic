@@ -40,7 +40,7 @@
     - UI 自定义路径安装丢失 156 个语言资源文件：UI 序列 `CostFinalize` 先于路径校验把子目录属性按默认 `%LOCALAPPDATA%` 解析，执行序列不会重算已存在的目录属性，资源 DLL 落进默认目录，维护扫描误报缺失并 1603。修复：`scripts/package_payload.py` 与 `build/package.ps1` 为 13 个子目录生成 Type-51 动作（`SetDir<目录Id>`，序 960-972，在 `EnforceInstallFolder`(950) 之后、`CostFinalize`(1000) 之前，值 `[INSTALLFOLDER]\<lang>` 显式补分隔符）；静态检查新增逐子目录断言（Type-51 存在、序号区间正确）。
     - 成功收尾被误报为取消：`Dialogs.wxs` Exit 页「完成」与健康维护提前结束原为 `EndDialog Exit`（MSI 语义=用户取消 1602，随后误入 UserExit 页）；改为 `EndDialog Return`，静态检查断言 Exit.Finish 与 MaintenanceDlg 健康分支必须 Return。
     - 修复请求传递缺陷：`ScanPayload` 在 UI 序列设置的 `REINSTALL=ALL` 不会随属性快照传入服务端会话（实测服务端只收到 `REINSTALLMODE` 与 `MOSAICREPAIRNEEDED`），损坏修复复制数为 0。修复：`MosaicInstallerActions.cpp` 新增 `ApplyRepairRequest`（执行序列 995，`CostFinalize` 之前），在服务端会话内依据扫描标记设置 `REINSTALL=ALL`；显式 `/f` 优先不覆盖。静态检查新增源码契约与序列断言。0.17.5 旧包在新断言下失败（红），重建后 0.17.6 通过（绿）。
-  - 重新构建产物：`artifacts/installer/0.17.6/Mosaic-0.17.6-win-x64.msi`，52,516,553 字节，SHA-256 `9CC92403A6CF569CC76F6EAC11FA982B426C6902CFBC1EFEB8FDBF07201AE437`（构建日志 `artifacts/qa/build-0176-final5.log`/`build-0176-final6.log`/`build-0176-final7.log`，本地生成）。
+  - 重新构建产物：`artifacts/installer/0.17.6/Mosaic-0.17.6-win-x64.msi`，52,516,584 字节，SHA-256 `05DDC4E7992797232FAAE2949FD7A4365A672A74BB885F9EBFE2ACF15463BA3C`（构建日志 `artifacts/qa/build-0176-final5.log`/`build-0176-final6.log`/`build-0176-final7.log`，本地生成）。
 - 未验证项：执行期 `FilesInUse` 对话框、3010/待重启分支，以及 FatalError 页的 MSI 2814 控件链告警（仅在安装失败弹 FatalError 时出现的次生显示缺陷，本次未复现修复）。中文安装路径已在 S2/S5/S6/S7 覆盖；验收账户 140% DPI 下界面正常显示。
 
 ## 0.17.5：卸载按登记位置移除、关闭 MSI 数据库句柄（2026-11-20）
