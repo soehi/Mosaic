@@ -1,5 +1,18 @@
 # Mosaic：实施与验证记录
 
+## 0.17.9：任务操作提示改为右下角浮层，修复列表点击错位（2026-11-21）
+
+- 根因位置（以下行号指 0.17.8 已发布版本 `71a09ff`）：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml` 中归档/恢复/删除等操作的结果提示条是 `TaskListPane` 内 `Grid.Row="1"` 的行内 Border（`Visibility="{Binding ShowListMessage, Converter={StaticResource BoolVisibility}}"`）。提示出现时该 Auto 行撑开，把 `Grid.Row="2"` 的任务列表整体下推；`Message` 本身不自动消失，由下次操作的 `TasksViewModel.ClearFeedback()`（`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs`）清空后提示行收起，列表整体上移回弹。用户归档/恢复任务后原地再次点击列表时，提示条恰好消失导致列表上移，鼠标落点从目标行偏移到相邻任务（本想点第 2 个却点中第 3 个）。
+- 改动位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml`：删除原行内提示 Border；`TaskListPane`（`:70`）的 `RowDefinitions` 由 `Auto/Auto/*` 减为两行 `Auto/*`（`:71-74`）；在列表 Grid 内部末尾新增 `ListMessageToast` 浮层 Border（`:291-310`）：`Panel.ZIndex=5`、右下对齐、`Margin=0,0,14,14`、`IsHitTestVisible=False`、初始 `Opacity=0`/`Visibility=Collapsed`，作为覆盖层不参与布局、不拦截列表点击；文本由 `ListMessageText`（`:306`）承载。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml.cs`：`OnModelPropertyChanged`（`:43-44`）订阅 `ShowListMessage` 变化，`OnDataContextChanged`（`:36`）初始化时同步；新增 `UpdateListMessageToast()`（`:65-88`）驱动浮层 140ms 淡入 / 220ms 淡出（`DoubleAnimation`，`:61-62`），`_lastListMessage`（`:63`）记忆最近非空文本，避免淡出期间 `Message` 被清空导致空浮层闪现；淡出完成后若 `ShowListMessage` 仍为 false 才收起 Visibility。
+  - `tests/Mosaic.Wpf.Tests/PresentationTests.cs:660` 新增 `Restoring_an_archived_task_shows_the_toast_without_shifting_the_task_list`：归档恢复流程后断言 `ShowListMessage` 为 true、浮层可见且 `IsHitTestVisible=False`，关键断言列表 `ActualHeight` 在提示出现前后不变。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.17.9）、`build/release-content.json`（第 42 条 `mosaic-0.17.9`，`previousReleaseId=mosaic-0.17.8`，指纹 `B4679238F2316A3AF05D24576076943634C3D5CBCE43CADB671035DA38B3EB72`）、`build/published-release-index.json`（第 42 条）、`build/release-manifest.json`、`docs/releases/v0.17.9.md`、`README.md:47`、`README.md:49`、本文件。
+- 迁移逻辑与验收项：无数据迁移、无配置变化；升级沿用既有 MajorUpgrade，安装位置与用户数据不受影响。
+- 验证：`dotnet test tests/Mosaic.Wpf.Tests` 全量 138 通过（含新增回归测试）；`python -I scripts/release_content_verify.py` 通过（42 个已索引发布）。
+- 未验证项：未做实机点击回放核对（浮层不拦截点击与列表高度不变由集成测试覆盖）。
+
 ## 0.17.8：设置页顶部说明与「高级设置」开关在模块页分区消失修复（2026-11-21）
 
 - 根因位置（以下行号指 0.17.7 已发布版本 `87f4eb6`）：

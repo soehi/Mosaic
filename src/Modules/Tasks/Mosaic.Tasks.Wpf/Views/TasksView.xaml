@@ -70,7 +70,6 @@
             <Grid x:Name="TaskListPane" MinWidth="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
@@ -108,19 +107,7 @@
                             Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"/>
                 </Grid>
 
-                <Border Grid.Row="1"
-                        Margin="0,0,6,12"
-                        Padding="11,9"
-                        Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
-                        CornerRadius="8"
-                        Visibility="{Binding ShowListMessage, Converter={StaticResource BoolVisibility}}">
-                    <TextBlock Text="{Binding Message}"
-                               HorizontalAlignment="Center"
-                               FontSize="12"
-                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
-                </Border>
-
-                <Grid Grid.Row="2">
+                <Grid Grid.Row="1">
                     <ListBox x:Name="TaskListBox"
                              ItemsSource="{Binding Items}"
                              SelectedItem="{Binding SelectedItem, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -295,6 +282,32 @@
                                     HorizontalAlignment="Center"
                                     Margin="0,16,0,0"/>
                         </StackPanel>
+                    </Border>
+
+                    <!-- 归档/恢复/删除等结果提示改为悬浮在列表右下角的浮层，
+                         不再占据 Grid 行，避免它出现或淡出时把任务列表整体上下推移，
+                         导致鼠标原地点击落到相邻任务（错位点中第 3 个任务）。
+                         IsHitTestVisible=False 保证不拦截列表点击。 -->
+                    <Border x:Name="ListMessageToast"
+                            Panel.ZIndex="5"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,14,14"
+                            Padding="11,9"
+                            MaxWidth="360"
+                            Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
+                            CornerRadius="8"
+                            IsHitTestVisible="False"
+                            Opacity="0"
+                            Visibility="Collapsed">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.32"/>
+                        </Border.Effect>
+                        <TextBlock x:Name="ListMessageText"
+                                   TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
                     </Border>
                 </Grid>
             </Grid>

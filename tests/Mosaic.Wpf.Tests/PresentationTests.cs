@@ -657,6 +657,59 @@ public sealed class PresentationTests
         }
     });
     [Fact]
+    public Task Restoring_an_archived_task_shows_the_toast_without_shifting_the_task_list() => Sta.Run(async () =>
+    {
+        // 回归：归档/恢复的结果提示原本是占据 Grid 行的内联提示条，
+        // 出现或消失时把任务列表整体上下推移，导致鼠标原地点击落到相邻任务（错位点中第 3 个）。
+        // 现在提示是悬浮在列表右下角的浮层，出现时不应改变列表的几何位置。
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var archivedTask = new TaskItemDto(Guid.NewGuid(), "已归档", "", true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 7) { ArchivedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) };
+        var api = new Api { Item = archivedTask };
+        var restored = 0;
+        api.Query = query => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(
+            query.ArchiveScope == TaskArchiveScope.Archived && restored == 0 ? [archivedTask] : (IReadOnlyList<TaskItemDto>)[]));
+        api.Archive = request =>
+        {
+            if (!request.IsArchived) restored++;
+            return Task.FromResult(OperationResult<TaskItemDto>.Success(archivedTask with { Revision = archivedTask.Revision + 1 }));
+        };
+        var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        var contribution = Assert.Single(module.Views, view => view.Id == "tasks.archived.list");
+        var page = contribution.Factory.Create();
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var view = page.View;
+            view.Resources.MergedDictionaries.Add(LoadTheme());
+            var model = view.DataContext!;
+
+            var toast = Assert.IsType<Border>(view.FindName("ListMessageToast"));
+            Assert.Equal(Visibility.Collapsed, toast.Visibility);
+            Assert.False(toast.IsHitTestVisible);
+
+            Arrange(view, 920, 780);
+            var list = Assert.IsType<Grid>(view.FindName("TaskListPane"));
+            var listHeightBefore = list.ActualHeight;
+
+            var select = Assert.IsAssignableFrom<IAsyncRelayCommand<TaskItemDto>>(model.GetType().GetProperty("SelectCommand")!.GetValue(model));
+            await select.ExecuteAsync(archivedTask);
+            var archive = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("ArchiveCommand")!.GetValue(model));
+            await archive.ExecuteAsync(null);
+            view.UpdateLayout();
+
+            Assert.True(Get<bool>(model, "ShowListMessage"));
+            Assert.Equal(Visibility.Visible, toast.Visibility);
+            // 关键断言：提示出现后列表高度不变，即浮层没有推挤列表。
+            Assert.Equal(listHeightBefore, list.ActualHeight);
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+
+    [Fact]
     public Task Archived_page_keeps_its_archived_filter_and_active_page_follows_the_default_filter() => Sta.Run(async () =>
     {
         var api = new Api();

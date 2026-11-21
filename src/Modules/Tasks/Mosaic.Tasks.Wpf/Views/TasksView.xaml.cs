@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Animation;
 using Mosaic.Tasks.Wpf.Internal;
 
 namespace Mosaic.Tasks.Wpf.Views;
@@ -32,12 +33,15 @@ public partial class TasksView : UserControl
             _model.PropertyChanged += OnModelPropertyChanged;
 
         UpdatePaneVisibility();
+        UpdateListMessageToast();
     }
 
     private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TasksViewModel.IsEditorOpen))
             UpdatePaneVisibility();
+        else if (e.PropertyName == nameof(TasksViewModel.ShowListMessage))
+            UpdateListMessageToast();
         else if (e.PropertyName is nameof(TasksViewModel.CompactBreakpoint)
             or nameof(TasksViewModel.EditorPaneWidth) or nameof(TasksViewModel.PaneGap)
             or nameof(TasksViewModel.ListMinColumnWidth))
@@ -48,6 +52,38 @@ public partial class TasksView : UserControl
         else if (e.PropertyName == nameof(TasksViewModel.ListMinColumnWidth))
         {
             if (_isCompact == false) TaskListColumn.MinWidth = _model?.ListMinColumnWidth ?? 300;
+        }
+    }
+
+    // 归档/恢复/删除等结果提示（ListMessageToast）不再占据 Grid 行参与布局，
+    // 而是悬浮在列表右下角；出现时淡入、ShowListMessage 变 false 时淡出，
+    // 全程不改变任务列表的几何位置，避免列表回弹导致的点击错位。
+    private static readonly Duration ToastFadeInDuration = new(TimeSpan.FromMilliseconds(140));
+    private static readonly Duration ToastFadeOutDuration = new(TimeSpan.FromMilliseconds(220));
+    private string _lastListMessage = "";
+
+    private void UpdateListMessageToast()
+    {
+        var show = _model?.ShowListMessage == true;
+        ListMessageToast.BeginAnimation(OpacityProperty, null);
+        if (show)
+        {
+            // 淡出期间 Message 可能已被清空，显示最近一次非空文本，避免空浮层闪现。
+            if (!string.IsNullOrEmpty(_model?.Message)) _lastListMessage = _model.Message;
+            ListMessageText.Text = _lastListMessage;
+            ListMessageToast.Visibility = Visibility.Visible;
+            var fadeIn = new DoubleAnimation(0, 1, ToastFadeInDuration);
+            ListMessageToast.BeginAnimation(OpacityProperty, fadeIn);
+        }
+        else
+        {
+            var fadeOut = new DoubleAnimation(1, 0, ToastFadeOutDuration);
+            fadeOut.Completed += (_, _) =>
+            {
+                if (_model?.ShowListMessage != true)
+                    ListMessageToast.Visibility = Visibility.Collapsed;
+            };
+            ListMessageToast.BeginAnimation(OpacityProperty, fadeOut);
         }
     }
 
