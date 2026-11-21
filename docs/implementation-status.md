@@ -1,5 +1,22 @@
 # Mosaic：实施与验证记录
 
+## 0.17.11：多选交互修正——仅 Ctrl 切换多选、无修饰键单选、Esc 视图级清空（2026-11-21）
+
+- 根因位置（以下行号指 0.17.10 已发布版本 `02bed50`）：
+  - 普通点击误入多选：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml` 的 `TaskListBox` 设为 `SelectionMode="Multiple"`，WPF 原生点击即切换选中；`src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml.cs` 的 `OnTaskListPreviewMouseLeftButtonDown` 只在按住 Ctrl/Alt 时拦截（`e.Handled = true`），无修饰键的点击被放行给原生行为，经 `OnTaskListSelectionChanged` 镜像进 `TasksViewModel.SelectedTasks`，于是普通点击也会加选/减选。
+  - Esc 清空无效：`PreviewKeyDown` 只挂在 `TaskListBox` 上（0.17.10 的 `OnTaskListPreviewKeyDown`），该事件只沿焦点元素及祖先链触发，焦点落在编辑器或多选面板按钮上时列表收不到 Esc。
+  - 修复过程中发现并处理的深层问题：① `TasksViewModel.SelectAsync`（`TasksViewModel.cs:496`）打开详情成功后用接口回包按 Id 回查 `Items` 重建选中引用，回包是新 DTO 实例，若 Get 与 List 数据源不一致会把选中清成 null；② `SelectedTasks.Clear()` 触发 `CollectionChanged` 时 `HasMultiSelection` 的 `PropertyChanged` 尚未到达（CommunityToolkit 在集合事件回调末尾才发），视图读到的仍是旧值 true，导致单选锚点赋值被跳过。
+- 改动位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml`：`TaskListBox`（`:113-115`）`SelectionMode` 由 `Multiple` 改为 `Single`，`SelectedItems` 集合不再承载多选，多选叠加高亮改由容器 `ListBoxItem.IsSelected` 施加。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml.cs`：构造函数（`:24`）改挂视图级 `PreviewKeyDown += OnTasksViewPreviewKeyDown`；`OnTaskListPreviewMouseLeftButtonDown`（`:115-125`）改为全量拦截（`e.Handled = true`），按住 Ctrl 调 `ToggleSelection(item)`，否则 `SelectedItem = item` 单选；新增 `OnTasksViewPreviewKeyDown`（`:128-135`），Esc 且 `HasMultiSelection` 时 `ClearMultiSelection()` 并标记已处理；`OnTaskListSelectionChanged`（`:147-149`）改为空方法，Single 模式下不再回写 `SelectedTasks`；`SyncListBoxSelection`（`:154-195`）重写为两分支：多选期间锚点置 null、容器循环按 `SelectedTasks` 叠加/移除高亮，单选期间清空多选残留且循环不触碰锚点行（锚点行交给 ListBox 原生选中驱动，避免同步写回抖动）；`OnModelPropertyChanged`（`:50-59`）在 `HasMultiSelection` 通知到达时重放 `SyncListBoxSelection()`，修正上述通知交错时序。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs`：`ToggleSelection`（`:362`）由双参数 `(item, add)` 改为单参数切换语义——未选中加选、已选中减选，Alt 减选分支删除；`SelectedItem` setter（`:122-140`）多选期间先 `ClearMultiSelection()` 再走单选；`SelectFromListAsync`（`:343-360`）打开详情成功后强制 `SetSelectedItem(requested)`，不再以接口回包重建选中引用（单选锚点就是列表中被点击的实例）；`HasMultiSelection`（`:115`）语义收束为只承载 Ctrl 多选，不与单选纠缠。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Localization/zh.xaml:123` 与 `en.xaml:123`（两文件同位置）：`Tasks.Selection.Hint` 文案改为「按住 Ctrl 点击加选任务，按住 Ctrl 点击已选中的任务减选；按 Esc 清空选择。」（英文对应更新）。
+  - `tests/Mosaic.Wpf.Tests/PresentationTests.cs`：`Api` 替身（`:45-57`）新增 `_lastList` 缓存，`GetAsync` 按 id 回查最近一次 `ListAsync` 结果（与真实服务行为一致，消除替身 Get 与 Query 各回一份导致的选中引用错乱）；新增 `Plain_click_during_multi_select_returns_to_single_selection_and_opens_editor`（`:1497`）覆盖无修饰键点击退出多选并打开详情；新增 `Escape_at_view_level_clears_multi_selection`（`:1549`）覆盖视图级 Esc 清空多选；`Ctrl_multi_select_hides_the_single_task_editor_and_batch_archive_uses_latest_items`（`:1388`）与两个批量删除用例改为单参数 `ToggleSelection` 调用。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.17.11）、`build/release-content.json`（第 44 条 `mosaic-0.17.11`，`previousReleaseId=mosaic-0.17.10`，指纹 `90E061F4C9AF27B9289530FFE9EC121A5CC0EF25CA2ED66489D077AB902793F6`）、`build/published-release-index.json`（第 44 条）、`build/release-manifest.json`、`docs/releases/v0.17.11.md`、`README.md:47`、`README.md:49`、本文件。
+- 迁移逻辑与验收项：无数据迁移、无配置变化、无模块装配变化；升级沿用既有 MajorUpgrade，安装位置与用户数据不受影响。验收项：升级后普通点击为纯单选并打开详情；仅 Ctrl+点击切换多选；Esc 在任务页任意焦点下清空多选。
+- 验证：直接执行 `tests/Mosaic.Wpf.Tests/bin/Debug/net10.0-windows/Mosaic.Wpf.Tests.exe`（xUnit v3 独立运行器；`dotnet test` 会以 VSTest 参数调用并报"未知选项: --nologo"）全量 143 通过（0.17.10 基线 141 + 新增 2）；`python -I scripts/release_content_verify.py` 通过（44 个已索引发布）。
+- 未验证项：未做实机鼠标+键盘组合回放（Ctrl 点击切换、无修饰键单选、Esc 视图级清空由集成测试覆盖）。
+
 ## 0.17.10：任务列表多选（Ctrl 加选 / Alt 减选）与批量操作（2026-11-21）
 
 - 根因位置：

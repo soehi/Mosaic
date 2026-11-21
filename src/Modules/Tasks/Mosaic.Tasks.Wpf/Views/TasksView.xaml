@@ -111,7 +111,7 @@
                     <ListBox x:Name="TaskListBox"
                              ItemsSource="{Binding Items}"
                              SelectedItem="{Binding SelectedItem, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             SelectionMode="Multiple"
+                             SelectionMode="Single"
                              SelectionChanged="OnTaskListSelectionChanged"
                              PreviewMouseLeftButtonDown="OnTaskListPreviewMouseLeftButtonDown"
                              IsEnabled="{Binding CanEdit}"
@@ -317,7 +317,7 @@
 
             <views:TaskEditorView x:Name="TaskEditorPane" Grid.Column="2" MinWidth="0"/>
 
-            <!-- 多选操作面板：Ctrl 加选 / Alt 减选后替代任务编辑器显示，批量归档/恢复/删除选中项 -->
+            <!-- 多选操作面板：Ctrl 切换多选后替代任务编辑器显示，批量归档/恢复/删除选中项 -->
             <Border x:Name="MultiSelectPane"
                     Grid.Column="2"
                     MinWidth="0"

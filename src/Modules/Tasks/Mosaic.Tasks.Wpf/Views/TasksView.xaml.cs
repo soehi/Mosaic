@@ -21,7 +21,7 @@ public partial class TasksView : UserControl
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
         SizeChanged += OnSizeChanged;
-        TaskListBox.PreviewKeyDown += OnTaskListPreviewKeyDown;
+        PreviewKeyDown += OnTasksViewPreviewKeyDown;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e) => UpdateResponsiveLayout(ActualWidth);
@@ -50,7 +50,13 @@ public partial class TasksView : UserControl
     private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(TasksViewModel.IsEditorOpen) or nameof(TasksViewModel.HasMultiSelection))
+        {
+            // 多选进出时 SelectionChanged 可能先于 HasMultiSelection 通知到达，
+            // 必须按最新状态重放同步（如多选退出后把 SelectedItem 锚点写回）。
             UpdatePaneVisibility();
+            if (e.PropertyName == nameof(TasksViewModel.HasMultiSelection))
+                SyncListBoxSelection();
+        }
         else if (e.PropertyName == nameof(TasksViewModel.SelectedItem))
             SyncListBoxSelection();
         else if (e.PropertyName == nameof(TasksViewModel.ShowListMessage))
@@ -103,24 +109,27 @@ public partial class TasksView : UserControl
         }
     }
 
-    // Ctrl 加选 / Alt 减选：拦截带修饰键的点击，手动维护多选集合，
-    // 不走默认的单选路径（多选期间任务详情区改由多选操作面板占用）。
+    // 任务项点击统一走预览事件手动裁决：SelectionMode=Single 由 VM 自行维持
+    // （多选集合托管的选中项不进 ListBox.SelectedItems，见 TasksViewModel.HasMultiSelection），
+    // 这里不再依赖原生 Extended/Multiple 键盘手势，按住 Ctrl 切换多选、否则单选。
     private void OnTaskListPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        var add = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
-        var remove = (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt;
-        if (add == remove || _model is null) return;
+        if (_model is null) return;
         if (FindItem(e.OriginalSource as DependencyObject) is not { } container
             || container.DataContext is not TaskListItemViewModel item) return;
-        if (_model.ToggleSelection(item, add)) e.Handled = true;
+        e.Handled = true;
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            _model.ToggleSelection(item);
+        else
+            _model.SelectedItem = item;
     }
 
-    // 空白处 Esc 退出多选（点击已选中项本身已由 WPF 默认行为完成减选）。
-    private void OnTaskListPreviewKeyDown(object sender, KeyEventArgs e)
+    // Esc 退出多选挂在视图级：焦点在编辑器或多选面板按钮上时也要能收到。
+    private void OnTasksViewPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape && _model?.HasMultiSelection == true)
         {
-            _model.SelectedTasks.Clear();
+            _model.ClearMultiSelection();
             e.Handled = true;
         }
     }
@@ -132,78 +141,60 @@ public partial class TasksView : UserControl
         return node as ListBoxItem;
     }
 
-    // SelectionMode=Multiple 下，把 ListBox.SelectedItems 的增减（普通点击、无键点击已选项）
-    // 同步进 ViewModel.SelectedTasks；反向同步由 OnSelectedTasksChanged 完成，_syncingSelection 防回环。
+    // Single 模式下点击已在预览事件手动裁决，SelectionChanged 只来自 SyncListBoxSelection
+    // 的容器 IsSelected 调整与键鼠导航兜底；均不再回写 ViewModel.SelectedTasks，
+    // 否则单选会经镜像误入多选集合（0.17.10 的架构纠缠）。
     private void OnTaskListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_syncingSelection || _model is null) return;
-        _syncingSelection = true;
-        try
-        {
-            foreach (var item in e.AddedItems.OfType<TaskListItemViewModel>())
-                if (!_model.SelectedTasks.Contains(item)) _model.SelectedTasks.Add(item);
-            foreach (var item in e.RemovedItems.OfType<TaskListItemViewModel>())
-                _model.SelectedTasks.Remove(item);
-        }
-        finally
-        {
-            _syncingSelection = false;
-        }
     }
 
-    private void OnSelectedTasksChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (_syncingSelection) return;
-        _syncingSelection = true;
-        try
-        {
-            if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is not null)
-            {
-                foreach (var item in e.NewItems.OfType<TaskListItemViewModel>())
-                    if (!TaskListBox.SelectedItems.Contains(item)) TaskListBox.SelectedItems.Add(item);
-            }
-            else if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems is not null)
-            {
-                foreach (var item in e.OldItems.OfType<TaskListItemViewModel>())
-                    TaskListBox.SelectedItems.Remove(item);
-            }
-            else
-            {
-                SyncListBoxSelection();
-            }
-        }
-        finally
-        {
-            _syncingSelection = false;
-        }
-    }
-
+    // Single 模式下容器循环只负责多选叠加高亮，锚点行的 IsSelected 由 SelectedItem 驱动：
+    // 多选期间锚点为 null、循环按 SelectedTasks 施加；单选期间清掉多选残留高亮，
+    // 对锚点行既不设也不清，交给 ListBox 原生选中驱动（异步完成，同步写回会抖动）。
     private void SyncListBoxSelection()
     {
         if (_syncingSelection) return;
         _syncingSelection = true;
         try
         {
+            // Single 模式下不能改 SelectedItems 集合，只能经 SelectedItem/容器 IsSelected 调整：
+            // 先把锚点对齐到 VM 的 SelectedItem，多选期间锚点为 null。
+            var anchor = _model?.HasMultiSelection == true ? null : _model?.SelectedItem;
+            if (!ReferenceEquals(TaskListBox.SelectedItem, anchor))
+                TaskListBox.SelectedItem = anchor;
             var selected = _model?.SelectedTasks;
-            for (var index = TaskListBox.SelectedItems.Count - 1; index >= 0; index--)
+            if (selected is { Count: > 0 })
             {
-                if (TaskListBox.SelectedItems[index] is TaskListItemViewModel item
-                    && (selected is null || !selected.Contains(item)))
-                    TaskListBox.SelectedItems.RemoveAt(index);
+                // 多选集合是独立的选中态来源，逐项用容器 IsSelected 叠加/移除高亮；
+                // 高亮通知经 ListBoxItem 属性变化异步生效，触发 SelectionChanged 前仍受 _syncingSelection 保护。
+                foreach (var item in TaskListBox.Items.OfType<TaskListItemViewModel>())
+                {
+                    if (TaskListBox.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container)
+                        continue;
+                    var shouldSelect = selected.Contains(item);
+                    if (container.IsSelected != shouldSelect)
+                        container.IsSelected = shouldSelect;
+                }
             }
-            if (selected is not null)
+            else
             {
-                foreach (var item in selected)
-                    if (!TaskListBox.SelectedItems.Contains(item)) TaskListBox.SelectedItems.Add(item);
+                // 单选时清空多选残留；锚点行交由 ListBox 原生选中驱动，循环不触碰。
+                foreach (var item in TaskListBox.Items.OfType<TaskListItemViewModel>())
+                {
+                    if (ReferenceEquals(item, anchor)) continue;
+                    if (TaskListBox.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container
+                        && container.IsSelected)
+                        container.IsSelected = false;
+                }
             }
-            if (_model is not null && !ReferenceEquals(TaskListBox.SelectedItem, _model.SelectedItem))
-                TaskListBox.SelectedItem = _model.SelectedItem;
         }
         finally
         {
             _syncingSelection = false;
         }
     }
+
+    private void OnSelectedTasksChanged(object? sender, NotifyCollectionChangedEventArgs e) => SyncListBoxSelection();
 
     private void UpdateMultiSelectPaneText()
     {

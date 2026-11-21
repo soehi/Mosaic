@@ -120,7 +120,7 @@
     <sys:String x:Key="Tasks.Count.Archived">{0} archived</sys:String>
     <sys:String x:Key="Tasks.Error.Archived">Restore the archived task before editing it.</sys:String>
     <sys:String x:Key="Tasks.Selection.Count">{0} selected</sys:String>
-    <sys:String x:Key="Tasks.Selection.Hint">Hold Ctrl and click to add tasks, hold Alt and click to remove them; click a selected task to deselect it, press Esc to clear the selection.</sys:String>
+    <sys:String x:Key="Tasks.Selection.Hint">Hold Ctrl and click to select tasks, Ctrl-click a selected task to deselect it; press Esc to clear the selection.</sys:String>
     <sys:String x:Key="Tasks.Selection.Archive">Archive {0}</sys:String>
     <sys:String x:Key="Tasks.Selection.Restore">Restore {0}</sys:String>
     <sys:String x:Key="Tasks.Selection.Delete">Delete {0}</sys:String>

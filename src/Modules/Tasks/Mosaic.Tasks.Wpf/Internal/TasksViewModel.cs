@@ -110,6 +110,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand ReloadCommand { get; }
     public IAsyncRelayCommand ArchiveSelectionCommand { get; }
     public IAsyncRelayCommand DeleteSelectionCommand { get; }
+    // SelectedTasks 只承载 Ctrl 多选：普通点击单选不会进入该集合，
+    // 因此 Count > 0 即多选，不再与单选纠缠。
     public bool HasMultiSelection => SelectedTasks.Count > 0;
     public string SelectionSummary => TaskLocalization.Format("Tasks.Selection.Count", "已选 {0} 项", SelectedTasks.Count);
     public string SelectionArchiveLabel => FilterIndex == 3
@@ -123,13 +125,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         set
         {
             if (ReferenceEquals(_selectedItem, value) || _suppressSelectionSync) return;
-            if (HasMultiSelection)
-            {
-                _suppressSelectionSync = true;
-                try { SetSelectedItem(null); }
-                finally { _suppressSelectionSync = false; }
-                return;
-            }
+            // 无 Ctrl 的点击一律单选：多选期间先清多选，再走正常单选打开详情。
+            if (HasMultiSelection) ClearMultiSelection();
             if (value is null)
             {
                 SetSelectedItem(null);
@@ -352,47 +349,48 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             IsEditorOpen = true;
             return;
         }
-        if (!await SelectAsync(requested.Item)) SetSelectedItem(previous);
+        // 打开详情成功时不以接口回包重建选中引用：回包是新 DTO 实例，按 Id 回查 Items
+        // 若列表内容与回包不一致（测试替身 GetAsync 与 Query 各回一份）会把选中清成 null；
+        // 单选锚点就是列表中被点击的那个实例。
+        var ok = await SelectAsync(requested.Item);
+        if (!ok) SetSelectedItem(previous);
+        else if (!ReferenceEquals(SelectedItem, requested)) SetSelectedItem(requested);
     }
 
-    // Ctrl/Alt 多选：加选或减选整项，不打开任务详情（详情区改由多选操作面板占用）。
-    // 返回 true 表示本次点击已按多选处理，视图不应再回退到单选路径。
-    public bool ToggleSelection(TaskListItemViewModel? item, bool add)
+    // Ctrl 多选：切换整项选中状态（已选则减选、未选则加选），不打开任务详情
+    // （详情区改由多选操作面板占用）。返回 true 表示已按多选处理。
+    public bool ToggleSelection(TaskListItemViewModel? item)
     {
         if (item is null || IsBusy) return HasMultiSelection;
         var index = SelectedTasks.IndexOf(item);
-        if (add)
+        if (index >= 0)
         {
-            if (index >= 0) return true;
-            if (!HasMultiSelection)
-            {
-                if (IsBusy || _disposed) return false;
-                EnterBusy(TasksFeedbackKind.Loading);
-                try
-                {
-                    SetSelectedItem(null);
-                    Editor.Load(null);
-                    _archivedVersion = null;
-                    IsEditorOpen = false;
-                    ClearFeedback();
-                }
-                finally
-                {
-                    ExitBusy();
-                }
-                SelectedTasks.Add(item);
-            }
-            else
-            {
-                if (SelectedTasks.Contains(_selectedItem!)) return true;
-                SelectedTasks.Add(item);
-            }
-        }
-        else
-        {
-            if (index < 0) return true;
             SelectedTasks.RemoveAt(index);
+            return true;
         }
+        if (!HasMultiSelection)
+        {
+            if (IsBusy || _disposed) return false;
+            EnterBusy(TasksFeedbackKind.Loading);
+            try
+            {
+                // 首项加选时清空编辑会话进入多选；_suppressSelectionSync 防止属性通知
+                // 途中被外部对 SelectedItem 赋值打断（清空通知先于 Add 发出，
+                // 处理方看到的多选状态仍是 false）。
+                _suppressSelectionSync = true;
+                SetSelectedItem(null);
+                Editor.Load(null);
+                _archivedVersion = null;
+                IsEditorOpen = false;
+                ClearFeedback();
+            }
+            finally
+            {
+                ExitBusy();
+                _suppressSelectionSync = false;
+            }
+        }
+        SelectedTasks.Add(item);
         return true;
     }
 
@@ -934,18 +932,15 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         foreach (var item in replacements) SelectedTasks.Add(item);
     }
 
-    private void ClearMultiSelection()
+    // Esc 与“无 Ctrl 点击回到单选”共用的多选出口。
+    public void ClearMultiSelection()
     {
         if (SelectedTasks.Count > 0) SelectedTasks.Clear();
     }
 
     private void OnSelectedTasksChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        // 注意：不能在这里对“添加项与 _selectedItem 相同”做退出单选处理。
-        // 普通点击单选时，SelectedItem setter 经 SelectFromListAsync 先同步 _selectedItem，
-        // 随后 WPF 把该项加进 ListBox.SelectedItems（Multiple 模式）并经 OnTaskListSelectionChanged
-        // Add 进 SelectedTasks——此时 _selectedItem 正是该项，误清会打断单选。
-        // Ctrl 加选当前单选任务的场景已由 ToggleSelection 在 Add 前先 SetSelectedItem(null) 覆盖。
+        // 单选不再进入 SelectedTasks，这里只需同步多选状态与批量命令可用性。
         NotifySelectionState();
     }
 

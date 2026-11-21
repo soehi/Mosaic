@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.10",
+  "currentReleaseId": "mosaic-0.17.11",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -715,6 +715,19 @@
       "improved": [],
       "fixed": [],
       "contentSha256": "243FFA46CD12A3394B72A9F92ED4AAB24339CE2DA8885582572C0A5ABD7D042A"
+    },
+    {
+      "releaseId": "mosaic-0.17.11",
+      "version": "0.17.11",
+      "releasedOn": "2026-11-21",
+      "previousReleaseId": "mosaic-0.17.10",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "修复任务列表未按 Ctrl/Alt 时普通点击也会加选、减选的问题：现在仅按住 Ctrl 点击切换多选（未选中项加选、已选中项减选），不按修饰键一律单选并打开任务详情，Alt 减选手势移除。",
+        "修复焦点不在任务列表时按 Esc 无法退出多选的问题：Esc 清空多选改为在整个任务页生效。"
+      ],
+      "contentSha256": "90E061F4C9AF27B9289530FFE9EC121A5CC0EF25CA2ED66489D077AB902793F6"
     }
   ]
 }

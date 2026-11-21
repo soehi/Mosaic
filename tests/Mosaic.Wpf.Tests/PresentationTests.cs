@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Input;
@@ -39,10 +40,23 @@ public sealed class PresentationTests
         internal int Creates;
         internal int Deletes;
         internal Func<CreateTaskRequest, Task<OperationResult<TaskItemDto>>>? Creator;
+        // Get 替身按 id 回查最近一次 List 结果：与真实服务行为一致，避免与 Query 各回一份。
         internal TaskItemDto Item = new(Guid.NewGuid(), "Existing", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        private IReadOnlyList<TaskItemDto>? _lastList;
         public Task<OperationResult<TaskItemDto>> CreateAsync(CreateTaskRequest request, CancellationToken cancellationToken = default) { Creates++; return Creator?.Invoke(request) ?? Task.FromResult(SaveError is null ? OperationResult<TaskItemDto>.Success(Item with { Title = request.Title, Notes = request.Notes }) : OperationResult<TaskItemDto>.Failure(SaveError)); }
-        public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult<TaskItemDto>.Success(Item));
-        public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default) => Query(query);
+        public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            var match = _lastList?.FirstOrDefault(task => task.Id == id);
+            return Task.FromResult(match is { } dto
+                ? OperationResult<TaskItemDto>.Success(dto)
+                : OperationResult<TaskItemDto>.Success(Item));
+        }
+        public async Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default)
+        {
+            var result = await Query(query);
+            if (result.IsSuccess) _lastList = result.Value;
+            return result;
+        }
         public Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) => Task.FromResult(SaveError is null ? OperationResult<TaskItemDto>.Success(Item with { Title = request.Title, Revision = request.ExpectedRevision + 1 }) : OperationResult<TaskItemDto>.Failure(SaveError));
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult<TaskItemDto>.Success(Item with { IsCompleted = request.IsCompleted }));
         internal Func<SetTaskArchivedRequest, Task<OperationResult<TaskItemDto>>>? Archive;
@@ -1420,7 +1434,7 @@ public sealed class PresentationTests
             Arrange(view, 1100, 780);
 
             var listBox = Assert.IsType<ListBox>(view.FindName("TaskListBox"));
-            Assert.Equal(SelectionMode.Multiple, listBox.SelectionMode);
+            Assert.Equal(SelectionMode.Single, listBox.SelectionMode);
             var items = Items(model).ToArray();
             Assert.Equal(2, items.Length);
             var editorPane = Assert.IsType<TaskEditorView>(view.FindName("TaskEditorPane"));
@@ -1430,7 +1444,7 @@ public sealed class PresentationTests
 
             var toggle = model.GetType().GetMethod("ToggleSelection")!;
             // Ctrl 加选第一项：进入多选，单任务编辑器隐藏、多选面板显示。
-            Assert.True((bool)toggle.Invoke(model, [items[0], true])!);
+            Assert.True((bool)toggle.Invoke(model, [items[0]])!);
             Arrange(view, 1100, 780);
             Assert.True(Get<bool>(model, "HasMultiSelection"));
             Assert.Equal("已选 1 项", Get<string>(model, "SelectionSummary"));
@@ -1438,16 +1452,18 @@ public sealed class PresentationTests
             Assert.Equal(Visibility.Collapsed, editorPane.Visibility);
             Assert.Equal(Visibility.Visible, multiPane.Visibility);
             Assert.Single((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+            view.UpdateLayout();
             Assert.True(listBox.SelectedItems.Contains(items[0]));
 
-            // Ctrl 加选第二项；Alt 减选第二项。
-            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+            // Ctrl 加选第二项；Ctrl 点击已选中的第二项减选。
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
             Assert.Equal(2, ((System.Collections.ICollection)Get<object>(model, "SelectedTasks")).Count);
-            Assert.True((bool)toggle.Invoke(model, [items[1], false])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
+            view.UpdateLayout();
             Assert.Single((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
 
             // 加选第二项后批量归档 A+B：列表刷新后多选集合被裁剪清空。
-            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
             var archiveSelection = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("ArchiveSelectionCommand")!.GetValue(model));
             await archiveSelection.ExecuteAsync(null);
             Assert.Equal(2, archivedRequests.Count);
@@ -1465,7 +1481,7 @@ public sealed class PresentationTests
             await load.ExecuteAsync(null);
             var refreshed = Items(model).ToArray();
             Assert.Equal(2, refreshed.Length);
-            Assert.True((bool)toggle.Invoke(model, [refreshed[1], true])!);
+            Assert.True((bool)toggle.Invoke(model, [refreshed[1]])!);
             await archiveSelection.ExecuteAsync(null);
             var last = Assert.Single(archivedRequests.Skip(2));
             Assert.Equal(taskB.Id, last.Id);
@@ -1476,6 +1492,103 @@ public sealed class PresentationTests
             await page.Controller.DisposeAsync();
         }
     });
+
+    [Fact]
+    public Task Plain_click_during_multi_select_returns_to_single_selection_and_opens_editor() => Sta.Run(async () =>
+    {
+        // 回归：多选期间无 Ctrl 的点击必须回到纯单选——清空多选并打开被点任务的详情，
+        // 不能沿用旧的“多选期间吞掉 SelectedItem 赋值”行为（0.17.11）。
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var taskA = new TaskItemDto(Guid.NewGuid(), "任务A", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        var taskB = new TaskItemDto(Guid.NewGuid(), "任务B", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        var api = new Api();
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success((IReadOnlyList<TaskItemDto>)[taskA, taskB]));
+        var page = await Page(api, new Dialogs());
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var view = page.View;
+            view.Resources.MergedDictionaries.Add(LoadTheme());
+            var model = view.DataContext!;
+            Arrange(view, 1100, 780);
+            var listBox = Assert.IsType<ListBox>(view.FindName("TaskListBox"));
+            var editorPane = Assert.IsType<TaskEditorView>(view.FindName("TaskEditorPane"));
+            var multiPane = Assert.IsType<Border>(view.FindName("MultiSelectPane"));
+            var items = Items(model).ToArray();
+
+            var toggle = model.GetType().GetMethod("ToggleSelection")!;
+            Assert.True((bool)toggle.Invoke(model, [items[0]])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
+            Assert.True(Get<bool>(model, "HasMultiSelection"));
+            Assert.Null(Get<object>(model, "SelectedItem"));
+            Assert.Equal(Visibility.Collapsed, editorPane.Visibility);
+
+            // 无 Ctrl 点击任务A：退出多选，A 成为单选项并打开其详情。
+            SetProperty(model, "SelectedItem", items[0]);
+            await Task.Delay(120);
+            Arrange(view, 1100, 780);
+            Assert.False(Get<bool>(model, "HasMultiSelection"));
+            Assert.Empty((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+            Assert.Same(items[0], Get<object>(model, "SelectedItem"));
+            var current = Assert.IsType<TaskItemDto>(Get<object>(Get<object>(model, "Editor"), "Current"));
+            Assert.Equal(taskA.Id, current.Id);
+            Assert.True(Get<bool>(model, "IsEditorOpen"));
+            Assert.Equal(Visibility.Visible, editorPane.Visibility);
+            Assert.Equal(Visibility.Collapsed, multiPane.Visibility);
+            Assert.Same(items[0], listBox.SelectedItem);
+            view.UpdateLayout();
+            Assert.False(listBox.SelectedItems.Contains(items[1]));
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+
+    [Fact]
+    public Task Escape_at_view_level_clears_multi_selection() => Sta.Run(async () =>
+    {
+        // 回归：Esc 清空多选挂在视图级 PreviewKeyDown——焦点不在任务列表上
+        // （如多选面板按钮）时也必须生效（0.17.11 前只挂在 TaskListBox 上，Esc 失效）。
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var taskA = new TaskItemDto(Guid.NewGuid(), "任务A", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        var taskB = new TaskItemDto(Guid.NewGuid(), "任务B", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        var api = new Api();
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success((IReadOnlyList<TaskItemDto>)[taskA, taskB]));
+        var page = await Page(api, new Dialogs());
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var view = page.View;
+            var model = view.DataContext!;
+            var items = Items(model).ToArray();
+            var toggle = model.GetType().GetMethod("ToggleSelection")!;
+            Assert.True((bool)toggle.Invoke(model, [items[0]])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
+            Assert.True(Get<bool>(model, "HasMultiSelection"));
+
+            var args = new KeyEventArgs(Keyboard.PrimaryDevice, new FakePresentationSource(), 0, Key.Escape)
+            {
+                RoutedEvent = UIElement.PreviewKeyDownEvent,
+                Source = view,
+            };
+            view.RaiseEvent(args);
+            Assert.True(args.Handled);
+            Assert.False(Get<bool>(model, "HasMultiSelection"));
+            Assert.Empty((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+
+    private sealed class FakePresentationSource : PresentationSource
+    {
+        public override Visual RootVisual { get => null!; set { } }
+        public override bool IsDisposed => false;
+        protected override CompositionTarget? GetCompositionTargetCore() => null;
+    }
 
     [Fact]
     public Task Batch_delete_confirms_once_and_reports_each_result() => Sta.Run(async () =>
@@ -1493,8 +1606,8 @@ public sealed class PresentationTests
             var model = page.View.DataContext!;
             var items = Items(model).ToArray();
             var toggle = model.GetType().GetMethod("ToggleSelection")!;
-            Assert.True((bool)toggle.Invoke(model, [items[0], true])!);
-            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+            Assert.True((bool)toggle.Invoke(model, [items[0]])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
 
             var deleteSelection = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("DeleteSelectionCommand")!.GetValue(model));
             await deleteSelection.ExecuteAsync(null);
@@ -1530,8 +1643,8 @@ public sealed class PresentationTests
             var model = page.View.DataContext!;
             var items = Items(model).ToArray();
             var toggle = model.GetType().GetMethod("ToggleSelection")!;
-            Assert.True((bool)toggle.Invoke(model, [items[0], true])!);
-            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+            Assert.True((bool)toggle.Invoke(model, [items[0]])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1]])!);
 
             var deleteSelection = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("DeleteSelectionCommand")!.GetValue(model));
             await deleteSelection.ExecuteAsync(null);

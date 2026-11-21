@@ -120,7 +120,7 @@
     <sys:String x:Key="Tasks.Count.Archived">{0} 项已归档</sys:String>
     <sys:String x:Key="Tasks.Error.Archived">请先恢复已归档的任务。</sys:String>
     <sys:String x:Key="Tasks.Selection.Count">已选 {0} 项</sys:String>
-    <sys:String x:Key="Tasks.Selection.Hint">按住 Ctrl 点击加选任务，按住 Alt 点击减选；在已选中的任务上直接点击可减选，按 Esc 清空选择。</sys:String>
+    <sys:String x:Key="Tasks.Selection.Hint">按住 Ctrl 点击加选任务，按住 Ctrl 点击已选中的任务减选；按 Esc 清空选择。</sys:String>
     <sys:String x:Key="Tasks.Selection.Archive">归档 {0} 项</sys:String>
     <sys:String x:Key="Tasks.Selection.Restore">恢复 {0} 项</sys:String>
     <sys:String x:Key="Tasks.Selection.Delete">删除 {0} 项</sys:String>
