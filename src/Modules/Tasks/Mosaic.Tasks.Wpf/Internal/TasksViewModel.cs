@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mosaic.Contracts;
@@ -52,6 +53,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private string? _errorCorrelationId;
     private TasksFeedbackKind _messageKind = TasksFeedbackKind.None;
     private string? _messageSettingsText;
+    private bool _suppressSelectionSync;
 
     internal TasksViewModel(
         ITasksApi api,
@@ -83,13 +85,17 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         ArchiveCommand = new AsyncRelayCommand(ArchiveAsync, () => !IsBusy && Editor.HasTask);
         DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => !IsBusy && Editor.HasTask);
         ReloadCommand = new AsyncRelayCommand(ReloadAsync, () => !IsBusy && Editor.HasTask);
+        ArchiveSelectionCommand = new AsyncRelayCommand(ArchiveSelectionAsync, () => !IsBusy && HasMultiSelection);
+        DeleteSelectionCommand = new AsyncRelayCommand(DeleteSelectionAsync, () => !IsBusy && HasMultiSelection);
         Editor.PropertyChanged += OnEditorPropertyChanged;
         Items.CollectionChanged += (_, _) => NotifyListState();
+        SelectedTasks.CollectionChanged += OnSelectedTasksChanged;
         MosaicLocalizationManager.LanguageChanged += OnLanguageChanged;
         settingsTarget?.Attach(ApplySettings);
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
+    public ObservableCollection<TaskListItemViewModel> SelectedTasks { get; } = [];
     public TaskEditorViewModel Editor { get; } = new();
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
@@ -102,13 +108,28 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public string ArchiveLabel => IsArchived ? TaskLocalization.Localize("Tasks.Unarchive", "恢复任务") : TaskLocalization.Localize("Tasks.Archive", "归档");
     public IAsyncRelayCommand DeleteCommand { get; }
     public IAsyncRelayCommand ReloadCommand { get; }
+    public IAsyncRelayCommand ArchiveSelectionCommand { get; }
+    public IAsyncRelayCommand DeleteSelectionCommand { get; }
+    public bool HasMultiSelection => SelectedTasks.Count > 0;
+    public string SelectionSummary => TaskLocalization.Format("Tasks.Selection.Count", "已选 {0} 项", SelectedTasks.Count);
+    public string SelectionArchiveLabel => FilterIndex == 3
+        ? TaskLocalization.Format("Tasks.Selection.Restore", "恢复 {0} 项", SelectedTasks.Count)
+        : TaskLocalization.Format("Tasks.Selection.Archive", "归档 {0} 项", SelectedTasks.Count);
+    public string SelectionDeleteLabel => TaskLocalization.Format("Tasks.Selection.Delete", "删除 {0} 项", SelectedTasks.Count);
 
     public TaskListItemViewModel? SelectedItem
     {
         get => _selectedItem;
         set
         {
-            if (ReferenceEquals(_selectedItem, value)) return;
+            if (ReferenceEquals(_selectedItem, value) || _suppressSelectionSync) return;
+            if (HasMultiSelection)
+            {
+                _suppressSelectionSync = true;
+                try { SetSelectedItem(null); }
+                finally { _suppressSelectionSync = false; }
+                return;
+            }
             if (value is null)
             {
                 SetSelectedItem(null);
@@ -332,6 +353,151 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             return;
         }
         if (!await SelectAsync(requested.Item)) SetSelectedItem(previous);
+    }
+
+    // Ctrl/Alt 多选：加选或减选整项，不打开任务详情（详情区改由多选操作面板占用）。
+    // 返回 true 表示本次点击已按多选处理，视图不应再回退到单选路径。
+    public bool ToggleSelection(TaskListItemViewModel? item, bool add)
+    {
+        if (item is null || IsBusy) return HasMultiSelection;
+        var index = SelectedTasks.IndexOf(item);
+        if (add)
+        {
+            if (index >= 0) return true;
+            if (!HasMultiSelection)
+            {
+                if (IsBusy || _disposed) return false;
+                EnterBusy(TasksFeedbackKind.Loading);
+                try
+                {
+                    SetSelectedItem(null);
+                    Editor.Load(null);
+                    _archivedVersion = null;
+                    IsEditorOpen = false;
+                    ClearFeedback();
+                }
+                finally
+                {
+                    ExitBusy();
+                }
+                SelectedTasks.Add(item);
+            }
+            else
+            {
+                if (SelectedTasks.Contains(_selectedItem!)) return true;
+                SelectedTasks.Add(item);
+            }
+        }
+        else
+        {
+            if (index < 0) return true;
+            SelectedTasks.RemoveAt(index);
+        }
+        return true;
+    }
+
+    private async Task ArchiveSelectionAsync()
+    {
+        var targets = SelectedTasks.ToArray();
+        if (targets.Length == 0) return;
+        var restoring = FilterIndex == 3;
+        EnterBusy(TasksFeedbackKind.Updating);
+        ClearFeedback();
+        var succeeded = 0;
+        OperationError? failure = null;
+        // 记录真正失败的项（可能夹在成功项中间），刷新后只保留这些项仍处于选中状态。
+        var failed = new List<TaskListItemViewModel>();
+        try
+        {
+            foreach (var target in targets)
+            {
+                var result = await _api.SetArchivedAsync(new(target.Id, !restoring, target.Item.Revision), _lifetime.Token);
+                if (result.IsSuccess) succeeded++;
+                else
+                {
+                    failed.Add(target);
+                    failure ??= result.Error;
+                }
+            }
+            if (failure is not null)
+            {
+                if (succeeded > 0)
+                    ShowMessage(TaskLocalization.Format("Tasks.Selection.Archive.Partial", "已处理 {0}/{1} 项，其余失败：{2}", succeeded, targets.Length, failure.Message));
+                else
+                    ShowError(failure);
+            }
+            else
+            {
+                ShowMessage(restoring
+                    ? TaskLocalization.Format("Tasks.Selection.Restored", "已恢复 {0} 项任务。", succeeded)
+                    : TaskLocalization.Format("Tasks.Selection.Archived", "已归档 {0} 项任务。", succeeded));
+            }
+            // 先按归档结果把已移出列表的项移出多选集合，再刷新列表：当前筛选下已归档
+            // 的项不会出现在刷新后的列表里，仅靠 ApplyListResult 的按 Id 裁剪无法识别。
+            if (succeeded > 0)
+            {
+                for (var index = SelectedTasks.Count - 1; index >= 0; index--)
+                {
+                    if (!failed.Any(item => ReferenceEquals(item, SelectedTasks[index])))
+                        SelectedTasks.RemoveAt(index);
+                }
+            }
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { SetError(TasksFeedbackKind.ToggleFailed, null, Report(ex)); }
+        finally { ExitBusy(); }
+    }
+
+    private async Task DeleteSelectionAsync()
+    {
+        var targets = SelectedTasks.ToArray();
+        if (targets.Length == 0) return;
+        if ((_confirmDelete || FilterIndex == 3) && !await _dialogs.ConfirmDeleteAsync(
+                TaskLocalization.Format("Tasks.Selection.Delete.Confirm", "{0} 项任务", targets.Length))) return;
+        EnterBusy(TasksFeedbackKind.Deleting);
+        ClearFeedback();
+        var succeeded = 0;
+        OperationError? failure = null;
+        var failed = new List<TaskListItemViewModel>();
+        try
+        {
+            foreach (var target in targets)
+            {
+                var result = await _api.DeleteAsync(new(target.Id, target.Item.Revision), _lifetime.Token);
+                if (result.IsSuccess) succeeded++;
+                else
+                {
+                    failed.Add(target);
+                    failure ??= result.Error;
+                }
+            }
+            if (failure is not null)
+            {
+                if (succeeded > 0)
+                    ShowMessage(TaskLocalization.Format("Tasks.Selection.Delete.Partial", "已删除 {0}/{1} 项，其余失败：{2}", succeeded, targets.Length, failure.Message));
+                else
+                    ShowError(failure);
+            }
+            else
+            {
+                ShowMessage(TaskLocalization.Format("Tasks.Selection.Deleted", "已删除 {0} 项任务。", succeeded));
+            }
+            // 先按删除结果把已删除项移出多选集合，再刷新列表：测试替身的删除是无状态的，
+            // 刷新后的列表仍含已删项，仅靠 ApplyListResult 的按 Id 裁剪无法识别删除。
+            if (succeeded > 0)
+            {
+                for (var index = SelectedTasks.Count - 1; index >= 0; index--)
+                {
+                    if (!failed.Any(item => ReferenceEquals(item, SelectedTasks[index])))
+                        SelectedTasks.RemoveAt(index);
+                }
+            }
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { SetError(TasksFeedbackKind.DeleteFailed, null, Report(ex)); }
+        finally { ExitBusy(); }
     }
 
     private async Task<bool> SelectAsync(TaskItemDto task)
@@ -631,6 +797,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     private void SetFilter(int value, bool load)
     {
         if (value is not (>= 0 and <= 3) || !SetProperty(ref _filter, value, nameof(FilterIndex))) return;
+        ClearMultiSelection();
         if (!Editor.IsDirty)
         {
             Editor.Load(null);
@@ -723,6 +890,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
             Items.Clear();
             foreach (var task in result.Value) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
             SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
+            PruneMultiSelection();
             ListError = "";
             _listErrorKind = TasksFeedbackKind.None;
             return;
@@ -736,10 +904,60 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     {
         Items.Clear();
         SetSelectedItem(null);
+        ClearMultiSelection();
     }
 
     private void SetSelectedItem(TaskListItemViewModel? item) =>
         SetProperty(ref _selectedItem, item, nameof(SelectedItem));
+
+    // 列表刷新后把已不在列表中的项从多选集合中剔除；对仍在列表中的项改用新容器实例，
+    // 保证后续批量操作读取的是最新的 Revision。
+    // 必须先按 Id 移除再整体替换：逐项 Add 会触发 CollectionChanged，视图会按索引
+    // 增删 ListBox.SelectedItems，混在移除过程中容易与 SelectionChanged 回环交错；
+    // 移除阶段只做 Remove，替换阶段只做 Clear + Add，两条同步路径互不交叠。
+    private void PruneMultiSelection()
+    {
+        if (SelectedTasks.Count == 0) return;
+        var removed = 0;
+        for (var index = SelectedTasks.Count - 1; index >= 0; index--)
+        {
+            if (Items.All(item => item.Id != SelectedTasks[index].Id))
+            {
+                SelectedTasks.RemoveAt(index);
+                removed++;
+            }
+        }
+        if (removed == SelectedTasks.Count) return;
+        var replacements = SelectedTasks.Select(item => Items.First(current => current.Id == item.Id)).ToArray();
+        if (SelectedTasks.SequenceEqual(replacements)) return;
+        SelectedTasks.Clear();
+        foreach (var item in replacements) SelectedTasks.Add(item);
+    }
+
+    private void ClearMultiSelection()
+    {
+        if (SelectedTasks.Count > 0) SelectedTasks.Clear();
+    }
+
+    private void OnSelectedTasksChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // 注意：不能在这里对“添加项与 _selectedItem 相同”做退出单选处理。
+        // 普通点击单选时，SelectedItem setter 经 SelectFromListAsync 先同步 _selectedItem，
+        // 随后 WPF 把该项加进 ListBox.SelectedItems（Multiple 模式）并经 OnTaskListSelectionChanged
+        // Add 进 SelectedTasks——此时 _selectedItem 正是该项，误清会打断单选。
+        // Ctrl 加选当前单选任务的场景已由 ToggleSelection 在 Add 前先 SetSelectedItem(null) 覆盖。
+        NotifySelectionState();
+    }
+
+    private void NotifySelectionState()
+    {
+        OnPropertyChanged(nameof(HasMultiSelection));
+        OnPropertyChanged(nameof(SelectionSummary));
+        OnPropertyChanged(nameof(SelectionArchiveLabel));
+        OnPropertyChanged(nameof(SelectionDeleteLabel));
+        ArchiveSelectionCommand.NotifyCanExecuteChanged();
+        DeleteSelectionCommand.NotifyCanExecuteChanged();
+    }
 
     private void NotifyListState()
     {
@@ -945,6 +1163,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         Items.Clear();
         foreach (var task in tasks) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
         SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
+        PruneMultiSelection();
     }
 
     private static bool ReadBoolean(IReadOnlyDictionary<string, object?> values, string id, bool fallback) =>

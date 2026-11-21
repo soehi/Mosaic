@@ -47,7 +47,9 @@ public sealed class PresentationTests
         public Task<OperationResult<TaskItemDto>> SetCompletedAsync(SetTaskCompletedRequest request, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult<TaskItemDto>.Success(Item with { IsCompleted = request.IsCompleted }));
         internal Func<SetTaskArchivedRequest, Task<OperationResult<TaskItemDto>>>? Archive;
         public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => Archive?.Invoke(request) ?? throw new NotSupportedException();
-        public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(OperationResult.Success()); }
+        // 批量删除的部分失败场景需要按 Id 决定每条的结果，这里留一个可选钩子。
+        internal Func<DeleteTaskRequest, OperationResult>? DeleteResult;
+        public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(DeleteResult?.Invoke(request) ?? OperationResult.Success()); }
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
     }
@@ -1366,6 +1368,183 @@ public sealed class PresentationTests
         Assert.Contains("HasSettingsSectionContent", notified);
         Assert.Contains("SelectedPage", notified);
         await ((IPageController)model).DisposeAsync();
+    });
+
+    [Fact]
+    public Task Ctrl_multi_select_hides_the_single_task_editor_and_batch_archive_uses_latest_items() => Sta.Run(async () =>
+    {
+        // 回归：Ctrl 加选进入多选后，任务详情区不再显示单个任务详情，改显示多选操作面板；
+        // 批量归档逐条调用 API，且列表刷新后多选集合被替换为新容器实例（Revision 随之更新）。
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var taskA = new TaskItemDto(Guid.NewGuid(), "任务A", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        var taskB = new TaskItemDto(Guid.NewGuid(), "任务B", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 1);
+        var revisions = new Dictionary<Guid, int> { [taskA.Id] = 1, [taskB.Id] = 1 };
+        var archivedFlags = new Dictionary<Guid, bool> { [taskA.Id] = false, [taskB.Id] = false };
+        var api = new Api();
+        api.Query = query => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(
+            (IReadOnlyList<TaskItemDto>)revisions
+                .OrderBy(pair => pair.Key == taskA.Id ? 0 : 1)
+                .Where(pair => query.ArchiveScope == TaskArchiveScope.All
+                    || archivedFlags[pair.Key] == (query.ArchiveScope == TaskArchiveScope.Archived))
+                .Select(pair => new TaskItemDto(
+                    pair.Key,
+                    pair.Key == taskA.Id ? "任务A" : "任务B",
+                    "",
+                    false,
+                    DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow,
+                    pair.Value)
+                {
+                    ArchivedAtUtc = archivedFlags[pair.Key] ? DateTimeOffset.UtcNow : null,
+                })
+                .ToArray()));
+        var archivedRequests = new List<SetTaskArchivedRequest>();
+        api.Archive = request =>
+        {
+            archivedRequests.Add(request);
+            revisions[request.Id] += 1;
+            archivedFlags[request.Id] = request.IsArchived;
+            return Task.FromResult(OperationResult<TaskItemDto>.Success(new TaskItemDto(
+                request.Id, "x", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, revisions[request.Id])
+            {
+                ArchivedAtUtc = request.IsArchived ? DateTimeOffset.UtcNow : null,
+            }));
+        };
+        var page = await Page(api, new Dialogs());
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var view = page.View;
+            view.Resources.MergedDictionaries.Add(LoadTheme());
+            var model = view.DataContext!;
+            Arrange(view, 1100, 780);
+
+            var listBox = Assert.IsType<ListBox>(view.FindName("TaskListBox"));
+            Assert.Equal(SelectionMode.Multiple, listBox.SelectionMode);
+            var items = Items(model).ToArray();
+            Assert.Equal(2, items.Length);
+            var editorPane = Assert.IsType<TaskEditorView>(view.FindName("TaskEditorPane"));
+            var multiPane = Assert.IsType<Border>(view.FindName("MultiSelectPane"));
+            Assert.Equal(Visibility.Visible, editorPane.Visibility);
+            Assert.Equal(Visibility.Collapsed, multiPane.Visibility);
+
+            var toggle = model.GetType().GetMethod("ToggleSelection")!;
+            // Ctrl 加选第一项：进入多选，单任务编辑器隐藏、多选面板显示。
+            Assert.True((bool)toggle.Invoke(model, [items[0], true])!);
+            Arrange(view, 1100, 780);
+            Assert.True(Get<bool>(model, "HasMultiSelection"));
+            Assert.Equal("已选 1 项", Get<string>(model, "SelectionSummary"));
+            Assert.Equal("归档 1 项", Get<string>(model, "SelectionArchiveLabel"));
+            Assert.Equal(Visibility.Collapsed, editorPane.Visibility);
+            Assert.Equal(Visibility.Visible, multiPane.Visibility);
+            Assert.Single((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+            Assert.True(listBox.SelectedItems.Contains(items[0]));
+
+            // Ctrl 加选第二项；Alt 减选第二项。
+            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+            Assert.Equal(2, ((System.Collections.ICollection)Get<object>(model, "SelectedTasks")).Count);
+            Assert.True((bool)toggle.Invoke(model, [items[1], false])!);
+            Assert.Single((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+
+            // 加选第二项后批量归档 A+B：列表刷新后多选集合被裁剪清空。
+            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+            var archiveSelection = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("ArchiveSelectionCommand")!.GetValue(model));
+            await archiveSelection.ExecuteAsync(null);
+            Assert.Equal(2, archivedRequests.Count);
+            Assert.All(archivedRequests, request => Assert.Equal(1, request.ExpectedRevision));
+            Assert.Empty((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+            Assert.False(Get<bool>(model, "HasMultiSelection"));
+            Arrange(view, 1100, 780);
+            Assert.Equal(Visibility.Visible, editorPane.Visibility);
+            Assert.Equal(Visibility.Collapsed, multiPane.Visibility);
+
+            // 恢复后回到列表：重新加选仍在列表中的 B，再次归档应携带刷新后的最新 Revision（实例替换）。
+            archivedFlags[taskA.Id] = false;
+            archivedFlags[taskB.Id] = false;
+            var load = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("LoadCommand")!.GetValue(model));
+            await load.ExecuteAsync(null);
+            var refreshed = Items(model).ToArray();
+            Assert.Equal(2, refreshed.Length);
+            Assert.True((bool)toggle.Invoke(model, [refreshed[1], true])!);
+            await archiveSelection.ExecuteAsync(null);
+            var last = Assert.Single(archivedRequests.Skip(2));
+            Assert.Equal(taskB.Id, last.Id);
+            Assert.Equal(2, last.ExpectedRevision);
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+
+    [Fact]
+    public Task Batch_delete_confirms_once_and_reports_each_result() => Sta.Run(async () =>
+    {
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var taskA = new TaskItemDto(Guid.NewGuid(), "任务A", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 3);
+        var taskB = new TaskItemDto(Guid.NewGuid(), "任务B", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 4);
+        var api = new Api();
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success((IReadOnlyList<TaskItemDto>)[taskA, taskB]));
+        var dialogs = new Dialogs { Delete = true };
+        var page = await Page(api, dialogs);
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var model = page.View.DataContext!;
+            var items = Items(model).ToArray();
+            var toggle = model.GetType().GetMethod("ToggleSelection")!;
+            Assert.True((bool)toggle.Invoke(model, [items[0], true])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+
+            var deleteSelection = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("DeleteSelectionCommand")!.GetValue(model));
+            await deleteSelection.ExecuteAsync(null);
+            Assert.Equal(2, api.Deletes);
+            Assert.Equal("已删除 2 项任务。", Get<string>(model, "Message"));
+            Assert.Empty((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+
+    [Fact]
+    public Task Batch_delete_partial_failure_keeps_only_the_failed_items_selected() => Sta.Run(async () =>
+    {
+        // 回归：批量删除中途有一项失败时，不能按“成功项在前”的顺序裁剪多选集合，
+        // 否则会保留错的对象（此处第一项失败、第二项成功，最终应只剩第一项被选中）。
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+        var taskA = new TaskItemDto(Guid.NewGuid(), "任务A", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 3);
+        var taskB = new TaskItemDto(Guid.NewGuid(), "任务B", "", false, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 4);
+        var api = new Api
+        {
+            Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success((IReadOnlyList<TaskItemDto>)[taskA, taskB])),
+            DeleteResult = request => request.Id == taskA.Id
+                ? OperationResult.Failure(new OperationError(ErrorCodes.Conflict, "已被修改"))
+                : OperationResult.Success(),
+        };
+        var page = await Page(api, new Dialogs { Delete = true });
+        try
+        {
+            await page.Controller.InitializeAsync();
+            var model = page.View.DataContext!;
+            var items = Items(model).ToArray();
+            var toggle = model.GetType().GetMethod("ToggleSelection")!;
+            Assert.True((bool)toggle.Invoke(model, [items[0], true])!);
+            Assert.True((bool)toggle.Invoke(model, [items[1], true])!);
+
+            var deleteSelection = Assert.IsAssignableFrom<IAsyncRelayCommand>(model.GetType().GetProperty("DeleteSelectionCommand")!.GetValue(model));
+            await deleteSelection.ExecuteAsync(null);
+            var selected = ((IEnumerable)Get<object>(model, "SelectedTasks")).Cast<TaskListItemViewModel>().ToArray();
+            var remaining = Assert.Single(selected);
+            Assert.Equal(taskA.Id, remaining.Id);
+            Assert.True(Get<bool>(model, "HasMultiSelection"));
+            Assert.Contains("已删除 1/2 项", Get<string>(model, "Message"));
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
     });
 
     private sealed class InlinePageFactory(Func<ViewPage> create) : IViewFactory

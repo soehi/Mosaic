@@ -111,6 +111,9 @@
                     <ListBox x:Name="TaskListBox"
                              ItemsSource="{Binding Items}"
                              SelectedItem="{Binding SelectedItem, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             SelectionMode="Multiple"
+                             SelectionChanged="OnTaskListSelectionChanged"
+                             PreviewMouseLeftButtonDown="OnTaskListPreviewMouseLeftButtonDown"
                              IsEnabled="{Binding CanEdit}"
                              Background="Transparent"
                              BorderThickness="0"
@@ -313,6 +316,46 @@
             </Grid>
 
             <views:TaskEditorView x:Name="TaskEditorPane" Grid.Column="2" MinWidth="0"/>
+
+            <!-- 多选操作面板：Ctrl 加选 / Alt 减选后替代任务编辑器显示，批量归档/恢复/删除选中项 -->
+            <Border x:Name="MultiSelectPane"
+                    Grid.Column="2"
+                    MinWidth="0"
+                    Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="20"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="MultiSelectSummary"
+                               FontSize="17"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+                    <TextBlock Grid.Row="1"
+                               Margin="0,12,0,0"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Text="{DynamicResource Tasks.Selection.Hint}"
+                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="MultiSelectArchiveButton"
+                                Command="{Binding ArchiveSelectionCommand}"
+                                Margin="0,0,10,0"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                AutomationProperties.AutomationId="MultiSelectArchive"/>
+                        <Button x:Name="MultiSelectDeleteButton"
+                                Command="{Binding DeleteSelectionCommand}"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
+                                AutomationProperties.AutomationId="MultiSelectDelete"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Grid>
     </Grid>
 </UserControl>

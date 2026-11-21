@@ -1,6 +1,9 @@
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Mosaic.Tasks.Wpf.Internal;
 
@@ -10,6 +13,7 @@ public partial class TasksView : UserControl
 {
     private bool? _isCompact;
     private TasksViewModel? _model;
+    private bool _syncingSelection;
 
     public TasksView()
     {
@@ -17,6 +21,7 @@ public partial class TasksView : UserControl
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
         SizeChanged += OnSizeChanged;
+        TaskListBox.PreviewKeyDown += OnTaskListPreviewKeyDown;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e) => UpdateResponsiveLayout(ActualWidth);
@@ -27,21 +32,32 @@ public partial class TasksView : UserControl
     {
         if (e.OldValue is INotifyPropertyChanged previous)
             previous.PropertyChanged -= OnModelPropertyChanged;
+        if (e.OldValue is TasksViewModel oldModel)
+            oldModel.SelectedTasks.CollectionChanged -= OnSelectedTasksChanged;
 
         _model = e.NewValue as TasksViewModel;
         if (_model is not null)
+        {
             _model.PropertyChanged += OnModelPropertyChanged;
+            _model.SelectedTasks.CollectionChanged += OnSelectedTasksChanged;
+        }
 
+        SyncListBoxSelection();
         UpdatePaneVisibility();
         UpdateListMessageToast();
     }
 
     private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(TasksViewModel.IsEditorOpen))
+        if (e.PropertyName is nameof(TasksViewModel.IsEditorOpen) or nameof(TasksViewModel.HasMultiSelection))
             UpdatePaneVisibility();
+        else if (e.PropertyName == nameof(TasksViewModel.SelectedItem))
+            SyncListBoxSelection();
         else if (e.PropertyName == nameof(TasksViewModel.ShowListMessage))
             UpdateListMessageToast();
+        else if (e.PropertyName is nameof(TasksViewModel.SelectionSummary)
+            or nameof(TasksViewModel.SelectionArchiveLabel) or nameof(TasksViewModel.SelectionDeleteLabel))
+            UpdateMultiSelectPaneText();
         else if (e.PropertyName is nameof(TasksViewModel.CompactBreakpoint)
             or nameof(TasksViewModel.EditorPaneWidth) or nameof(TasksViewModel.PaneGap)
             or nameof(TasksViewModel.ListMinColumnWidth))
@@ -87,6 +103,116 @@ public partial class TasksView : UserControl
         }
     }
 
+    // Ctrl 加选 / Alt 减选：拦截带修饰键的点击，手动维护多选集合，
+    // 不走默认的单选路径（多选期间任务详情区改由多选操作面板占用）。
+    private void OnTaskListPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var add = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        var remove = (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt;
+        if (add == remove || _model is null) return;
+        if (FindItem(e.OriginalSource as DependencyObject) is not { } container
+            || container.DataContext is not TaskListItemViewModel item) return;
+        if (_model.ToggleSelection(item, add)) e.Handled = true;
+    }
+
+    // 空白处 Esc 退出多选（点击已选中项本身已由 WPF 默认行为完成减选）。
+    private void OnTaskListPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _model?.HasMultiSelection == true)
+        {
+            _model.SelectedTasks.Clear();
+            e.Handled = true;
+        }
+    }
+
+    private static ListBoxItem? FindItem(DependencyObject? node)
+    {
+        while (node is not null && node is not ListBoxItem)
+            node = VisualTreeHelper.GetParent(node);
+        return node as ListBoxItem;
+    }
+
+    // SelectionMode=Multiple 下，把 ListBox.SelectedItems 的增减（普通点击、无键点击已选项）
+    // 同步进 ViewModel.SelectedTasks；反向同步由 OnSelectedTasksChanged 完成，_syncingSelection 防回环。
+    private void OnTaskListSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSelection || _model is null) return;
+        _syncingSelection = true;
+        try
+        {
+            foreach (var item in e.AddedItems.OfType<TaskListItemViewModel>())
+                if (!_model.SelectedTasks.Contains(item)) _model.SelectedTasks.Add(item);
+            foreach (var item in e.RemovedItems.OfType<TaskListItemViewModel>())
+                _model.SelectedTasks.Remove(item);
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
+    }
+
+    private void OnSelectedTasksChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_syncingSelection) return;
+        _syncingSelection = true;
+        try
+        {
+            if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is not null)
+            {
+                foreach (var item in e.NewItems.OfType<TaskListItemViewModel>())
+                    if (!TaskListBox.SelectedItems.Contains(item)) TaskListBox.SelectedItems.Add(item);
+            }
+            else if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems is not null)
+            {
+                foreach (var item in e.OldItems.OfType<TaskListItemViewModel>())
+                    TaskListBox.SelectedItems.Remove(item);
+            }
+            else
+            {
+                SyncListBoxSelection();
+            }
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
+    }
+
+    private void SyncListBoxSelection()
+    {
+        if (_syncingSelection) return;
+        _syncingSelection = true;
+        try
+        {
+            var selected = _model?.SelectedTasks;
+            for (var index = TaskListBox.SelectedItems.Count - 1; index >= 0; index--)
+            {
+                if (TaskListBox.SelectedItems[index] is TaskListItemViewModel item
+                    && (selected is null || !selected.Contains(item)))
+                    TaskListBox.SelectedItems.RemoveAt(index);
+            }
+            if (selected is not null)
+            {
+                foreach (var item in selected)
+                    if (!TaskListBox.SelectedItems.Contains(item)) TaskListBox.SelectedItems.Add(item);
+            }
+            if (_model is not null && !ReferenceEquals(TaskListBox.SelectedItem, _model.SelectedItem))
+                TaskListBox.SelectedItem = _model.SelectedItem;
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
+    }
+
+    private void UpdateMultiSelectPaneText()
+    {
+        if (_model is null) return;
+        MultiSelectSummary.Text = _model.SelectionSummary;
+        MultiSelectArchiveButton.Content = _model.SelectionArchiveLabel;
+        MultiSelectDeleteButton.Content = _model.SelectionDeleteLabel;
+    }
+
     private void UpdateResponsiveLayout(double width)
     {
         if (width <= 0) return;
@@ -127,6 +253,8 @@ public partial class TasksView : UserControl
         Grid.SetRow(TaskListPane, 0);
         Grid.SetColumn(TaskEditorPane, 2);
         Grid.SetRow(TaskEditorPane, 0);
+        Grid.SetColumn(MultiSelectPane, 2);
+        Grid.SetRow(MultiSelectPane, 0);
         TaskEditorPane.SetCompactNavigationVisible(false);
         UpdatePaneVisibility();
     }
@@ -153,21 +281,30 @@ public partial class TasksView : UserControl
         Grid.SetRow(TaskListPane, 0);
         Grid.SetColumn(TaskEditorPane, 0);
         Grid.SetRow(TaskEditorPane, 2);
+        Grid.SetColumn(MultiSelectPane, 0);
+        Grid.SetRow(MultiSelectPane, 2);
         UpdatePaneVisibility();
     }
 
     private void UpdatePaneVisibility()
     {
         var compact = _isCompact == true;
-        var editorOpen = compact && _model?.IsEditorOpen == true;
-        TaskListPane.Visibility = !editorOpen ? Visibility.Visible : Visibility.Collapsed;
-        TaskEditorPane.Visibility = !compact || editorOpen ? Visibility.Visible : Visibility.Collapsed;
-        HeaderPanel.Visibility = !editorOpen ? Visibility.Visible : Visibility.Collapsed;
-        HeaderContentGapRow.Height = editorOpen
+        var multiSelectActive = _model?.HasMultiSelection == true;
+        var editorOpen = compact && _model?.IsEditorOpen == true && !multiSelectActive;
+        var multiSelect = compact && multiSelectActive;
+        var paneOpen = editorOpen || multiSelect;
+        TaskListPane.Visibility = !paneOpen ? Visibility.Visible : Visibility.Collapsed;
+        TaskEditorPane.Visibility = !multiSelectActive && (!compact || editorOpen) ? Visibility.Visible : Visibility.Collapsed;
+        MultiSelectPane.Visibility = multiSelectActive && (!compact || multiSelect)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        HeaderPanel.Visibility = !paneOpen ? Visibility.Visible : Visibility.Collapsed;
+        HeaderContentGapRow.Height = paneOpen
             ? new GridLength(0)
             : compact ? new GridLength(16) : new GridLength(22);
-        TaskListRow.Height = compact && editorOpen ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
-        TaskEditorRow.Height = compact && editorOpen ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        TaskListRow.Height = compact && paneOpen ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        TaskEditorRow.Height = compact && paneOpen ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         TaskEditorPane.SetCompactNavigationVisible(editorOpen);
+        if (multiSelectActive) UpdateMultiSelectPaneText();
     }
 }
