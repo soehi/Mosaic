@@ -109,9 +109,10 @@ public partial class TasksView : UserControl
         }
     }
 
-    // 任务项点击统一走预览事件手动裁决：SelectionMode=Single 由 VM 自行维持
-    // （多选集合托管的选中项不进 ListBox.SelectedItems，见 TasksViewModel.HasMultiSelection），
-    // 这里不再依赖原生 Extended/Multiple 键盘手势，按住 Ctrl 切换多选、否则单选。
+    // 任务项点击统一走预览事件手动裁决：SelectionMode=Extended 只为让容器 IsSelected
+    // 可多行并存（0.17.11 用 Single 时多选高亮互清），原生 Ctrl/Shift 组合手势被
+    // e.Handled 拦截不会触发；多选集合托管的选中项不经 SelectedItem，
+    // 见 TasksViewModel.HasMultiSelection。按住 Ctrl 切换多选、否则单选。
     private void OnTaskListPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (_model is null) return;
@@ -141,14 +142,14 @@ public partial class TasksView : UserControl
         return node as ListBoxItem;
     }
 
-    // Single 模式下点击已在预览事件手动裁决，SelectionChanged 只来自 SyncListBoxSelection
-    // 的容器 IsSelected 调整与键鼠导航兜底；均不再回写 ViewModel.SelectedTasks，
-    // 否则单选会经镜像误入多选集合（0.17.10 的架构纠缠）。
+    // 点击已在预览事件手动裁决（Ctrl 切换多选、否则单选），SelectionChanged 只来自
+    // SyncListBoxSelection 的容器 IsSelected 调整与键鼠导航兜底；均不再回写
+    // ViewModel.SelectedTasks，否则单选会经镜像误入多选集合（0.17.10 的架构纠缠）。
     private void OnTaskListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
     }
 
-    // Single 模式下容器循环只负责多选叠加高亮，锚点行的 IsSelected 由 SelectedItem 驱动：
+    // 容器循环只负责多选叠加高亮，锚点行的 IsSelected 由 SelectedItem 驱动：
     // 多选期间锚点为 null、循环按 SelectedTasks 施加；单选期间清掉多选残留高亮，
     // 对锚点行既不设也不清，交给 ListBox 原生选中驱动（异步完成，同步写回会抖动）。
     private void SyncListBoxSelection()
@@ -157,8 +158,10 @@ public partial class TasksView : UserControl
         _syncingSelection = true;
         try
         {
-            // Single 模式下不能改 SelectedItems 集合，只能经 SelectedItem/容器 IsSelected 调整：
+            // 只能经 SelectedItem/容器 IsSelected 调整选中（不直接改 SelectedItems 集合）：
             // 先把锚点对齐到 VM 的 SelectedItem，多选期间锚点为 null。
+            // 注意必须用 Extended 模式：Single 模式下容器 IsSelected 是独占的，
+            // 异步生效时会互清（0.17.11 的 Ctrl 加选高亮只剩最后一项）。
             var anchor = _model?.HasMultiSelection == true ? null : _model?.SelectedItem;
             if (!ReferenceEquals(TaskListBox.SelectedItem, anchor))
                 TaskListBox.SelectedItem = anchor;

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.11",
+  "currentReleaseId": "mosaic-0.17.12",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -728,6 +728,18 @@
         "修复焦点不在任务列表时按 Esc 无法退出多选的问题：Esc 清空多选改为在整个任务页生效。"
       ],
       "contentSha256": "90E061F4C9AF27B9289530FFE9EC121A5CC0EF25CA2ED66489D077AB902793F6"
+    },
+    {
+      "releaseId": "mosaic-0.17.12",
+      "version": "0.17.12",
+      "releasedOn": "2026-11-21",
+      "previousReleaseId": "mosaic-0.17.11",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "修复 Ctrl 加选多任务时列表高亮只剩最后一项的问题：0.17.11 把列表改为单选模式后容器选中状态互斥，加选的行异步生效时被后一行清掉；现改为扩展模式（点击仍全量拦截，交互不变），多选高亮同时保留。"
+      ],
+      "contentSha256": "5F226BED38261A0D6088126A8EDC28260A26E550D8E87C10A2A1A6DBB174BEB7"
     }
   ]
 }

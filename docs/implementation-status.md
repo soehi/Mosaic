@@ -1,5 +1,18 @@
 # Mosaic：实施与验证记录
 
+## 0.17.12：修复 Ctrl 加选高亮互清（Single 模式容器选中独占）（2026-11-21）
+
+- 根因位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml:114`（0.17.11 版本 `103a3a4`）把 `TaskListBox` 设为 `SelectionMode="Single"`；`src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml.cs` 的 `SyncListBoxSelection` 多选分支随后对多个容器逐个赋 `ListBoxItem.IsSelected = true` 以叠加多选高亮。Single 模式下容器 `IsSelected` 是独占的：其属性变化通知异步生效，后一行的 `IsSelected = true` 生效时把前一行清掉（最小复现：Single 下连续设两个容器选中，稳定后只剩最后一行；Extended/Multiple 下两行都保留）。结果：Ctrl 连续加选多项时只有最后一项显示高亮，数据层的 `SelectedTasks` 计数与批量操作始终正确，是纯显示层缺陷。
+- 改动位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml:114`：`SelectionMode` 由 `Single` 改为 `Extended`。原生 Ctrl/Shift 组合手势不会泄露：`OnTaskListPreviewMouseLeftButtonDown` 对所有左键点击 `e.Handled = true`，`OnTaskListSelectionChanged` 保持空方法不回写 `SelectedTasks`，交互语义与 0.17.11 完全一致（仅 Ctrl 切换多选、无修饰键单选、Esc 清空）。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml.cs`：`OnTaskListPreviewMouseLeftButtonDown`（`:144-146`）、`OnTaskListSelectionChanged`（`:148-151`）、`SyncListBoxSelection`（`:157-165`）注释更新，记录必须用 Extended 的原因（Single 模式容器选中独占互清）。
+  - `tests/Mosaic.Wpf.Tests/PresentationTests.cs`：`Ctrl_multi_select_hides_the_single_task_editor_and_batch_archive_uses_latest_items`（`:1388`）断言 `SelectionMode.Extended` 并新增回归断言——Ctrl 加选两项后两个容器的 `IsSelected` 必须同时保持 true。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.17.12）、`build/release-content.json`（第 45 条 `mosaic-0.17.12`，`previousReleaseId=mosaic-0.17.11`，指纹 `5F226BED38261A0D6088126A8EDC28260A26E550D8E87C10A2A1A6DBB174BEB7`）、`build/published-release-index.json`（第 45 条）、`build/release-manifest.json`、`docs/releases/v0.17.12.md`、`README.md:47`、`README.md:49`、本文件。
+- 迁移逻辑与验收项：无数据迁移、无配置变化、无模块装配变化；升级沿用既有 MajorUpgrade。验收项：升级后 Ctrl 连续加选多项，所有选中行同时保持高亮；无修饰键点击仍为单选并打开详情；Esc 清空多选。
+- 验证：直接执行 `tests/Mosaic.Wpf.Tests/bin/Debug/net10.0-windows/Mosaic.Wpf.Tests.exe` 全量 143 通过（含新增的高亮保持回归断言）；`python -I scripts/release_content_verify.py` 通过（45 个已索引发布）；修复版已在本地启动（窗口标题 v0.17.11、二进制为 Extended 修复版）供人工确认。
+- 未验证项：未做实机鼠标键盘自动回放（Ctrl 加选高亮保持由容器级断言覆盖）。
+
 ## 0.17.11：多选交互修正——仅 Ctrl 切换多选、无修饰键单选、Esc 视图级清空（2026-11-21）
 
 - 根因位置（以下行号指 0.17.10 已发布版本 `02bed50`）：

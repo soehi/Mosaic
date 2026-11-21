@@ -1434,7 +1434,9 @@ public sealed class PresentationTests
             Arrange(view, 1100, 780);
 
             var listBox = Assert.IsType<ListBox>(view.FindName("TaskListBox"));
-            Assert.Equal(SelectionMode.Single, listBox.SelectionMode);
+            // Extended：点击全量拦截下与 Single 行为一致，但容器 IsSelected 可多行并存，
+            // Single 模式会让多选叠加高亮互清（0.17.11 回归）。
+            Assert.Equal(SelectionMode.Extended, listBox.SelectionMode);
             var items = Items(model).ToArray();
             Assert.Equal(2, items.Length);
             var editorPane = Assert.IsType<TaskEditorView>(view.FindName("TaskEditorPane"));
@@ -1455,9 +1457,15 @@ public sealed class PresentationTests
             view.UpdateLayout();
             Assert.True(listBox.SelectedItems.Contains(items[0]));
 
-            // Ctrl 加选第二项；Ctrl 点击已选中的第二项减选。
+            // Ctrl 加选第二项；两项的容器高亮必须同时保持（0.17.11 回归：Single 模式下
+            // 容器 IsSelected 独占互清，只剩最后加选的一行高亮）。
             Assert.True((bool)toggle.Invoke(model, [items[1]])!);
             Assert.Equal(2, ((System.Collections.ICollection)Get<object>(model, "SelectedTasks")).Count);
+            view.UpdateLayout();
+            var container0 = Assert.IsType<ListBoxItem>(listBox.ItemContainerGenerator.ContainerFromItem(items[0]));
+            var container1 = Assert.IsType<ListBoxItem>(listBox.ItemContainerGenerator.ContainerFromItem(items[1]));
+            Assert.True(container0.IsSelected);
+            Assert.True(container1.IsSelected);
             Assert.True((bool)toggle.Invoke(model, [items[1]])!);
             view.UpdateLayout();
             Assert.Single((System.Collections.IEnumerable)Get<object>(model, "SelectedTasks"));
