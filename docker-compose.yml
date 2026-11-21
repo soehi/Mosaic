@@ -9,6 +9,10 @@ services:
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       MOSAIC_DATA_DIR: /data
+    # 敏感与部署相关配置放在服务器上的 deploy/coolify.env（不提交仓库），
+    # Coolify 部署目录结构为 <deploy>/docker-compose.yaml + <deploy>/deploy/coolify.env。
+    env_file:
+      - ./deploy/coolify.env
     volumes:
       - mosaic-data:/data
     restart: unless-stopped

@@ -3,6 +3,8 @@
 artifacts/
 server/data/
 tmp/
+deploy/*.env
+!deploy/.gitkeep
 **/master.key
 TestResults/
 .vs/
