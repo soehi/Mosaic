@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.6",
+  "currentReleaseId": "mosaic-0.17.7",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -656,6 +656,26 @@
         "修复进度条与当前操作不更新：进度条订阅 SetProgress、当前操作文字订阅 ActionText，执行期间显示真实进度。"
       ],
       "contentSha256": "D0281954270045AE22FCF4AB1622326176AD4550405E87B2B5C975A6580CDE78"
+    },
+    {
+      "releaseId": "mosaic-0.17.7",
+      "version": "0.17.7",
+      "releasedOn": "2026-11-21",
+      "previousReleaseId": "mosaic-0.17.6",
+      "added": [],
+      "improved": [
+        "安装引擎错误不再被掩盖：移除 ErrorDialog 属性后，引擎错误由系统消息框显示真实错误码；FatalError 仅作为安装失败后的收尾页。",
+        "维护检测到缺失/损坏时，界面直接告知「请通过「应用和功能」修复，或重新运行本安装包」，不再尝试自动在线修复（见下方问题修复 3）。"
+      ],
+      "fixed": [
+        "修复完整界面安装首次进入「选择安装位置」页报错 2343/2814：位置页 PathEdit 的属性为空会让 MSI 创建对话框时报引擎 2343；同时 ErrorDialog 指向的 FatalError 页存在控件焦点链缺陷，真实 2343 被 2814 覆盖。现在进入位置页前由 PrefillInstallPath 预填默认目录，且不再设置 ErrorDialog。",
+        "修复点击「浏览...」或「恢复默认」后立即报错 2856（Creating a second copy of the dialog LocationDlg）并中断安装：PathEdit 的属性一旦有变更通知，MSI 会把对话框标记为仍被引用，NewDialog 回到同一对话框直接报 2856。现在改用 SetProperty 控制事件把新路径推回 PathEdit 刷新显示，不再重建对话框。",
+        "修复维护（再次双击已安装的 MSI）检测到缺失/损坏后自动修复失败并弹出引擎强制错误框：per-user 安装在非系统驱动器时，任何文件替换都会让引擎在目标卷根目录 Config.Msi 创建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），用户上下文无法删除，报错误 5。现在维护不再自动在线修复，改为引导用户通过「应用和功能」修复或重新运行安装包。",
+        "修复默认安装位置探测失败：自定义动作运行在未加载用户配置文件的服务端会话时 SHGetFolderPath 返回空，导致默认目录为空；现在优先取 MSI 已解析的 LocalAppDataFolder 属性。",
+        "修复维护扫描误报快捷方式缺失：同样因服务端会话 SHGetFolderPath 失败，快捷方式路径解析为空；现在优先取 MSI 已解析的 DesktopFolder/ProgramMenuFolder 属性。",
+        "应用内「修复安装」由 /famus 改为 /femus：只覆盖校验不符或缺失的文件，避免全量覆盖触发非系统驱动器上的 Config.Msi 权限错误。"
+      ],
+      "contentSha256": "86E2BB57BB1FE933F27078467BDFF39C91668D7734D99D90D9FA526B3C2FCCFD"
     }
   ]
 }
