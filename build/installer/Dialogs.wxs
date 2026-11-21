@@ -33,8 +33,8 @@
           <!-- 不能用 NewDialog 回到自身刷新路径：PathEdit 的属性一旦有变更通知，
                MSI 会把对话框标记为“仍被引用”，NewDialog 到同一对话框直接报 2856
                （Creating a second copy of the dialog）并中断安装。Property 发布
-               （SetProperty 控制事件，ControlEvent 列为空）把新值推回 PathEdit
-               即可重绘。WiX v4 中带 Property 属性时不能再写 Event。 -->
+               （SetProperty 控制事件，ControlEvent 行 Event 列为 "[MOSAICINSTALLPATH]"）
+               把新值推回 PathEdit 即可重绘。WiX v4 中带 Property 属性时不能再写 Event。 -->
           <Publish Event="DoAction" Value="BrowseInstallFolder" Order="1" />
           <Publish Event="DoAction" Value="PrefillInstallPath" Order="2" />
           <Publish Property="MOSAICINSTALLPATH" Value="[MOSAICINSTALLPATH]" Order="3" />

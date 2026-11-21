@@ -209,13 +209,15 @@ try {
     }
     # 2856 回归：Browse/Restore 不得用 NewDialog 回到 LocationDlg（PathEdit 属性一旦有
     # 变更通知，MSI 视对话框为仍被引用并拒绝销毁，NewDialog 回自身报 2856 并中断安装），
-    # 必须改用 SetProperty 控制事件（Event 列为空）把新值推回 PathEdit。
+    # 必须改用 SetProperty 控制事件把新值推回 PathEdit。生成的 ControlEvent 行 Event
+    # 列填 "[MOSAICINSTALLPATH]"（SetProperty 控制事件以 Event 列的 [属性名] 表示，
+    # 并非空字符串），Argument 为 "[MOSAICINSTALLPATH]"。
     foreach ($button in 'Browse', 'Restore') {
         if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[1] -ceq $button -and $_[2] -ceq 'NewDialog' -and $_[3] -ceq 'LocationDlg' }).Count -ne 0) {
             Fail "LocationDlg $button must not NewDialog back to LocationDlg (causes error 2856); use a SetProperty event instead."
         }
-        if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[1] -ceq $button -and [string]$_[2] -ceq '' -and $_[3] -ceq '[MOSAICINSTALLPATH]' }).Count -eq 0) {
-            Fail "LocationDlg $button must publish SetProperty MOSAICINSTALLPATH (empty Event column) to refresh the PathEdit."
+        if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[1] -ceq $button -and $_[2] -ceq '[MOSAICINSTALLPATH]' -and $_[3] -ceq '[MOSAICINSTALLPATH]' }).Count -eq 0) {
+            Fail "LocationDlg $button must publish SetProperty MOSAICINSTALLPATH (Event column '[MOSAICINSTALLPATH]') to refresh the PathEdit."
         }
     }
     if (@($dialogs | Where-Object { $_[0] -ceq 'MaintStartDlg' }).Count -ne 0) {

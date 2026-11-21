@@ -5,7 +5,7 @@
 - 根因位置（以下行号指 0.17.6 已发布版本 `4e3ae54`）：
   - `build/installer/Dialogs.wxs` 的 LocationDlg「浏览...」（`Browse` 按钮）与「恢复默认」（`Restore` 按钮）在自定义动作完成后使用 `NewDialog LocationDlg` 回到同一对话框刷新路径显示；`PathEdit` 绑定的 `MOSAICINSTALLPATH` 一旦有变更通知（仅聚焦即会追加尾随反斜杠），MSI 会把对话框标记为仍被引用，拒绝销毁，`NewDialog` 到同一对话框直接报引擎 2856（Creating a second copy of the dialog LocationDlg）并中断安装。
 - 改动位置：
-  - `build/installer/Dialogs.wxs`：`Browse`/`Restore` 按钮第 3 个 `Publish` 由 `NewDialog LocationDlg` 改为 `Property="MOSAICINSTALLPATH" Value="[MOSAICINSTALLPATH]"`（SetProperty 控制事件，ControlEvent 列为空），把新值推回 PathEdit 即可重绘，不再重建对话框；保留第 1–2 个 `DoAction`（`BrowseInstallFolder`/`RestoreDefaultInstallFolder` + `PrefillInstallPath`）。
+  - `build/installer/Dialogs.wxs`：`Browse`/`Restore` 按钮第 3 个 `Publish` 由 `NewDialog LocationDlg` 改为 `Property="MOSAICINSTALLPATH" Value="[MOSAICINSTALLPATH]"`（SetProperty 控制事件，生成的 ControlEvent 行 Event 列为 `[MOSAICINSTALLPATH]`、非 NewDialog），把新值推回 PathEdit 即可重绘，不再重建对话框；保留第 1–2 个 `DoAction`（`BrowseInstallFolder`/`RestoreDefaultInstallFolder` + `PrefillInstallPath`）。
   - `build/test-package-maintenance.ps1`：新增断言 `LocationDlg` 的 `Browse`/`Restore` 按钮不得再使用 `NewDialog LocationDlg`，且必须包含 `Property="MOSAICINSTALLPATH"` 的 SetProperty 事件。
 - 迁移逻辑与验收项：无数据迁移；升级沿用既有 MajorUpgrade。
 - 实机验收（已执行，2026-11-21，隔离账户 `MosaicQa0176` 与实机当前用户）：
