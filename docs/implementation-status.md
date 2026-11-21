@@ -20,7 +20,7 @@
 - 迁移逻辑与验收项：
   - 无数据迁移：UpgradeCode `{4D2B073C-72D5-4C3A-B845-65FC2C52D23C}`、组件 GUID/KeyPath、per-user 范围、安装目录、注册表结构与用户数据目录均未变化；0.17.5 → 0.17.6 仍由 `MajorUpgrade afterInstallInitialize` 原地完成。
   - 行为变化仅限完整界面的进度页：首次安装与损坏维护不再被进度页阻塞，操作文字与进度条随安装引擎更新；进度页取消先弹确认。静默安装、健康维护提前结束、显式 `/f`、失败 1603 与待重启 3010 语义不变。
-  - 验收项（需授权的隔离环境，本次未执行）：完整 UI 首次安装（默认与含空格自定义路径）日志到达 `ExecuteAction`/`InstallInitialize`/`InstallFiles`/`InstallFinalize` 并完成；执行期间操作文字与进度条更新；取消→「否」继续安装、取消→「是」结束并回滚且无后台会话；损坏维护修复进度与复检；0.17.5 → 0.17.6 原位升级保留位置与数据；健康维护提前结束、静默安装与退出码不回归。
+  - 验收项（已在隔离账户 `MosaicQa0176` 执行，逐项结果见本节「实机验收（已执行）」）：完整 UI 首次安装（默认与含空格自定义路径）日志到达 `ExecuteAction`/`InstallInitialize`/`InstallFiles`/`InstallFinalize` 并完成；执行期间操作文字与进度条更新；取消→「否」继续安装、取消→「是」结束并回滚且无后台会话；损坏维护修复进度与复检；0.17.5 → 0.17.6 原位升级保留位置与数据；健康维护提前结束、静默安装与退出码不回归。
 - 验证（静态）：
   - `build/package.ps1` 完整执行：WiX 构建 0 警告 0 错误；release content 校验 `mosaic-0.17.6`（39 条索引）；`test-package-shortcuts.ps1` PASS；`test-package-maintenance.ps1` PASS，470 个 cabinet 成员逐个 SHA-256 与清单一致（日志 `artifacts/qa/build-0176-final.log`，本地生成，未纳入 git）。
   - 修复前后对照：0.17.5 发布 MSI 在同一检查下失败，报 `ProgressDlg must be modeless (Dialog.Attributes must not contain msidbDialogAttributesModal=2); a modal progress page blocks ExecuteAction forever.`；0.17.6 包通过全部断言。0.17.6 包表证据（`docs/evidence/0.17.6/msi-dialogs.json`，由 `scripts/qa/dump_dialogs.py` 只读导出）：`ProgressDlg` 的 `Dialog.Attributes=1`、`CancelDlg` 存在、`EventMapping` 含上述两条订阅、`InstallUISequence` 为 `ProgressDlg=1290`、`ExecuteAction=1300`。

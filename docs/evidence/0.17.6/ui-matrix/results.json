@@ -2112,5 +2112,15 @@
    "LogonUser": [],
    "UserSID": []
   }
+ },
+ "environment_note": {
+  "captured": "environment 字段为矩阵首次运行时（2026-11-21 09:14:55，S1 复现轮）的采集快照，其中 new_msi 指向当时的早期 0.17.6 构建（52,470,860 字节 / 337F2F71…），该构建仅用于 S1 之前的环境确认，S1 本身使用 0.17.5 旧包，不受影响。",
+  "final_package": {
+   "path": "artifacts/installer/0.17.6/Mosaic-0.17.6-win-x64.msi",
+   "size": 52516584,
+   "sha256": "05DDC4E7992797232FAAE2949FD7A4365A672A74BB885F9EBFE2ACF15463BA3C",
+   "product_code": "{4E943689-9436-436C-82A5-4D780F3D2347}"
+  },
+  "rerun_scope": "S2、S3、S4、S5、S6a、S6b、S7 的全部结论均在最终包（05DDC4E7…，52,516,584 字节）上重跑；早期 S2/S3 结果已被覆盖。environment 原字段按原始记录保留，未改写。"
  }
 }

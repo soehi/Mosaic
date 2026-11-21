@@ -4,18 +4,18 @@
  "files": [
   {
    "path": "inventory.json",
-   "size": 12837,
-   "sha256": "696bbf4bc20be490ba46a640b0ee595db2079551d141527140a5f3a3a3b973d4"
+   "size": 2031,
+   "sha256": "ea28139d891addfa382b0abbf9b6a2a9d041b01c9c63c1d6684e97156ab5d84f"
   },
   {
    "path": "results.json",
-   "size": 68153,
-   "sha256": "f260269d1748d2168855b062d514365de081e02879b69252a28309c58bddb05e"
+   "size": 66846,
+   "sha256": "0b4194571b71aedf0b4869a51e42269b7b3440434d235850098ef06b4e392e3d"
   },
   {
    "path": "summary.json",
-   "size": 1814,
-   "sha256": "47daaa614b165bf003ba1a1df425c5278e99d9048b7eea2289aa54a88cf45c04"
+   "size": 2645,
+   "sha256": "8c8132a460a8647cf7ce42ab09364a6bdf0789354872bf4eff7713907fd9db53"
   },
   {
    "path": "shots\\s1-hang-14s.png",

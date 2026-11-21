@@ -30,7 +30,9 @@
   "exit": null,
   "maintenance_page": false,
   "missing_file_back": true,
-  "corrupt_file_hash_back": true
+  "corrupt_file_hash_back": true,
+  "exit_from_log": 0,
+  "exit_note": "引擎与服务端均返回 0（日志 MainEngineThread is returning 0）。"
  },
  "S5": {
   "progress_page": true,
@@ -65,12 +67,22 @@
   "maintenance_windows": [],
   "uninstall_exit": null,
   "uninstall_windows": [],
-  "uninstall_folder_left": false
+  "uninstall_folder_left": false,
+  "exit_from_log": {
+   "install": 0,
+   "maintenance": 0,
+   "uninstall": 0
+  },
+  "exit_note": "三个阶段的主引擎线程均返回 0；null 仅为句柄采集失败。"
  },
  "real_install_check": {
   "hkcu_mosaic_keys_unchanged": true,
   "exe_mtime": "2026-11-20 17:38:46 (安装时的 0.17.2 文件，未变)",
   "exe_sha256_prefix": "7616D5E373562CDCF28ED7A96FBB45DA",
   "note": "当前 HKCU\\Software\\Mosaic 与基线逐值一致（基线多的 DataRoot 行为 UTF-16 解析伪差）；ARP/产品注册未新增。"
+ },
+ "evidence_notes": {
+  "exit_code_null": "S4 与 S7 的 exit 字段为 null 是采集方式所致：矩阵先轮询到进程退出，再尝试打开进程句柄取退出码，进程已结束时 OpenProcess 失败。退出码以 MSI 日志为准（见各场景 exit_from_log），完整日志在 ui-matrix-logs.zip。",
+  "package_generations": "results.json 的 environment.new_msi 是早期构建；最终包为 05DDC4E7992797232FAAE2949FD7A4365A672A74BB885F9EBFE2ACF15463BA3C（52516584 字节，ProductCode {4E943689-9436-436C-82A5-4D780F3D2347}），与 S2/S4/S5 原始日志中的产品代码一致。"
  }
 }
