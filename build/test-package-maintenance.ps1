@@ -54,13 +54,17 @@ try {
     foreach ($row in $propertyRows) { $properties[$row[0]] = $row[1] }
     if ($properties['ProductVersion'] -cne $ExpectedVersion) { Fail "ProductVersion is '$($properties['ProductVersion'])', expected '$ExpectedVersion'." }
     if ($properties['UpgradeCode'] -cne '{4D2B073C-72D5-4C3A-B845-65FC2C52D23C}') { Fail "UpgradeCode is '$($properties['UpgradeCode'])'." }
-    if ($properties['ErrorDialog'] -cne 'FatalError') { Fail "ErrorDialog is '$($properties['ErrorDialog'])', expected 'FatalError'." }
+    # 不设置 ErrorDialog：引擎错误由系统消息框显示真实错误码；FatalError 只作收尾页面。
+    # 指定 ErrorDialog 时 MSI 只创建当前消息需要的 Error 按钮，ErrorText 的
+    # Control_Next 指向未创建的 ErrorYes，真实错误会被 2814 掩盖。
+    if ($properties.ContainsKey('ErrorDialog')) { Fail "ErrorDialog must not be set (found '$($properties['ErrorDialog'])')." }
     if ($properties['DefaultUIFont'] -cne 'MosaicFont') { Fail "DefaultUIFont is '$($properties['DefaultUIFont'])'." }
 
     # 扫描、路径校验与复检必须全部来自包内原生动作 DLL，不能依赖安装目录。
     $expectedActions = @(
         'DetectInstallState', 'ScanPayload', 'EnforceInstallFolder', 'ValidateInstallFolder',
-        'RestoreDefaultInstallFolder', 'BrowseInstallFolder', 'VerifyRepairedPayload')
+        'RestoreDefaultInstallFolder', 'BrowseInstallFolder', 'PrefillInstallPath',
+        'VerifyRepairedPayload')
     $customActions = @{}
     $customActionRows = Read-MsiRows $database 'SELECT * FROM CustomAction' 4
     foreach ($row in $customActionRows) { $customActions[$row[0]] = $row }
@@ -94,12 +98,25 @@ try {
     if ($actionsSource -notlike '*RestoreInstallFolderForRemoval*' -or $actionsSource -notlike '*INSTALLPROPERTY_INSTALLLOCATION*') {
         Fail 'Uninstall must restore INSTALLFOLDER from the registered product location.'
     }
+    # 维护自动修复不支持在线执行：任何文件替换都会让引擎在目标卷根目录的 Config.Msi
+    # 建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），per-user 安装位于非系统驱动器时用户
+    # 上下文无法删除备份，报错误 5 并弹出引擎强制错误框。用户须通过「应用和功能」
+    # 修复或重新运行安装包；包不得自动触发 REINSTALL/REMOVE 重写。
+    if ($actionsSource -like '*SetProperty(hInstall, L"REINSTALL", L"ALL");*' -or
+        $actionsSource -like '*SetProperty(hInstall, L"REMOVE", L"ALL");*') {
+        Fail 'Maintenance must not auto-repair via REINSTALL/REMOVE; guide users to reinstall instead.'
+    }
+    if ($actionsSource -like '*REINSTALLMODE", L"amus"*' -or $actionsSource -like '*REINSTALLMODE", L"emus"*') {
+        Fail 'Maintenance must not rewrite files via REINSTALLMODE.'
+    }
     # 扫描动作借用 Binary 表读取清单，必须关闭 MsiGetActiveDatabase 返回的数据库句柄。
     if ($actionsSource -notlike '*MsiCloseHandle(database)*') {
         Fail 'ReadBinaryStream must close the active database handle.'
     }
 
-    # 执行序列：状态检测早于成本计算，扫描在成本计算前设置 REINSTALL，复检在提交之后。
+    # 执行序列：状态检测早于成本计算，扫描在成本计算前运行，复检在提交之后。
+    # 维护自动修复通过 ApplyRepairRequest 设置 REMOVE=ALL（卸载后重装），其登
+    # 记位置在 DetectInstallState 恢复；REINSTALL 重写会触发 Config.Msi 权限问题。
     $executeSequence = Read-MsiRows $database 'SELECT * FROM InstallExecuteSequence' 3
     $detect = Find-Row $executeSequence 'DetectInstallState' 'InstallExecuteSequence entry'
     if ($detect[2] -ne '26' -or $detect[1] -notlike '*NOT REMOVE*') { Fail "DetectInstallState must run at 26 with 'NOT REMOVE'." }
@@ -117,11 +134,18 @@ try {
         Fail 'Silent maintenance must scan in the execute sequence, while UI scans reuse their result.'
     }
     $verify = Find-Row $executeSequence 'VerifyRepairedPayload' 'InstallExecuteSequence entry'
-    if ($verify[2] -ne '6700' -or $verify[1] -notlike '*REINSTALL*') { Fail 'VerifyRepairedPayload must run at 6700 after the transaction.' }
+    # 复检只在实际修复后运行：MOSAICREPAIRNEEDED 不能单独触发（维护检测到缺失/
+    # 损坏但用户未点修复时，复检会误报「修复后复检仍未通过」）。
+    if ($verify[2] -ne '6700' -or $verify[1] -notlike '*NOT REMOVE AND REINSTALL*' -or $verify[1] -like '*MOSAICREPAIRNEEDED*') {
+        Fail 'VerifyRepairedPayload must run at 6700 after the transaction and only when REINSTALL is set.'
+    }
     $arp = Find-Row $executeSequence 'SetArpInstallLocation' 'InstallExecuteSequence entry'
     if ([int]$arp[2] -le 1000 -or $arp[1] -notlike '*MOSAICLOCATIONINHERITED*') {
         Fail 'SetArpInstallLocation must run after CostFinalize and also for confirmed inherited maintenance locations.'
     }
+    # 维护自动修复不支持在线执行：不得自动设置 REINSTALL/REMOVE/REINSTALLMODE。
+    $badRepair = @($executeSequence | Where-Object { $_[0] -ceq 'ApplyRepairRequest' })
+    if ($badRepair.Count -ne 0) { Fail 'ApplyRepairRequest must not run automatically; users reinstall to repair.' }
 
     # 界面序列：自动路由到首次安装、维护、升级或阻断页，完成页与错误页不可缺失。
     $uiSequence = Read-MsiRows $database 'SELECT * FROM InstallUISequence' 3
@@ -151,23 +175,24 @@ try {
         Fail "AdminUISequence must show 'Exit' at 1301."
     }
 
-    # 错误对话框必须被 MSI 识别为 ErrorDialog，且首个可聚焦控件是 ErrorText。
+    # FatalError 只是安装失败后的收尾页，首个可聚焦控件是关闭按钮。
     $dialogs = Read-MsiRows $database 'SELECT * FROM Dialog' 10
     $fatal = Find-Row $dialogs 'FatalError' 'Dialog entry'
-    if (([int]$fatal[5] -band 0x10000) -eq 0 -or $fatal[7] -cne 'ErrorText') {
-        Fail 'FatalError must be the ErrorDialog and must focus ErrorText first.'
+    if ($fatal[7] -cne 'Close') {
+        Fail 'FatalError must focus its Close button first.'
     }
     $filesInUse = Find-Row $dialogs 'FilesInUse' 'Dialog entry'
     if ($filesInUse[7] -cne 'FileList') { Fail 'FilesInUse must focus its process list first.' }
     $exit = Find-Row $dialogs 'Exit' 'Dialog entry'
     if ($exit[7] -cne 'Finish') { Fail 'Exit must focus its Finish button first.' }
 
-    # 标准错误按钮与运行时填充的文件占用列表。
+    # FatalError 是普通收尾页，不得带错误对话框样式（否则可能被当作 ErrorDialog 校验）。
     $controls = Read-MsiRows $database 'SELECT * FROM Control' 12
-    foreach ($button in @('ErrorYes', 'ErrorNo', 'ErrorOk', 'ErrorCancel', 'ErrorRetry', 'ErrorIgnore', 'ErrorAbort')) {
-        if (@($controls | Where-Object { $_[0] -ceq 'FatalError' -and $_[1] -ceq $button -and $_[2] -ceq 'PushButton' }).Count -eq 0) {
-            Fail "FatalError is missing standard button '$button'."
-        }
+    if (([int]$fatal[5] -band 0x10000) -ne 0) {
+        Fail 'FatalError must not carry the error-dialog style bit.'
+    }
+    if (@($controls | Where-Object { $_[0] -ceq 'FatalError' -and $_[1] -ceq 'Close' -and $_[2] -ceq 'PushButton' }).Count -eq 0) {
+        Fail 'FatalError must offer a Close button.'
     }
     $listBox = @($controls | Where-Object { $_[0] -ceq 'FilesInUse' -and $_[2] -ceq 'ListBox' })
     if ($listBox.Count -ne 1 -or $listBox[0][8] -cne 'FileInUseProcess') { Fail 'FilesInUse must contain a ListBox bound to FileInUseProcess.' }
@@ -181,6 +206,17 @@ try {
     }
     if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[2] -ceq 'NewDialog' -and $_[3] -ceq 'ConfirmDlg' }).Count -eq 0) {
         Fail 'LocationDlg must continue to ConfirmDlg.'
+    }
+    # 2856 回归：Browse/Restore 不得用 NewDialog 回到 LocationDlg（PathEdit 属性一旦有
+    # 变更通知，MSI 视对话框为仍被引用并拒绝销毁，NewDialog 回自身报 2856 并中断安装），
+    # 必须改用 SetProperty 控制事件（Event 列为空）把新值推回 PathEdit。
+    foreach ($button in 'Browse', 'Restore') {
+        if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[1] -ceq $button -and $_[2] -ceq 'NewDialog' -and $_[3] -ceq 'LocationDlg' }).Count -ne 0) {
+            Fail "LocationDlg $button must not NewDialog back to LocationDlg (causes error 2856); use a SetProperty event instead."
+        }
+        if (@($events | Where-Object { $_[0] -ceq 'LocationDlg' -and $_[1] -ceq $button -and [string]$_[2] -ceq '' -and $_[3] -ceq '[MOSAICINSTALLPATH]' }).Count -eq 0) {
+            Fail "LocationDlg $button must publish SetProperty MOSAICINSTALLPATH (empty Event column) to refresh the PathEdit."
+        }
     }
     if (@($dialogs | Where-Object { $_[0] -ceq 'MaintStartDlg' }).Count -ne 0) {
         Fail 'Maintenance must not wait behind an extra MaintStartDlg page.'

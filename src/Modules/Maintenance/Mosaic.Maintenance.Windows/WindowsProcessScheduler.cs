@@ -144,7 +144,9 @@ param(
 try { Wait-Process -Id $ParentPid -Timeout 180 -ErrorAction Stop } catch { }
 if (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) { exit 3 }
 if ($Mode -eq 'repair') {
-    $msiArguments = @('/famus', $ProductCode, '/qn', '/norestart')
+    # /femus 与安装包一致：e=只覆盖校验不符/缺失的文件。/famus 的 a=全量覆盖会在
+    # 非系统驱动器上删除 X:\Config.Msi 回滚备份时遇到权限错误（该目录仅 SYSTEM/Admin 可写）。
+    $msiArguments = @('/femus', $ProductCode, '/qn', '/norestart')
 } else {
     $msiArguments = @('/x', $ProductCode, '/qn', '/norestart')
 }

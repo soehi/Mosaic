@@ -212,6 +212,11 @@ def click(hwnd: int, text: str) -> bool:
     return True
 
 
+def send_click(hwnd_button: int) -> bool:
+    """对已知按钮句柄发送 BM_CLICK。"""
+    return bool(u32.SendMessageW(hwnd_button, 0x00F5, 0, 0) or True)
+
+
 def progress_pos(hwnd: int) -> int | None:
     for c in children(hwnd):
         if c["class"] == "msctls_progress32":

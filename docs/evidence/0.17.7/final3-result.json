@@ -1,0 +1,39 @@
+{
+ "healthy_page": false,
+ "healthy_statics": [
+  "操作已完成",
+  "以复检结论为准；用户数据和配置没有被改动。",
+  "已检查 470 个文件：2 个文件缺失。"
+ ],
+ "healthy_buttons": [
+  "完成"
+ ],
+ "healthy_exit": null,
+ "healthy_return": [
+  "nEngineThread is returning 0"
+ ],
+ "healthy_unchanged": true,
+ "damaged_page": false,
+ "damaged_statics": [
+  "操作已完成",
+  "以复检结论为准；用户数据和配置没有被改动。",
+  "已检查 470 个文件：3 个文件缺失。"
+ ],
+ "damaged_buttons": [
+  "完成"
+ ],
+ "damaged_errors": false,
+ "damaged_exit": null,
+ "damaged_return": [
+  "nEngineThread is returning 0"
+ ],
+ "file_still_missing": true,
+ "sentinel": true,
+ "uninstall_windows": [],
+ "uninstall_return": [
+  "nEngineThread is returning 0",
+  "nEngineThread is returning 0"
+ ],
+ "folder_after": true,
+ "products_after": "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Installer\\Products\\331E4E4962F0FFF4AB94F5DD33A15504\r\n"
+}

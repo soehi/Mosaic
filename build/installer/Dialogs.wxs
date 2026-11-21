@@ -15,7 +15,10 @@
         <Control Id="Hint" Type="Text" X="15" Y="95" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}下一步可以选择安装位置。默认位置为当前用户的应用目录；用户数据保存在单独的数据目录中，升级和修复不会改动数据。" />
         <Control Id="Version" Type="Text" X="15" Y="225" Width="250" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}版本 [ProductVersion]" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="下一步">
-          <Publish Event="NewDialog" Value="LocationDlg" />
+          <!-- 位置页的 PathEdit 属性为空会让 MSI 在创建对话框时报 2343（随后被错误框
+               显示问题掩盖）；切换到位置页前强制预填默认目录。 -->
+          <Publish Event="DoAction" Value="PrefillInstallPath" Order="1" />
+          <Publish Event="NewDialog" Value="LocationDlg" Order="2" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="取消">
           <Publish Event="EndDialog" Value="Exit" />
@@ -27,12 +30,19 @@
         <Control Id="PathLabel" Type="Text" X="15" Y="50" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装文件夹：" />
         <Control Id="Path" Type="PathEdit" X="15" Y="68" Width="340" Height="18" Property="MOSAICINSTALLPATH" Text="[MOSAICINSTALLPATH]" />
         <Control Id="Browse" Type="PushButton" X="15" Y="92" Width="70" Height="17" Text="浏览...">
-          <Publish Event="DoAction" Value="BrowseInstallFolder" />
-          <Publish Event="NewDialog" Value="LocationDlg" />
+          <!-- 不能用 NewDialog 回到自身刷新路径：PathEdit 的属性一旦有变更通知，
+               MSI 会把对话框标记为“仍被引用”，NewDialog 到同一对话框直接报 2856
+               （Creating a second copy of the dialog）并中断安装。Property 发布
+               （SetProperty 控制事件，ControlEvent 列为空）把新值推回 PathEdit
+               即可重绘。WiX v4 中带 Property 属性时不能再写 Event。 -->
+          <Publish Event="DoAction" Value="BrowseInstallFolder" Order="1" />
+          <Publish Event="DoAction" Value="PrefillInstallPath" Order="2" />
+          <Publish Property="MOSAICINSTALLPATH" Value="[MOSAICINSTALLPATH]" Order="3" />
         </Control>
         <Control Id="Restore" Type="PushButton" X="90" Y="92" Width="80" Height="17" Text="恢复默认">
-          <Publish Event="DoAction" Value="RestoreDefaultInstallFolder" />
-          <Publish Event="NewDialog" Value="LocationDlg" />
+          <Publish Event="DoAction" Value="RestoreDefaultInstallFolder" Order="1" />
+          <Publish Event="DoAction" Value="PrefillInstallPath" Order="2" />
+          <Publish Property="MOSAICINSTALLPATH" Value="[MOSAICINSTALLPATH]" Order="3" />
         </Control>
         <Control Id="CurrentLabel" Type="Text" X="15" Y="120" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}当前目标：" />
         <Control Id="CurrentPath" Type="Text" X="15" Y="138" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="[MOSAICINSTALLPATH]" />
@@ -133,7 +143,7 @@
           <Subscribe Event="ActionText" Attribute="Text" />
         </Control>
         <Control Id="ScanSummary" Type="Text" X="15" Y="85" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="[MOSAICSCANSUMMARY]" />
-        <Control Id="RepairHint" Type="Text" X="15" Y="132" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}发现缺失或损坏时自动使用安装包内的文件修复，用户数据与配置不会被改动。" />
+        <Control Id="RepairHint" Type="Text" X="15" Y="132" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}发现缺失或损坏时请通过「应用和功能」修复，或重新运行本安装包。本向导不会改动文件；用户数据与配置不受影响。" />
         <Control Id="ProgressBar" Type="ProgressBar" X="15" Y="210" Width="340" Height="15" ProgressBlocks="yes" Text="正在安装...">
           <Subscribe Event="SetProgress" Attribute="Progress" />
         </Control>
@@ -166,30 +176,15 @@
         </Control>
       </Dialog>
 
-      <Dialog Id="FatalError" Width="370" Height="270" Title="Mosaic 安装程序" NoMinimize="yes" ErrorDialog="yes">
-        <Control Id="ErrorText" Type="Text" X="15" Y="50" Width="340" Height="120" Transparent="yes" NoPrefix="yes" TabSkip="no" Text="[ErrorText]" />
+      <!-- 安装失败收尾页。引擎错误本身由系统消息框显示（不设 ErrorDialog 属性），
+           本页只给出结果与处置建议；此前兼作 ErrorDialog 时，MSI 只创建当前错误消息
+           需要的按钮，ErrorText 的 Control_Next 指向未创建的 ErrorYes，真实错误被
+           2814 覆盖。 -->
+      <Dialog Id="FatalError" Width="370" Height="270" Title="Mosaic 安装程序" NoMinimize="yes">
         <Control Id="Title" Type="Text" X="15" Y="15" Width="340" Height="24" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontBold}安装未完成" />
-        <Control Id="Hint" Type="Text" X="15" Y="178" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}已完成的步骤会回滚。请关闭正在使用 Mosaic 文件的程序后重新运行安装包；需要时重启电脑再试。" />
-        <Control Id="ErrorYes" Type="PushButton" X="15" Y="243" Width="48" Height="17" Text="是">
-          <Publish Event="EndDialog" Value="ErrorYes" />
-        </Control>
-        <Control Id="ErrorNo" Type="PushButton" X="65" Y="243" Width="48" Height="17" Text="否">
-          <Publish Event="EndDialog" Value="ErrorNo" />
-        </Control>
-        <Control Id="ErrorOk" Type="PushButton" X="115" Y="243" Width="48" Height="17" Default="yes" Cancel="yes" Text="确定">
-          <Publish Event="EndDialog" Value="ErrorOk" />
-        </Control>
-        <Control Id="ErrorCancel" Type="PushButton" X="165" Y="243" Width="48" Height="17" Text="取消">
-          <Publish Event="EndDialog" Value="ErrorCancel" />
-        </Control>
-        <Control Id="ErrorRetry" Type="PushButton" X="215" Y="243" Width="48" Height="17" Text="重试">
-          <Publish Event="EndDialog" Value="ErrorRetry" />
-        </Control>
-        <Control Id="ErrorIgnore" Type="PushButton" X="265" Y="243" Width="48" Height="17" Text="忽略">
-          <Publish Event="EndDialog" Value="ErrorIgnore" />
-        </Control>
-        <Control Id="ErrorAbort" Type="PushButton" X="315" Y="243" Width="48" Height="17" Text="中止">
-          <Publish Event="EndDialog" Value="ErrorAbort" />
+        <Control Id="Hint" Type="Text" X="15" Y="50" Width="340" Height="90" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装过程中遇到错误，已完成的步骤会回滚。请按错误提示处理后重新运行安装包；需要时重启电脑再试。" />
+        <Control Id="Close" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="关闭">
+          <Publish Event="EndDialog" Value="Exit" />
         </Control>
       </Dialog>
 

@@ -1,5 +1,39 @@
 # Mosaic：实施与验证记录
 
+## 0.17.7：浏览/恢复默认 2856 修复（2026-11-21）
+
+- 根因位置（以下行号指 0.17.6 已发布版本 `4e3ae54`）：
+  - `build/installer/Dialogs.wxs` 的 LocationDlg「浏览...」（`Browse` 按钮）与「恢复默认」（`Restore` 按钮）在自定义动作完成后使用 `NewDialog LocationDlg` 回到同一对话框刷新路径显示；`PathEdit` 绑定的 `MOSAICINSTALLPATH` 一旦有变更通知（仅聚焦即会追加尾随反斜杠），MSI 会把对话框标记为仍被引用，拒绝销毁，`NewDialog` 到同一对话框直接报引擎 2856（Creating a second copy of the dialog LocationDlg）并中断安装。
+- 改动位置：
+  - `build/installer/Dialogs.wxs`：`Browse`/`Restore` 按钮第 3 个 `Publish` 由 `NewDialog LocationDlg` 改为 `Property="MOSAICINSTALLPATH" Value="[MOSAICINSTALLPATH]"`（SetProperty 控制事件，ControlEvent 列为空），把新值推回 PathEdit 即可重绘，不再重建对话框；保留第 1–2 个 `DoAction`（`BrowseInstallFolder`/`RestoreDefaultInstallFolder` + `PrefillInstallPath`）。
+  - `build/test-package-maintenance.ps1`：新增断言 `LocationDlg` 的 `Browse`/`Restore` 按钮不得再使用 `NewDialog LocationDlg`，且必须包含 `Property="MOSAICINSTALLPATH"` 的 SetProperty 事件。
+- 迁移逻辑与验收项：无数据迁移；升级沿用既有 MajorUpgrade。
+- 实机验收（已执行，2026-11-21，隔离账户 `MosaicQa0176` 与实机当前用户）：
+  - 复现：点击「浏览...」立即弹出「错误代码是 2856」并出现两个 LocationDlg 副本，日志 `2856-repro.log` 含 `DEBUG: Error 2856: Creating a second copy of the dialog LocationDlg`；
+  - 修复后：浏览选择 `E:\app` 成功返回位置页并显示 `E:\app\Mosaic`，下一步进入确认页并完成安装，exit 0；
+  - 证据：`docs/evidence/0.17.7/2856-fix-verification.zip`（7 个 /L*V! 日志与驱动脚本）、`scripts/qa/_full_2856_test.py`（端到端 UI 驱动）。
+- 未验证项：执行期 `FilesInUse` 对话框、3010/待重启分支；维护在线修复（引擎限制，须通过「应用和功能」修复或重新运行安装包）。
+
+## 0.17.6（增量）：跨盘安装与错误显示修复（2026-11-21）
+
+- 根因位置（以下行号指 0.17.6 已发布版本 `4e3ae54`）：
+  - 位置页空属性触发引擎 2343 并被 2814 掩盖：`build/installer/actions/MosaicInstallerActions.cpp:719-725` 的默认位置预填依赖 `SHGetFolderPathW(CSIDL_LOCAL_APPDATA)`，在自定义动作服务端会话（未加载用户配置文件）返回空字符串；`Dialogs.wxs:17` 的 FreshStartDlg「下一步」直接切到 `LocationDlg`，其 PathEdit 绑定的 `MOSAICINSTALLPATH` 为空，MSI 在创建对话框时报引擎 2343；`Package.wxs:7` 的 `ErrorDialog=FatalError` 兼作引擎错误框，MSI 按消息类型只创建 Error 按钮，而 `Dialogs.wxs:170` 的 `ErrorText TabSkip="no"` 使 Control_Next 指向未创建的 ErrorYes，真实 2343 被 2814 覆盖。
+  - 引擎回滚备份在非系统驱动器权限失败：任何文件替换（REINSTALL 重写或卸载后重装的事务内移除）都会让引擎在目标卷根目录 `Config.Msi` 创建 `.rbf` 回滚备份；per-user 安装位于 D/E 等固定盘时该目录只允许 SYSTEM/Admin，用户上下文删除时报错误 5，并弹出引擎强制错误框（无法用 ESC/关闭按钮正常关闭，只能用退出进程）。
+- 改动位置：
+  - `build/installer/actions/MosaicInstallerActions.cpp`：`GetLocalAppData`/`DefaultInstallFolder`/`ShortcutLinkPath` 增加 MSI 属性优先（LocalAppDataFolder/DesktopFolder/ProgramMenuFolder），不再依赖 SHGetFolderPathW；新增 `PrefillInstallPath` 导出（PathEdit 属性为空时按最终目录预填，命令行显式路径不覆盖）；`ScanPayload` 不再设置自动修复标记（`MOSAICREPAIRAUTOMATIC` 清空）；`VerifyRepairedPayload` 复检提示改为引导用户通过「应用和功能」修复或重新运行安装包；`ApplyRepairRequest` 改为空操作占位（保留导出防止旧包引用悬空，不再设置 REINSTALL/REMOVE）。
+  - `build/installer/Dialogs.wxs`：`FreshStartDlg`「下一步」先执行 `PrefillInstallPath` 再切换 `LocationDlg`；`LocationDlg` 的「浏览」「恢复默认」同样预填后切页；`MaintenanceDlg` 提示文案改为「发现缺失或损坏时请通过「应用和功能」修复，或重新运行本安装包。本向导不会改动文件」；`FatalError` 简化为普通收尾页（不再兼作 ErrorDialog）。
+  - `build/installer/Package.wxs`：移除 `ErrorDialog` 属性（引擎错误改由系统消息框显示真实错误码）；新增 `PrefillInstallPath` 声明；`VerifyRepairedPayload` 条件改为 `NOT REMOVE AND REINSTALL`（检测到缺失/损坏但不自动修复时不复检）；移除 `ApplyRepairRequest` 序列（不自动在线修复）。
+  - `build/test-package-maintenance.ps1`：断言 `ErrorDialog` 不得设置；断言 `PrefillInstallPath` 与 `LocationDlg` 预填事件存在；断言维护不得自动 REINSTALL/REMOVE/REINSTALLMODE；断言 `VerifyRepairedPayload` 仅在 `REINSTALL` 时运行。0.17.5 旧包在新断言下失败（红），重建后 0.17.6 通过（绿）。
+  - `src/Modules/Maintenance/Mosaic.Maintenance.Windows/WindowsProcessScheduler.cs`：应用内「修复安装」由 `/famus` 改为 `/femus`（只覆盖校验不符/缺失的文件，与安装包行为一致，避免全量覆盖触发引擎回滚备份）。
+- 迁移逻辑与验收项：无数据迁移；升级沿用既有 MajorUpgrade。
+- 实机验收（已执行，2026-11-21，隔离账户 `MosaicQa0176`）：
+  - 复现链：默认 UI（无命令行路径）首次进入位置页 → MSI 2343 → FatalError 2814（与用户截图一致）；D 盘手工输入完整 UI 安装 → 470 文件 + 13 子目录 + 登记 + 快捷方式全部落位，exit 0，无引擎错误框；
+  - 维护修复策略：同版本维护检测到缺失/损坏（文件+快捷方式）时显示「请通过「应用和功能」修复，或重新运行本安装包」，不自动执行修复、不弹引擎错误框；
+  - 健康维护：显示「安装完整，无需修复」，零写入，exit 0；
+  - 静默卸载：无任何窗口，D 盘目录清空，哨兵数据保留；
+  - 证据：`docs/evidence/0.17.7/cross-drive-repro.json`、`cross-d-real.json`、`final3-result.json`、`2856-fix-verification.zip` 中的 `cross-*.log`；脚本 `scripts/qa/cross_drive_repro.py`、`scripts/qa/cross_drive_typed.py`、`scripts/qa/final_matrix.py`。
+- 未验证项：执行期 `FilesInUse` 对话框、3010/待重启分支；维护在线修复（引擎限制，须通过「应用和功能」修复或重新运行安装包）；0.17.5 → 0.17.6 原位升级在跨盘场景下的数据保留（本矩阵只覆盖同版本维护与全新安装）。
+
 ## 0.17.6：完整界面进度页卡死修复（2026-11-20）
 
 - 根因位置（以下行号指已提交的 0.17.5 版本 `3f91fd3`）：

@@ -1,0 +1,62 @@
+{
+ "target_parent": "D:\\MosaicQA\\跨盘 安装",
+ "errors": [],
+ "steps": [
+  {
+   "step": "C 盘默认安装到位置页",
+   "fresh": true,
+   "location": true,
+   "location_text": [
+    "选择安装位置",
+    "安装位置不能与用户数据目录重叠。",
+    "安装文件夹：",
+    "当前目标：",
+    "C:\\Users\\MosaicQa0176\\AppData\\Local\\Programs\\Mosaic"
+   ]
+  },
+  {
+   "step": "C 盘确认页",
+   "confirm": true
+  },
+  {
+   "step": "C 盘进度页",
+   "progress": true
+  },
+  {
+   "step": "C 盘完成页",
+   "done": true
+  }
+ ],
+ "reset_codes": [],
+ "c_exit": 0,
+ "c_log": "C:\\Users\\Public\\MosaicQA\\logs\\cross-c-install.log",
+ "u_exit": null,
+ "u_log": "C:\\Users\\Public\\MosaicQA\\logs\\cross-c-uninstall.log",
+ "products_after_uninstall": "错误: 系统找不到指定的注册表项或值。\r\n",
+ "sentinel_after_uninstall": "cross-drive-sentinel",
+ "typed_input": false,
+ "typed_err_box": false,
+ "typed_page": "confirm",
+ "typed_statics": [
+  "C:\\Users\\MosaicQa0176\\AppData\\Local\\Programs\\Mosaic",
+  "确认安装",
+  "同时会创建桌面和开始菜单快捷方式。安装完成后不会自动启动程序。",
+  "Mosaic 将安装到："
+ ],
+ "typed_progress": true,
+ "typed_done": true,
+ "d_typed_exit": 0,
+ "d_typed_log": "C:\\Users\\Public\\MosaicQA\\logs\\cross-d-typed.log",
+ "d_typed_installed": false,
+ "d_typed_file_count": 0,
+ "browse": {
+  "dialog": null,
+  "picked": false
+ },
+ "browse_statics": null,
+ "browse_page": null,
+ "browse_statics_after_next": null,
+ "d_browse_exit": null,
+ "d_browse_log": "C:\\Users\\Public\\MosaicQA\\logs\\cross-d-browse.log",
+ "d_browse_installed": false
+}

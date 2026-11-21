@@ -196,10 +196,31 @@ bool GetLocalAppData(std::wstring& path)
     return !path.empty();
 }
 
+// 自定义动作可能运行在没有加载用户配置文件的服务端会话里（SHGetFolderPath 会失败），
+// 因此先取 MSI 已解析的 LocalAppDataFolder 属性，再退回外壳 API。
+bool GetLocalAppData(MSIHANDLE hInstall, std::wstring& path)
+{
+    std::wstring property = Trim(GetProperty(hInstall, L"LocalAppDataFolder"));
+    if (!property.empty() && property.size() > 2 && property[1] == L':')
+    {
+        path = property;
+        return true;
+    }
+    return GetLocalAppData(path);
+}
+
 std::wstring DefaultInstallFolder()
 {
     std::wstring localAppData;
     if (!GetLocalAppData(localAppData))
+        return std::wstring();
+    return Combine(localAppData, kDefaultFolderSuffix);
+}
+
+std::wstring DefaultInstallFolder(MSIHANDLE hInstall)
+{
+    std::wstring localAppData;
+    if (!GetLocalAppData(hInstall, localAppData))
         return std::wstring();
     return Combine(localAppData, kDefaultFolderSuffix);
 }
@@ -720,7 +741,8 @@ extern "C" __declspec(dllexport) UINT __stdcall DetectInstallState(MSIHANDLE hIn
     if (state == InstallState::Fresh && GetProperty(hInstall, L"MOSAICINSTALLPATH").empty() &&
         GetProperty(hInstall, L"INSTALLFOLDER").empty())
     {
-        std::wstring fallback = DefaultInstallFolder();
+        std::wstring fallback = DefaultInstallFolder(hInstall);
+        LogInfo(hInstall, L"Mosaic: 默认安装位置探测结果 '" + fallback + L"'");
         if (!fallback.empty())
             SetProperty(hInstall, L"MOSAICINSTALLPATH", fallback);
     }
@@ -798,13 +820,25 @@ void AppendDetail(ScanOutcome& outcome, const std::wstring& text)
     outcome.details += text;
 }
 
-std::wstring ShortcutLinkPath(const std::wstring& location, const std::wstring& relativeLink)
+// 维护扫描可能运行在未加载用户配置文件的服务端会话里，SHGetFolderPathW 会失败；
+// 优先取 MSI 已解析的 DesktopFolder / ProgramMenuFolder 属性。
+std::wstring ShortcutLinkPath(MSIHANDLE hInstall, const std::wstring& location, const std::wstring& relativeLink)
 {
-    int folder = location == L"desktop" ? CSIDL_DESKTOPDIRECTORY : CSIDL_PROGRAMS;
-    wchar_t buffer[MAX_PATH * 2];
-    if (FAILED(SHGetFolderPathW(nullptr, folder, nullptr, SHGFP_TYPE_CURRENT, buffer)))
-        return std::wstring();
-    return Combine(buffer, relativeLink);
+    std::wstring folderId = location == L"desktop" ? L"DesktopFolder" : L"ProgramMenuFolder";
+    std::wstring folder = Trim(GetProperty(hInstall, folderId.c_str()));
+    if (folder.empty() || folder.size() < 2 || folder[1] != L':')
+    {
+        int csidl = location == L"desktop" ? CSIDL_DESKTOPDIRECTORY : CSIDL_PROGRAMS;
+        wchar_t buffer[MAX_PATH * 2];
+        if (FAILED(SHGetFolderPathW(nullptr, csidl, nullptr, SHGFP_TYPE_CURRENT, buffer)))
+            return std::wstring();
+        folder = buffer;
+    }
+    // MSI 目录属性以反斜杠结尾；ProgramMenuFolder 的快捷方式在 Mosaic 子目录内。
+    std::wstring base = TrimEndingSeparators(folder);
+    if (location != L"desktop")
+        base = Combine(base, L"Mosaic");
+    return Combine(base, relativeLink);
 }
 
 std::wstring ShortcutDisplayName(const ManifestShortcut& shortcut)
@@ -812,10 +846,10 @@ std::wstring ShortcutDisplayName(const ManifestShortcut& shortcut)
     return (shortcut.location == L"desktop" ? std::wstring(L"桌面快捷方式 ") : std::wstring(L"开始菜单快捷方式 ")) + shortcut.relativeLink;
 }
 
-bool CheckShortcut(const ManifestShortcut& shortcut, const std::wstring& expectedTarget, ScanOutcome& outcome, bool& missing)
+bool CheckShortcut(MSIHANDLE hInstall, const ManifestShortcut& shortcut, const std::wstring& expectedTarget, ScanOutcome& outcome, bool& missing)
 {
     missing = false;
-    std::wstring linkPath = ShortcutLinkPath(shortcut.location, shortcut.relativeLink);
+    std::wstring linkPath = ShortcutLinkPath(hInstall, shortcut.location, shortcut.relativeLink);
     if (linkPath.empty())
     {
         ++outcome.errors;
@@ -959,7 +993,7 @@ ScanOutcome ScanInstallRoot(MSIHANDLE hInstall)
     for (const ManifestShortcut& shortcut : manifest.shortcuts)
     {
         bool ignored = false;
-        CheckShortcut(shortcut, Combine(root, shortcut.relativeTarget), outcome, ignored);
+        CheckShortcut(hInstall, shortcut, Combine(root, shortcut.relativeTarget), outcome, ignored);
     }
     return outcome;
 }
@@ -1039,13 +1073,13 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
     if (needsRepair)
     {
         SetProperty(hInstall, L"MOSAICREPAIRNEEDED", L"1");
-        // 仅当调用方没有显式传入 /f 时自动进入修复；显式 /f 保留其自身的修复语义。
-        // 注意：REINSTALL 属性在 UI 序列设置时不会随属性快照传给服务端会话
-        // （实测服务端只有 REINSTALLMODE 与 MOSAICREPAIRNEEDED），因此这里只发布
-        // MOSAICREPAIRNEEDED/MOSAICREPAIRAUTOMATIC 标记；真正的 REINSTALL=ALL
-        // 由执行序列 CostFinalize 之前的 ApplyRepairRequest 在服务端会话内设置。
-        SetProperty(hInstall, L"REINSTALLMODE", L"amus");
-        SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"1");
+        // per-user 安装在非系统驱动器时，任何文件替换都会让引擎在目标卷根目录的
+        // Config.Msi 创建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），用户上下文删除时
+        // 报错误 5 并弹出引擎强制错误框（无法正常关闭）。无论是 REINSTALL 重写还是
+        // 同一事务的卸载后重装，都无法绕开。安全做法：不自动修复，由界面告知用户
+        // 通过「应用和功能」或重新运行安装包完成修复（新安装的客户端会话可以在
+        // 服务端以 SYSTEM 执行文件操作，不受此限制）。
+        SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"");
     }
     else
     {
@@ -1059,16 +1093,12 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
 // 修复请求落地：REINSTALL 不能从 UI 序列传给服务端会话（见 ScanPayload 注释），
 // 这里在执行序列 CostFinalize 之前根据扫描标记设置 REINSTALL=ALL，使组件重装计划
 // 在 InstallValidate 前生效；显式 /f（命令行 REINSTALL）优先，不覆盖。
+// 维护修复不支持自动在线执行：任何文件替换都会让引擎在目标卷根目录的 Config.Msi
+// 建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），per-user 安装位于非系统驱动器时用户
+// 上下文无法删除备份，报错误 5。用户须通过「应用和功能」修复或重新运行安装包。
+// 本动作保留为占位，防止旧包引用悬空；设置 REMOVE=ALL 的路径已废弃。
 extern "C" __declspec(dllexport) UINT __stdcall ApplyRepairRequest(MSIHANDLE hInstall)
 {
-    std::wstring repairNeeded = GetProperty(hInstall, L"MOSAICREPAIRNEEDED");
-    std::wstring automatic = GetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC");
-    std::wstring reinstall = GetProperty(hInstall, L"REINSTALL");
-    if (repairNeeded != L"1" || automatic != L"1" || !reinstall.empty())
-        return ERROR_SUCCESS;
-    SetProperty(hInstall, L"REINSTALL", L"ALL");
-    SetProperty(hInstall, L"REINSTALLMODE", L"amus");
-    LogInfo(hInstall, L"Mosaic: 自动修复 REINSTALL=ALL REINSTALLMODE=amus");
     return ERROR_SUCCESS;
 }
 
@@ -1097,8 +1127,8 @@ extern "C" __declspec(dllexport) UINT __stdcall VerifyRepairedPayload(MSIHANDLE 
         return ERROR_SUCCESS;
     }
     std::wstring message = status == L"Repair"
-        ? L"修复后复检仍未通过：" + summary + L" 请重新运行安装包再次修复；若文件被其他程序占用，关闭后重试或重启电脑。"
-        : L"修复后无法完成完整性复检：" + summary;
+        ? L"修复后复检仍未通过：" + summary + L" 请通过「应用和功能」修复，或重新运行本安装包；若文件被其他程序占用，关闭后重试或重启电脑。"
+        : L"修复后无法完成完整性复检：" + summary + L" 请通过「应用和功能」修复，或重新运行本安装包。";
     SetProperty(hInstall, L"MOSAICEXITTITLE", L"修复未通过复检");
     SetProperty(hInstall, L"MOSAICVERIFYMESSAGE", message);
     ReportError(hInstall, message);
@@ -1214,7 +1244,7 @@ bool ValidateInstallPath(MSIHANDLE hInstall)
     if (input.empty())
         input = Trim(GetProperty(hInstall, L"INSTALLFOLDER"));
     if (input.empty())
-        input = DefaultInstallFolder();
+        input = DefaultInstallFolder(hInstall);
     if (input.empty())
     {
         SetProperty(hInstall, L"MOSAICPATHERROR", L"无法确定默认安装位置，请手动选择文件夹。");
@@ -1342,36 +1372,74 @@ extern "C" __declspec(dllexport) UINT __stdcall EnforceInstallFolder(MSIHANDLE h
 
 extern "C" __declspec(dllexport) UINT __stdcall RestoreDefaultInstallFolder(MSIHANDLE hInstall)
 {
-    std::wstring folder = DefaultInstallFolder();
+    std::wstring folder = DefaultInstallFolder(hInstall);
     if (!folder.empty())
         SetProperty(hInstall, L"MOSAICINSTALLPATH", folder);
     return ERROR_SUCCESS;
 }
 
+// 位置页切换前强制执行：PathEdit 的属性为空时 MSI 创建对话框会报 2343，
+// 且该错误会被错误框自身的控件链问题掩盖成 2814。命令行显式传入的路径不覆盖。
+extern "C" __declspec(dllexport) UINT __stdcall PrefillInstallPath(MSIHANDLE hInstall)
+{
+    if (!Trim(GetProperty(hInstall, L"MOSAICINSTALLPATH")).empty())
+        return ERROR_SUCCESS;
+    std::wstring folder = DefaultInstallFolder(hInstall);
+    if (!folder.empty())
+    {
+        SetProperty(hInstall, L"MOSAICINSTALLPATH", folder);
+        LogInfo(hInstall, L"Mosaic: 预填安装位置 " + folder);
+    }
+    else
+    {
+        LogInfo(hInstall, L"Mosaic: 无法确定默认安装位置，位置页将要求手工输入。");
+    }
+    return ERROR_SUCCESS;
+}
+
 extern "C" __declspec(dllexport) UINT __stdcall BrowseInstallFolder(MSIHANDLE hInstall)
 {
-    HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    wchar_t displayName[MAX_PATH] = {};
-    BROWSEINFOW browse = {};
-    browse.hwndOwner = GetActiveWindow();
-    browse.pszDisplayName = displayName;
-    browse.lpszTitle = L"选择 Mosaic 的安装位置";
-    browse.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-    PIDLIST_ABSOLUTE item = SHBrowseForFolderW(&browse);
+    // 文件夹选择对话框必须在安装 UI 序列自己的 STA 线程里跑；MSI 的 UI 线程不是 STA，
+    // 在其中创建含 BIF_NEWDIALOGSTYLE 的浏览框会让随后的 NewDialog 复制对话框失败（2856）。
+    struct BrowseThreadArgs { HWND owner; std::wstring folder; bool selected; } args = {};
+    args.owner = GetActiveWindow();
+    DWORD threadId = 0;
+    HANDLE thread = CreateThread(nullptr, 0,
+        [](LPVOID raw) -> DWORD {
+            BrowseThreadArgs* a = static_cast<BrowseThreadArgs*>(raw);
+            HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            wchar_t displayName[MAX_PATH] = {};
+            BROWSEINFOW browse = {};
+            browse.hwndOwner = a->owner;
+            browse.pszDisplayName = displayName;
+            browse.lpszTitle = L"选择 Mosaic 的安装位置";
+            browse.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+            PIDLIST_ABSOLUTE item = SHBrowseForFolderW(&browse);
+            if (item != nullptr)
+            {
+                wchar_t path[MAX_PATH * 2];
+                if (SHGetPathFromIDListW(item, path))
+                {
+                    a->folder = AppendMosaicFolder(path);
+                    a->selected = true;
+                }
+                CoTaskMemFree(item);
+            }
+            if (initialized == S_OK || initialized == S_FALSE)
+                CoUninitialize();
+            return 0;
+        }, &args, 0, &threadId);
     bool selected = false;
-    if (item != nullptr)
+    if (thread != nullptr)
     {
-        wchar_t path[MAX_PATH * 2];
-        if (SHGetPathFromIDListW(item, path))
+        WaitForSingleObject(thread, INFINITE);
+        CloseHandle(thread);
+        if (args.selected)
         {
-            std::wstring folder = AppendMosaicFolder(path);
-            SetProperty(hInstall, L"MOSAICINSTALLPATH", folder);
+            SetProperty(hInstall, L"MOSAICINSTALLPATH", args.folder);
             selected = true;
         }
-        CoTaskMemFree(item);
     }
-    if (initialized == S_OK || initialized == S_FALSE)
-        CoUninitialize();
     if (!selected)
         LogInfo(hInstall, L"Mosaic: 用户取消了文件夹选择。");
     return ERROR_SUCCESS;
