@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.17.7",
+  "currentReleaseId": "mosaic-0.17.8",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -676,6 +676,18 @@
         "应用内「修复安装」由 /famus 改为 /femus：只覆盖校验不符或缺失的文件，避免全量覆盖触发非系统驱动器上的 Config.Msi 权限错误。"
       ],
       "contentSha256": "86E2BB57BB1FE933F27078467BDFF39C91668D7734D99D90D9FA526B3C2FCCFD"
+    },
+    {
+      "releaseId": "mosaic-0.17.8",
+      "version": "0.17.8",
+      "releasedOn": "2026-11-21",
+      "previousReleaseId": "mosaic-0.17.7",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "修复点击设置「账户与备份」「维护」后顶部总说明与「高级设置」开关整块消失：0.17.2 起这两块的可见性被绑定到分区选中状态（选中模块页分区即为 false），而不是模块页是否真正激活；0.17.8 起只有模块页内容实际显示时才隐藏，选中分区但页面未激活（例如需要先离开当前编辑）时保持可见。"
+      ],
+      "contentSha256": "E3E2723664488B608235A8DAC330FAB1825C3378B91D4DC07AE16C8ADADF0F62"
     }
   ]
 }

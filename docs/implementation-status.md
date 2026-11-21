@@ -1,5 +1,18 @@
 # Mosaic：实施与验证记录
 
+## 0.17.8：设置页顶部说明与「高级设置」开关在模块页分区消失修复（2026-11-21）
+
+- 根因位置（以下行号指 0.17.7 已发布版本 `87f4eb6`）：
+  - `src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml:105-107`（副标题）与 `:109-111`（模式说明条，含「高级设置」开关）把 `Visibility` 绑定到 `SettingsViewModel.HasSettingsSectionContent`（定义 `SelectedPage is null`，`src/Modules/Settings/Mosaic.Settings.Wpf/Internal/SettingsViewModel.cs`）。「账户与备份」「维护」是模块贡献页分区（`AuthUiModule.cs:45`、`MaintenanceUiModule.cs:45` 注册 `SettingsPageContribution`），点击这类分区时 `SelectSectionAsync` 先给 `SelectedSection` 赋值，`SelectedPage` 立即非空、`HasSettingsSectionContent` 变为 false——即使随后因「请先离开当前编辑」守卫而页面未激活，顶部说明与开关也已消失。该误绑随 0.17.2 的设置容器改版引入（`docs/settings-maintenance-layout-plan.md:36` 只要求隐藏「0 项设置」计数、恢复默认等通用参数控件，顶部说明不属于该范围）。
+  - 同文件 `SettingsViewModel.SelectedSection` setter 只调 `ApplySectionFilter()`，未通知 `SelectedPage`/`HasSelectedPage`/`HasSettingsSectionContent`；直接给 `SelectedSection` 赋值的路径（Reveal、语言切换、分区回退）下界面会沿用旧的可见性。
+- 改动位置：
+  - `src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml:105`（`SubtitleText`）与 `:109`（`ModeBar`）：可见性由 `HasSettingsSectionContent`+`BoolVisibility` 改为 `HasSelectedPage`+`InverseBoolVisibility`（仅模块页内容实际激活时隐藏），并补 `x:Name` 供测试断言。
+  - `src/Modules/Settings/Mosaic.Settings.Wpf/Internal/SettingsViewModel.cs:375-384`（`SelectedSection` setter）：`SetProperty` 成功后追加 `NotifyPageContentChanged()`；`:661-677` 新增 `NotifyPageContentChanged()` 统一通知 `SelectedPage`/`HasSelectedPage`/`HasSettingsSectionContent`，`ApplySectionFilter()` 与 `SelectPageAsync()`（`:479`）改经由此处。
+  - `tests/Mosaic.Wpf.Tests/PresentationTests.cs:1231` 新增 `Header_banner_stays_visible_on_page_sections_until_the_page_is_active`（真实模块+视图集成测试：常规分区可见 → 选中模块页分区未激活仍可见 → 页面激活后隐藏）；`:1197` `Switching_to_a_contributed_page_hides_section_chrome_and_back_restores_it` 双向补 `HasSelectedPage` 通知断言；`:1296` 保留 `Direct_section_assignment_onto_a_page_section_notifies_settings_chrome_visibility`（直接赋值路径通知回归）。
+- 迁移逻辑与验收项：无数据迁移、无配置变化；升级沿用既有 MajorUpgrade。
+- 验证：`dotnet test tests/Mosaic.Wpf.Tests` 全量 137 通过；`python -I scripts/release_content_verify.py` 通过（41 个已索引发布）。
+- 未验证项：未做实机截图核对（绑定行为由集成测试覆盖）。
+
 ## 0.17.7：浏览/恢复默认 2856 修复（2026-11-21）
 
 - 根因位置（以下行号指 0.17.6 已发布版本 `4e3ae54`）：

@@ -375,7 +375,12 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     public SettingsSection SelectedSection
     {
         get => _selectedSection;
-        set { if (SetProperty(ref _selectedSection, value)) ApplySectionFilter(); }
+        set
+        {
+            if (!SetProperty(ref _selectedSection, value)) return;
+            ApplySectionFilter();
+            NotifyPageContentChanged();
+        }
     }
     public bool ShowAdvanced
     {
@@ -471,7 +476,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         }
         _selectedPageView = page;
         OnPropertyChanged(nameof(SelectedPageView));
-        OnPropertyChanged(nameof(HasSelectedPage));
+        NotifyPageContentChanged();
     }
 
     // Hidden definitions stay registered with the settings core so their module can read and save
@@ -657,10 +662,18 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     {
         VisibleRows.Clear();
         foreach (var row in _rows.Values.Where(row => (ShowAdvanced || !row.IsAdvanced) && SectionFor(row.Definition.Group) == SelectedSection).OrderBy(row => row.Id, StringComparer.Ordinal)) VisibleRows.Add(row);
+        NotifyState();
+    }
+
+    // HasSettingsSectionContent（恢复默认按钮、条目计数等常规分区 chrome 的可见性）依赖
+    // SelectedPage。任何改变 SelectedSection 或 SelectedPageView 的路径都必须经由这里通知，
+    // 否则直接给 SelectedSection 赋值（Reveal、语言切换、分区回退）时界面会沿用旧的可见性。
+    // 顶部总说明与模式说明条改绑 HasSelectedPage（0.17.8 起在模块页也保持显示），不再经过这里。
+    private void NotifyPageContentChanged()
+    {
         OnPropertyChanged(nameof(SelectedPage));
         OnPropertyChanged(nameof(HasSelectedPage));
         OnPropertyChanged(nameof(HasSettingsSectionContent));
-        NotifyState();
     }
     private void RefreshSections()
     {
