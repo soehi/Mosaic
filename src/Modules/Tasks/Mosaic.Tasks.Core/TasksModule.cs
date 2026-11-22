@@ -37,7 +37,8 @@ public sealed class TasksModule : IModuleActivation
             ["tasks.attachments.storagePath"] = dependencies.DefaultAttachmentRoot ?? ""
         });
         _changes = new(dependencies.Diagnostics);
-        var service = new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish);
+        var service = new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish,
+            dependencies.AttachmentRepository, _attachmentStore, dependencies.Diagnostics);
         var api = new GuardedTasksApi(service, _gate, dependencies.Diagnostics);
         _archive = new(dependencies.Repository, api, dependencies.Clock, dependencies.Diagnostics);
         Api = api;

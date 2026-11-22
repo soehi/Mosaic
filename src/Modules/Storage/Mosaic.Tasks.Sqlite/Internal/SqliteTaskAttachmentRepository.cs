@@ -54,15 +54,6 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
         return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
     }
 
-    public async Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListOrphanedAsync(CancellationToken cancellationToken = default)
-    {
-        var result = await database.QueryAsync(new(
-            $"SELECT {Columns} FROM task_attachments WHERE task_id NOT IN (SELECT id FROM tasks)"), cancellationToken).ConfigureAwait(false);
-        return result.IsSuccess
-            ? OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(result.Value.Select(Map).ToArray())
-            : OperationResult<IReadOnlyList<TaskAttachmentDto>>.Failure(result.Error!);
-    }
-
     public async Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListExpiredArchivedAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default)
     {
         var result = await database.QueryAsync(new(

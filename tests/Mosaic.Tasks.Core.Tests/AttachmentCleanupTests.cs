@@ -49,7 +49,6 @@ public sealed class AttachmentCleanupTests
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskAttachmentDto?>> FindAsync(Guid attachmentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListOrphanedAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<long>> CountByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
