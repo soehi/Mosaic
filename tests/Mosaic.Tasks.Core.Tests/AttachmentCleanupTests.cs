@@ -11,7 +11,7 @@ public sealed class AttachmentCleanupTests
 {
     private static readonly Assembly Core = typeof(TasksModule).Assembly;
     private static readonly Type CleanupType = Core.GetType("Mosaic.Tasks.Core.Internal.TaskAttachmentCleanup", throwOnError: true)!;
-    private static readonly Type StoreType = Core.GetType("Mosaic.Tasks.Core.Internal.TaskAttachmentStore", throwOnError: true)!;
+    private static readonly Type StoreType = Core.GetType("Mosaic.Tasks.Core.Internal.FileSystemTaskAttachmentBlobStore", throwOnError: true)!;
     private static readonly Type SettingsSourceType = Core.GetType("Mosaic.Tasks.Core.Internal.TaskSettingsSource", throwOnError: true)!;
     private static readonly Type RulesType = Core.GetType("Mosaic.Tasks.Core.Internal.TaskRules", throwOnError: true)!;
     private static readonly Type AutoArchiveType = Core.GetType("Mosaic.Tasks.Core.Internal.TaskAutoArchive", throwOnError: true)!;
@@ -32,6 +32,7 @@ public sealed class AttachmentCleanupTests
         private readonly List<TaskAttachmentDto> _items;
         internal List<DateTimeOffset> Cutoffs { get; } = [];
         internal List<Guid> Deleted { get; } = [];
+        internal Dictionary<Guid, string> Paths { get; } = [];
         internal bool FailDelete { get; set; }
         internal Repository(params TaskAttachmentDto[] items) => _items = items.ToList();
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListExpiredArchivedAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default)
@@ -46,8 +47,10 @@ public sealed class AttachmentCleanupTests
             _items.RemoveAll(item => item.Id == attachmentId);
             return Task.FromResult(OperationResult.Success());
         }
+        public Task<OperationResult<string?>> FindStoredPathAsync(Guid attachmentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<string?>.Success(Paths.TryGetValue(attachmentId, out var path) ? path : null));
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskAttachmentDto?>> FindAsync(Guid attachmentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<long>> CountByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
@@ -76,8 +79,9 @@ public sealed class AttachmentCleanupTests
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "attachment.txt");
         await File.WriteAllTextAsync(path, "attachment");
-        var attachment = new TaskAttachmentDto(Guid.NewGuid(), Guid.NewGuid(), "attachment.txt", 10, Now.AddDays(-8)) { StoredPath = path };
+        var attachment = new TaskAttachmentDto(Guid.NewGuid(), Guid.NewGuid(), "attachment.txt", 10, Now.AddDays(-8));
         var repository = new Repository(attachment);
+        repository.Paths[attachment.Id] = path;
         var cleanup = NewCleanup(repository, directory, out _);
 
         await ApplyPolicy(cleanup, 7);
@@ -99,8 +103,9 @@ public sealed class AttachmentCleanupTests
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "attachment.txt");
         await File.WriteAllTextAsync(path, "attachment");
-        var attachment = new TaskAttachmentDto(Guid.NewGuid(), Guid.NewGuid(), "attachment.txt", 10, Now.AddDays(-8)) { StoredPath = path };
+        var attachment = new TaskAttachmentDto(Guid.NewGuid(), Guid.NewGuid(), "attachment.txt", 10, Now.AddDays(-8));
         var repository = new Repository(attachment) { FailDelete = true };
+        repository.Paths[attachment.Id] = path;
         var cleanup = NewCleanup(repository, directory, out var diagnostics);
         try
         {

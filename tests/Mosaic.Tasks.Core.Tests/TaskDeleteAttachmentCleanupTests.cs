@@ -27,13 +27,17 @@ public sealed class TaskDeleteAttachmentCleanupTests
     private sealed class MemoryAttachmentRepository : ITaskAttachmentRepository
     {
         private readonly List<TaskAttachmentDto> _items = [];
+        private readonly Dictionary<Guid, string> _paths = [];
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(_items.Where(a => a.TaskId == taskId).ToArray()));
-        public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, CancellationToken cancellationToken = default)
+        public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default)
         {
             _items.Add(attachment);
+            _paths[attachment.Id] = storedPath;
             return Task.FromResult(OperationResult.Success());
         }
+        public Task<OperationResult<string?>> FindStoredPathAsync(Guid attachmentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<string?>.Success(_paths.TryGetValue(attachmentId, out var path) ? path : null));
         public Task<OperationResult<TaskAttachmentDto?>> FindAsync(Guid attachmentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<TaskAttachmentDto?>.Success(_items.FirstOrDefault(a => a.Id == attachmentId)));
         public Task<OperationResult> DeleteAsync(Guid attachmentId, CancellationToken cancellationToken = default)

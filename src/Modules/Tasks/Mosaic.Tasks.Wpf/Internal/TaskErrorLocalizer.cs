@@ -31,6 +31,12 @@ internal static class TaskErrorLocalizer
                 "Tasks.Attachments.Error.WriteFailed", "无法写入目标文件夹，请检查权限后重试。"),
             "Tasks.Attachments.Error.NotFound" => TaskLocalization.Localize(
                 "Tasks.Attachments.Error.NotFound", "附件不存在。"),
+            "Tasks.Attachments.Error.SaveFailed" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.SaveFailed", "无法保存附件，请重试。"),
+            "Tasks.Attachments.Error.SaveConflict" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.SaveConflict", "附件目录已有同名文件，请移除后重试。"),
+            "Tasks.Attachments.Error.AlreadyStored" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.AlreadyStored", "该文件已经在附件目录中。"),
             "Tasks.Attachments.Error.StoreUnavailable" => TaskLocalization.Localize(
                 "Tasks.Attachments.Error.StoreUnavailable", "附件存储不可用，请重启应用后重试。"),
             _ => ContainsHan(error.Message) ? Generic(error) : error.Message

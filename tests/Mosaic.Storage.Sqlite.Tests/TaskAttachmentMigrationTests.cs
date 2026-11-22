@@ -64,7 +64,7 @@ public sealed class TaskAttachmentMigrationTests
 
             // FK 生效：插入指向不存在任务的附件被拒绝。
             var dangling = await tasks.AttachmentRepository.InsertAsync(
-                new(Guid.NewGuid(), Guid.NewGuid(), "x.txt", 1, Now) { StoredPath = @"C:\x.txt" });
+                new(Guid.NewGuid(), Guid.NewGuid(), "x.txt", 1, Now), @"C:\x.txt");
             Assert.False(dangling.IsSuccess);
 
             // ON DELETE CASCADE：删任务后附件行级联消失。

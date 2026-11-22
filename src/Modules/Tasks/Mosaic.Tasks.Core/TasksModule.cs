@@ -23,7 +23,7 @@ public sealed class TasksModule : IModuleActivation
     private readonly TaskAutoArchive _archive;
     private readonly TaskAttachmentCleanup? _attachmentCleanup;
     private readonly TaskRules _rules = new();
-    private readonly TaskAttachmentStore _attachmentStore = new();
+    private readonly FileSystemTaskAttachmentBlobStore _attachmentBlobs = new();
     private readonly string? _defaultAttachmentRoot;
     private readonly Mosaic.Settings.Contracts.ISettingsCore? _settings;
     private IDisposable? _settingsRegistration;
@@ -32,13 +32,13 @@ public sealed class TasksModule : IModuleActivation
         _gate = dependencies.Gate;
         _settings = dependencies.Settings;
         _defaultAttachmentRoot = dependencies.DefaultAttachmentRoot;
-        _attachmentStore.Apply(new Dictionary<string, object?>
+        _attachmentBlobs.Apply(new Dictionary<string, object?>
         {
             ["tasks.attachments.storagePath"] = dependencies.DefaultAttachmentRoot ?? ""
         });
         _changes = new(dependencies.Diagnostics);
         var service = new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish,
-            dependencies.AttachmentRepository, _attachmentStore, dependencies.Diagnostics);
+            dependencies.AttachmentRepository, _attachmentBlobs);
         var api = new GuardedTasksApi(service, _gate, dependencies.Diagnostics);
         _archive = new(dependencies.Repository, api, dependencies.Clock, dependencies.Diagnostics);
         Api = api;
@@ -47,10 +47,10 @@ public sealed class TasksModule : IModuleActivation
             ? new GuardedTaskTransferApi(new TaskTransferService(api, transfer, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
             : null;
         Attachments = dependencies.AttachmentRepository is { } attachments
-            ? new GuardedTaskAttachmentApi(new TaskAttachmentService(service, attachments, _attachmentStore, _rules, _changes.Publish, dependencies.Clock, dependencies.Ids), _gate, dependencies.Diagnostics)
+            ? new GuardedTaskAttachmentApi(new TaskAttachmentService(service, attachments, _attachmentBlobs, _rules, _changes.Publish, dependencies.Clock, dependencies.Ids), _gate, dependencies.Diagnostics)
             : null;
         if (dependencies.AttachmentRepository is { } attachmentRepository)
-            _attachmentCleanup = new(attachmentRepository, _attachmentStore, dependencies.Clock, dependencies.Diagnostics);
+            _attachmentCleanup = new(attachmentRepository, _attachmentBlobs, dependencies.Clock, dependencies.Diagnostics);
     }
     public static ModuleManifest Definition { get; } = new(
         "tasks-core",
@@ -77,7 +77,7 @@ public sealed class TasksModule : IModuleActivation
             // 空值保持默认 root（避免空配置把 root 抹成 null）。TaskSettingsSource 不再重复解析。
             if (values.Value.TryGetValue("tasks.attachments.storagePath", out var configured) &&
                 configured is string configuredPath && configuredPath.Trim().Length > 0)
-                _attachmentStore.Apply(new Dictionary<string, object?> { ["tasks.attachments.storagePath"] = configuredPath });
+                _attachmentBlobs.Apply(new Dictionary<string, object?> { ["tasks.attachments.storagePath"] = configuredPath });
             initial = values.Value;
         }
         _gate.Activate();

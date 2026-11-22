@@ -16,10 +16,7 @@ public sealed record TaskAttachmentDto(
     Guid TaskId,
     string FileName,
     long SizeBytes,
-    DateTimeOffset AddedAtUtc)
-{
-    public string StoredPath { get; init; } = "";
-}
+    DateTimeOffset AddedAtUtc);
 
 public sealed record AddTaskAttachmentRequest(Guid TaskId, string SourcePath, long ExpectedRevision);
 public sealed record ExportTaskAttachmentRequest(
@@ -33,6 +30,7 @@ public sealed record RemoveTaskAttachmentRequest(Guid TaskId, Guid AttachmentId,
 public interface ITaskAttachmentApi
 {
     Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAsync(Guid taskId, CancellationToken cancellationToken = default);
+    Task<OperationResult<Stream>> OpenReadAsync(Guid taskId, Guid attachmentId, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> AddAsync(AddTaskAttachmentRequest request, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> ExportAsync(ExportTaskAttachmentRequest request, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> RemoveAsync(RemoveTaskAttachmentRequest request, CancellationToken cancellationToken = default);

@@ -30,19 +30,23 @@ public sealed class TaskAttachmentRepositoryTests
             var later = Attachment(expiredTask, Now.AddDays(-3));
             var earlier = Attachment(expiredTask, Now.AddDays(-4));
             foreach (var attachment in new[] { later, earlier, Attachment(freshTask, Now.AddDays(-5)), Attachment(activeTask, Now.AddDays(-5)) })
-                Assert.True((await tasks.AttachmentRepository.InsertAsync(attachment)).IsSuccess);
+                Assert.True((await tasks.AttachmentRepository.InsertAsync(attachment, StoredPath)).IsSuccess);
 
             var result = await tasks.AttachmentRepository.ListExpiredArchivedAsync(Now.AddDays(-7));
 
             Assert.True(result.IsSuccess);
             Assert.Equal([earlier.Id, later.Id], result.Value.Select(attachment => attachment.Id));
-            Assert.Equal(earlier.StoredPath, result.Value[0].StoredPath);
+            var storedPath = await tasks.AttachmentRepository.FindStoredPathAsync(earlier.Id);
+            Assert.True(storedPath.IsSuccess);
+            Assert.Equal(StoredPath, storedPath.Value);
         }
         finally { DeleteDatabase(path); }
     }
 
+    private const string StoredPath = @"C:\attachments\attachment.txt";
+
     private static Mosaic.Tasks.Contracts.TaskAttachmentDto Attachment(Guid taskId, DateTimeOffset addedAt) =>
-        new(Guid.NewGuid(), taskId, "attachment.txt", 10, addedAt) { StoredPath = @"C:\attachments\attachment.txt" };
+        new(Guid.NewGuid(), taskId, "attachment.txt", 10, addedAt);
 
     private static async Task InsertTask(IDatabaseSession database, Guid id, DateTimeOffset? archivedAt)
     {

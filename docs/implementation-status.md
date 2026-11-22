@@ -1,5 +1,45 @@
 # Mosaic：实施与验证记录
 
+## 0.18.2：附件文件系统下沉 blob 端口、stored_path 出公开契约（2026-11-22）
+
+### 补：同批次死代码与边界 bug 清理（P5）
+
+- 根因位置：
+  - `FileSystemTaskAttachmentBlobStore.SaveAsync` 用 `FileMode.CreateNew` 写目标但异常分支无条件 `TryDelete(storedPath)`：目标已存在时 `CreateNew` 直接抛异常、`stored` 未创建，catch 分支把**已存在的附件文件删掉**。触发条件：附件根目录内残留同名旧文件（上次落库失败、手工复制）后再添加同扩展名附件。同时源文件若就在目标位置（把附件目录内的文件再拖入），也被当作正常保存处理，产生「删源即删目标」的最坏路径。
+  - `TaskAttachmentService.AddAsync` 无「源已在附件目录」判定：附件目录内的文件可被再次复制并落新记录，等于用应用自己的副本污染数据。
+  - `TaskEditorViewModel.AddAttachmentsAsync`（`TaskEditorViewModel.cs:184`）：循环内每次 `_current = result.Value` 已更新修订号（正确），但 `failed > 1` 时提示不显示失败数量，且 `CancellationToken` 取消后仍逐个继续调用，每次返回 `CANCELED` 覆盖真实错误。
+  - `TaskEditorViewModel.LoadAttachmentsAsync`（`:182-184`）：`ListAsync` 失败时静默返回，界面显示空附件列表，用户无法察觉数据库不可用。
+  - `TaskEditorViewModel.RemoveAttachmentAsync` / `ExportAttachmentAsync`：更新 `_current` 后只刷新附件列表，未通知 `Current`/`IsArchived`/`CanManageAttachments` 等依赖修订号的属性（批量添加路径有通知、单条删除/导出没有），归档状态在删除最后一项附件后可能仍显示旧值。
+- 改动位置：
+  - `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/FileSystemTaskAttachmentBlobStore.cs`：`SaveAsync` 改为「源位于 `IsWithinStore` 即拒绝（`Tasks.Attachments.Error.AlreadyStored`）」+ `created` 标记，只在本次真正创建目标后才在失败/取消时清理；目标已存在返回 `Tasks.Attachments.Error.SaveConflict`，不再触碰原文件；抽出 `PathFor(root, taskId, attachmentId, fileName)` 作为受管布局唯一写出点，`Resolve` 复用它；`Root` 降为私有（唯一读点是 `CanStore` 与内部方法，公开 getter 已无调用方）。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskEditorViewModel.cs`：`AddAttachmentsAsync` 加 `try/finally` + 取消短路 + `ReportAddFailure`（有失败即显示「本次失败 N 项」，本地化键 `Tasks.Attachments.Error.WithCount`）；`LoadAttachmentsAsync` 失败走 `TaskErrorLocalizer`；新增 `OnCurrentChanged()` 在删除/导出/批量添加后统一重通知 `Current`/`Metadata`/`IsDirty`/`IsArchived`/`CanManageAttachments`（不重置标题/备注输入）。
+  - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Localization/zh.xaml` / `en.xaml` / `Internal/TaskErrorLocalizer.cs`：新增 `Tasks.Attachments.Error.SaveConflict`、`Tasks.Attachments.Error.AlreadyStored`、`Tasks.Attachments.Error.WithCount` 三键与映射。
+  - 测试：`tests/Mosaic.Tasks.Core.Tests/AttachmentBlobStoreTests.cs` 增 2 例——「再次拖入已存储文件被拒且原文件完好」「目标已存在报 SaveConflict 且原内容保留」。
+- 验证：`dotnet build Mosaic.sln -c Release -p:NuGetAudit=false` 0 警告 0 错误；Core 37/37（含新增 2 例）、Sqlite 24/24、Contract 8/8、Architecture 4/4、Wpf 145/145；全解决方案 447 例中 8 例失败，与 `git stash` 基线逐条一致（同样 8 项 Desktop SmokeTests，WPF/DPI/JSON 期望差异），未引入新失败。
+
+- 根因位置：
+  - 附件绝对路径泄漏到公开契约：`src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskAttachments.cs` 的 `TaskAttachmentDto`（0.18.0 版本第 14-19 行）带可写属性 `StoredPath`，SQLite 的 `stored_path` 列值随 DTO 流到 WPF 层，`src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TaskEditorView.xaml.cs:128/135` 直接 `File.Exists(dto.StoredPath)`/`File.Copy(dto.StoredPath, …)` 访问磁盘。后果：存储布局（`{root}\{taskId}\{attachmentId}{ext}`）成为契约的一部分，任何宿主布局改动都是破坏性变更；UI 层成为文件系统的第二个所有者，附件根目录边界规则散落在 service、cleanup、view 三处。
+  - 导出目标目录校验可绕过：`TaskAttachmentService.ExportAsync`（0.18.1 版本）用 `targetDirectory.StartsWith(store.Root, StringComparison.OrdinalIgnoreCase)` 判定，`C:\AttachmentBackup` 与 root `C:\Attachment` 同前缀即被误判为 store 内部（拒绝合法导出）；路径规范化差异也可能把真实内部目录放行。
+  - 文件删除非幂等：`TaskService.TryDeleteAttachmentFile` 与 `TaskAttachmentCleanup.CleanupDueAsync` 都是「先 `File.Exists` 再 `File.Delete`」，文件已被外部删除或路径失效时静默跳过；`TaskService.DeleteAsync` 的清理依赖 `attachmentStore?.Root`，root 为空（未配置附件目录）时删任务不再清理任何附件文件。
+  - 端口不完整：`ITaskAttachmentBlobStore` 只有 OpenRead/Save/Delete 三个方法且 `SaveAsync` 返回 `OperationResult`（丢掉落库所需路径），无 `CanStore`、无边界判定入口；仓储契约 `InsertAsync(TaskAttachmentDto)` 只能从 DTO 上取 `StoredPath`。
+- 改动位置（未另注明的行号为本次提交状态）：
+  - 端口：`src/Modules/Tasks/Mosaic.Tasks.Persistence.Contracts/ITaskAttachmentBlobStore.cs`：收敛为 `CanStore`、`SaveAsync(...)→OperationResult<string>`（返回落库路径）、`OpenReadAsync`、`DeleteAsync`、`IsWithinStore(string)`。
+  - 实现：`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/FileSystemTaskAttachmentBlobStore.cs`（新增，替代 `TaskAttachmentStore`）：`Apply(IReadOnlyDictionary)` 单点决定 root（`Path.GetFullPath`，非法即 null）；`SaveAsync` 建目录 + 流式复制，失败/取消清残留；`Resolve` 优先用仓储历史路径但必须 `IsWithinStore`，否则按 `(taskId, attachmentId, ext)` 重新推导（兼容升级前写入的旧记录）；`DeleteAsync` 幂等（缺失视为成功）；`IsWithinStore` 改用 `Path.GetRelativePath` 判定（不受同名前缀目录影响，目标目录允许尚未创建）。
+  - 仓储契约：`ITaskAttachmentRepository.InsertAsync(TaskAttachmentDto attachment, string storedPath, …)` —— 存储路径成为显式参数，不再挂在 DTO 上。
+  - 持久化实现：`src/Modules/Storage/Mosaic.Tasks.Sqlite/Internal/SqliteTaskAttachmentRepository.cs`：`Columns` 去掉 `stored_path`（第 11 行），`InsertAsync` 写入显式 `storedPath`，新增 `FindStoredPathAsync`（单列查询），`Map` 不再回填 `StoredPath`。
+  - 公开契约：`src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskAttachments.cs`：`TaskAttachmentDto` 删除 `StoredPath` 可写属性；`ITaskAttachmentApi` 新增 `OpenReadAsync(Guid taskId, Guid attachmentId, …) → OperationResult<Stream>`。
+  - 服务：`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskAttachmentService.cs`：改依赖 `ITaskAttachmentBlobStore`；新增 `OpenReadAsync`（任务→附件归属校验→取历史路径→流式打开，附件不属于该任务返回 `Tasks.Attachments.Error.NotFound`）；`AddAsync` 用 `CanStore` 前置判断、`SaveAsync` 拿路径落库、落库失败回删文件；`ExportAsync` 改为「`OpenReadAsync` + 流式复制到 `FileMode.CreateNew`」，Move 在写成功后才删记录与文件，失败回删目标；目标目录校验改用 `IsWithinStore`；`RemoveAsync` 的边界检查统一交给 blob 端口。
+  - 清理与删任务：`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskAttachmentCleanup.cs`（`blobs.DeleteAsync` 取代 `File.Exists/File.Delete`）；`Internal/TaskService.cs`：`attachmentStore` 参数换成 `attachmentBlobs`（删掉不再使用的 `diagnostics` 参数），删任务时先对每个附件取 `FindStoredPathAsync` 再用 blob 端口删除，root 为空也能清理。
+  - 装配：`src/Modules/Tasks/Mosaic.Tasks.Core/TasksModule.cs`：`_attachmentStore` → `_attachmentBlobs`（`FileSystemTaskAttachmentBlobStore`，第 26 行），`ActivateAsync` 仍是 storagePath 单点决定处（第 80 行），service/cleanup 构造处同步换类型。
+  - 守卫：`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/GuardedTaskAttachmentApi.cs`：新增 `OpenReadAsync` 包装（任一 ID 为空返回 `INVALID_REQUEST`）。
+  - WPF：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskEditorViewModel.cs`：新增 `OpenAttachmentAsync`（未启用返回 `CAPABILITY_UNAVAILABLE`）与 `ReportAttachmentFailure`（复用 `TaskErrorLocalizer`）；`Views/TaskEditorView.xaml.cs`：拖出改为 `OpenAttachmentAsync` + 流式复制到临时目录。
+  - 架构门禁：`build/public-api.txt`：新增 `Mosaic.Tasks.Persistence.Contracts.ITaskAttachmentBlobStore`。
+  - 测试：`tests/Mosaic.Tasks.Contract.Tests/AttachmentRepositoryContractTests.cs`（新增）：stored_path 经仓储端口持久化、DTO 不再携带路径、`FindStoredPathAsync` 缺失/删除后返回 null；`tests/Mosaic.Tasks.Core.Tests/AttachmentBlobStoreTests.cs`（新增 4 例）：OpenRead 端到端与错误键、越界路径不删除、无 root 时新增返回 `CAPABILITY_UNAVAILABLE`、导出成功/同名冲突/导出到附件根目录被拒；`AttachmentCleanupTests.cs`（反射目标改为 `FileSystemTaskAttachmentBlobStore`，替身补 `FindStoredPathAsync`/新 `InsertAsync`）；`TaskDeleteAttachmentCleanupTests.cs`（替身补 `FindStoredPathAsync` 与路径表）；`tests/Mosaic.Storage.Sqlite.Tests/TaskAttachmentRepositoryTests.cs` / `TaskAttachmentMigrationTests.cs`（`InsertAsync` 传路径，断言改走 `FindStoredPathAsync`）。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.18.2）、`build/release-content.json`（第 48 条 `mosaic-0.18.2`，`previousReleaseId=mosaic-0.18.1`）、`build/published-release-index.json`（第 48 条）、`build/release-manifest.json`、`docs/releases/v0.18.2.md`、`README.md`、本文件。
+- 迁移逻辑与验收项：无 SQL 迁移（`stored_path` 列保留，仅退出公开契约）；**对已有安装的影响**——升级后首次启动即生效，旧附件的 `stored_path` 仍在库中，`Resolve` 优先采信且要求落在当前附件根目录内，用户未改过 storagePath 时旧附件可正常打开/导出/删除；若用户改过 storagePath，旧路径不在 root 内时按 `{root}\{taskId}\{attachmentId}{ext}` 重新推导，找不到即返回 `Tasks.Attachments.Error.ContentMissing`（不静默丢记录）。验收项：①升级后打开既有任务，附件列表、拖出导出、删除均正常；②把 storagePath 改到新目录并重启后，旧附件若未迁移则导出提示「附件内容已丢失」，新添加的附件落在新目录；③导出到 `C:\AttachmentBackup` 这类与 root 同前缀的目录不再被拒；④导出到附件根目录本身仍被拒；⑤删除任务后附件文件与记录都清空，且外部已删掉的文件不阻断清理；⑥附件列表 DTO 序列化后不含任何本机路径。
+- 验证：`dotnet build Mosaic.sln -c Release` 0 警告 0 错误；`Mosaic.Tasks.Core.Tests` 35/35、`Mosaic.Storage.Sqlite.Tests` 24/24、`Mosaic.Tasks.Contract.Tests` 8/8、`Mosaic.Architecture.Tests` 4/4、`Mosaic.Wpf.Tests` 145/145 通过；全解决方案 445 例中 9 例失败，逐条与 `git stash` 基线对照——`Mosaic.Desktop.SmokeTests` 的 9 例（`StartupStorageRelocationTests.Failed_relocation_keeps_the_source_and_reports_the_failure`、`DesktopTests.Peek_completion_and_filter_use_real_persisted_task_state`、3 例 Floating、`Disabled_and_invalid_configurations_do_not_create_task_views`、`Shared_buttons_release_press_feedback_and_show_keyboard_focus`、`Healthy_configuration_keeps_its_bindings_and_file_untouched`）在 HEAD 基线上以相同断言失败，本次改动未引入新失败（特征为 WPF/DPI/JSON 期望值差异，与附件路径无关）；`python -I scripts/release_content_verify.py` 通过（48 个已索引发布）。
+- 未验证项：安装包（MSI）未重新构建与发布核验——本条目提交时只做源码、测试与发布内容校验，`build/package.ps1` 与 GitHub Release 上传留给发布流程；`OpenReadAsync` 的大文件流式行为只由小文件用例覆盖，未做 50 MB 边界实测。
+
 ## 0.18.1：安装包自动关闭运行进程、禁用回滚备份修复非系统盘 Config.Msi 错误 5（2026-11-22）
 
 - 根因位置：

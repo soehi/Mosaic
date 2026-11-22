@@ -14,8 +14,7 @@ internal sealed class TaskService(
     TaskRules rules,
     Action<TaskChange> changed,
     ITaskAttachmentRepository? attachments = null,
-    TaskAttachmentStore? attachmentStore = null,
-    IDiagnosticSink? diagnostics = null)
+    ITaskAttachmentBlobStore? attachmentBlobs = null)
 {
     private OperationError? Validate(string title, string notes)
     {
@@ -128,19 +127,28 @@ internal sealed class TaskService(
     {
         // 005 迁移后 task_attachments 带 ON DELETE CASCADE：行随任务删除级联消失，
         // 路径信息也随之丢失，因此必须在删除前取出文件路径，删除成功后清理磁盘文件。
-        IReadOnlyList<TaskAttachmentDto>? orphanedFiles = null;
+        List<(TaskAttachmentDto Attachment, string? StoredPath)>? orphanedFiles = null;
         if (attachments is not null)
         {
             var listed = await attachments.ListByTaskAsync(request.Id, ct).ConfigureAwait(false);
-            if (listed.IsSuccess) orphanedFiles = listed.Value;
+            if (listed.IsSuccess)
+            {
+                orphanedFiles = [];
+                foreach (var attachment in listed.Value)
+                {
+                    var path = await attachments.FindStoredPathAsync(attachment.Id, ct).ConfigureAwait(false);
+                    orphanedFiles.Add((attachment, path.IsSuccess ? path.Value : null));
+                }
+            }
         }
         var result = await repository.DeleteAsync(request.Id, request.ExpectedRevision, ct).ConfigureAwait(false);
         if (result.IsSuccess)
         {
             if (orphanedFiles is not null)
-                foreach (var attachment in orphanedFiles)
+                foreach (var (attachment, storedPath) in orphanedFiles)
                 {
-                    TryDeleteAttachmentFile(attachment.StoredPath);
+                    if (attachmentBlobs is not null)
+                        await attachmentBlobs.DeleteAsync(request.Id, attachment.Id, attachment.FileName, storedPath, ct).ConfigureAwait(false);
                     // SQLite 由 005 的 ON DELETE CASCADE 删行；显式删除保证其他仓储实现语义一致（幂等）。
                     if (attachments is not null)
                         await attachments.DeleteAsync(attachment.Id, ct).ConfigureAwait(false);
@@ -148,25 +156,6 @@ internal sealed class TaskService(
             changed(new(request.Id, request.ExpectedRevision + 1, TaskChangeKind.Deleted));
         }
         return result;
-    }
-
-    private void TryDeleteAttachmentFile(string path)
-    {
-        // 只清理附件仓库根目录内的文件，避免误删仓库外路径（历史数据或异常数据）。
-        if (attachmentStore?.Root is not { } root || string.IsNullOrWhiteSpace(path)) return;
-        try
-        {
-            if (!File.Exists(path)) return;
-            var fullRoot = Path.GetFullPath(root);
-            var fullPath = Path.GetFullPath(path);
-            var prefix = fullRoot.EndsWith(Path.DirectorySeparatorChar) ? fullRoot : fullRoot + Path.DirectorySeparatorChar;
-            if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return;
-            File.Delete(fullPath);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            diagnostics?.Report("tasks.attachments.delete.file", exception);
-        }
     }
     private static OperationError Conflict() => new(
         ErrorCodes.Conflict, "任务已更改或删除。请重新加载后再保存。", MessageKey: "Tasks.Error.Conflict");

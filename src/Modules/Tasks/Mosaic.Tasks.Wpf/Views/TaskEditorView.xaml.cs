@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows;
 using System.Windows.Input;
 using System.ComponentModel;
+using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf.Internal;
 
@@ -125,16 +126,32 @@ public partial class TaskEditorView : UserControl
         var dto = _dragAttachment;
         _dragAttachment = null;
 
-        if (!File.Exists(dto.StoredPath)) return;
+        var vm = EditorViewModel;
+        if (vm is null) return;
 
         // 资源管理器从临时文件接收导出内容；每个附件用独立子目录避免同名互相覆盖。
         var tempDir = Path.Combine(Path.GetTempPath(), "MosaicAttachments", dto.Id.ToString("D"));
-        try
+        var copied = Path.Combine(tempDir, dto.FileName);
+        var opened = await vm.OpenAttachmentAsync(dto.Id);
+        if (!opened.IsSuccess)
         {
-            Directory.CreateDirectory(tempDir);
-            File.Copy(dto.StoredPath, Path.Combine(tempDir, dto.FileName), overwrite: true);
+            vm.ReportAttachmentFailure(opened.Error!);
+            return;
         }
-        catch { return; }
+        await using (opened.Value.ConfigureAwait(false))
+        {
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+                await using var target = new FileStream(copied, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                await opened.Value.CopyToAsync(target).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                return;
+            }
+        }
 
         var data = new DataObject(DataFormats.FileDrop, new[] { Path.Combine(tempDir, dto.FileName) });
         var result = DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
@@ -144,9 +161,7 @@ public partial class TaskEditorView : UserControl
         if (result == DragDropEffects.Move)
         {
             // 外部已完成移动：删除应用内原件与数据库记录，不再 Export（避免在临时目录留下重复副本）。
-            var vm = EditorViewModel;
-            if (vm is not null)
-                await vm.RemoveAttachmentAsync(dto.Id);
+            await vm.RemoveAttachmentAsync(dto.Id);
         }
     }
 

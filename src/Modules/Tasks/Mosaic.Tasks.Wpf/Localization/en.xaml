@@ -144,6 +144,10 @@
     <sys:String x:Key="Tasks.Attachments.Error.WriteFailed">Could not write to the target folder. Check permissions and try again.</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.NotFound">The attachment does not exist.</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.StoreUnavailable">Attachment storage is unavailable. Restart the app and try again.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.SaveFailed">Could not save the attachment. Try again.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.SaveConflict">The attachment folder already contains a file with this name. Remove it and try again.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.AlreadyStored">This file is already in the attachment folder.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.WithCount">({0} failed)</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">Archived attachment cleanup days</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">Automatically delete attachment files N days after a task is archived; 0 disables automatic cleanup.</sys:String>
 </ResourceDictionary>

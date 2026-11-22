@@ -144,6 +144,10 @@
     <sys:String x:Key="Tasks.Attachments.Error.WriteFailed">无法写入目标文件夹，请检查权限后重试。</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.NotFound">附件不存在。</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.StoreUnavailable">附件存储不可用，请重启应用后重试。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.SaveFailed">无法保存附件，请重试。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.SaveConflict">附件目录已有同名文件，请移除后重试。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.AlreadyStored">该文件已经在附件目录中。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.WithCount">（本次失败 {0} 项）</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">归档附件清除天数</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">任务归档后超过 N 天自动删除其附件文件；0 表示不自动清除。</sys:String>
 </ResourceDictionary>
