@@ -87,7 +87,7 @@
         <Control Id="Summary" Type="Text" X="15" Y="118" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="[MOSAICSCANSUMMARY]" />
         <Control Id="Detail" Type="Text" X="15" Y="150" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="[MOSAICSCANDETAIL]" />
         <Control Id="Counts" Type="Text" X="15" Y="198" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}已检查 [MOSAICSCANCHECKED] 个文件：缺失 [MOSAICSCANMISSING]，损坏 [MOSAICSCANDAMAGED]，无法检查 [MOSAICSCANERROR]。" />
-        <Control Id="ResultHint" Type="Text" X="15" Y="218" Width="340" Height="25" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}检查只读取文件。完成不会重装、不会关闭正在运行的 Mosaic，用户数据不受影响。" />
+        <Control Id="ResultHint" Type="Text" X="15" Y="218" Width="340" Height="25" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}检查只读取文件。完成不会重装、不会关闭正在运行的 Mosaic，用户数据不受影响；只有选择修复时才会自动关闭 Mosaic 并补回缺失或损坏的文件。" />
         <Control Id="Rescan" Type="PushButton" X="15" Y="243" Width="80" Height="17" Text="重新检查">
           <Publish Event="DoAction" Value="ScanPayload" />
           <Publish Event="NewDialog" Value="MaintenanceDlg" />
@@ -107,7 +107,7 @@
         <Control Id="Version" Type="Text" X="15" Y="50" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}[MOSAICINSTALLEDVERSION] 将升级到 [ProductVersion]。" />
         <Control Id="LocationLabel" Type="Text" X="15" Y="72" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装位置保持不变：" />
         <Control Id="Location" Type="Text" X="15" Y="90" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="[MOSAICINSTALLEDLOCATION]" />
-        <Control Id="Hint" Type="Text" X="15" Y="130" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}升级会替换程序文件，保留用户数据、配置和备份。升级过程中请不要关闭安装程序。" />
+        <Control Id="Hint" Type="Text" X="15" Y="130" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}升级会替换程序文件，保留用户数据、配置和备份。正在运行的 Mosaic 会在升级开始前自动关闭，升级完成后可重新打开。" />
         <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="升级">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
@@ -143,7 +143,7 @@
           <Subscribe Event="ActionText" Attribute="Text" />
         </Control>
         <Control Id="ScanSummary" Type="Text" X="15" Y="85" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="[MOSAICSCANSUMMARY]" />
-        <Control Id="RepairHint" Type="Text" X="15" Y="132" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}发现缺失或损坏时请通过「应用和功能」修复，或重新运行本安装包。本向导不会改动文件；用户数据与配置不受影响。" />
+        <Control Id="RepairHint" Type="Text" X="15" Y="132" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontSmall}正在按检查结果补回缺失或损坏的程序文件，运行中的 Mosaic 会被自动关闭。用户数据与配置不受影响；安装失败时重新运行本安装包即可继续修复。" />
         <Control Id="ProgressBar" Type="ProgressBar" X="15" Y="210" Width="340" Height="15" ProgressBlocks="yes" Text="正在安装...">
           <Subscribe Event="SetProgress" Attribute="Progress" />
         </Control>
@@ -182,7 +182,7 @@
            2814 覆盖。 -->
       <Dialog Id="FatalError" Width="370" Height="270" Title="Mosaic 安装程序" NoMinimize="yes">
         <Control Id="Title" Type="Text" X="15" Y="15" Width="340" Height="24" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontBold}安装未完成" />
-        <Control Id="Hint" Type="Text" X="15" Y="50" Width="340" Height="90" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装过程中遇到错误，已完成的步骤会回滚。请按错误提示处理后重新运行安装包；需要时重启电脑再试。" />
+        <Control Id="Hint" Type="Text" X="15" Y="50" Width="340" Height="90" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装过程中遇到错误。请按错误提示处理后重新运行安装包，它会继续完成未写入的文件；需要时重启电脑再试。" />
         <Control Id="Close" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="关闭">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
@@ -190,7 +190,7 @@
 
       <Dialog Id="UserExit" Width="370" Height="270" Title="Mosaic 安装程序" NoMinimize="yes">
         <Control Id="Title" Type="Text" X="15" Y="15" Width="340" Height="24" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontBold}安装已取消" />
-        <Control Id="Message" Type="Text" X="15" Y="50" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装程序已退出，未完成的操作已回滚，Mosaic 的用户数据没有被改动。" />
+        <Control Id="Message" Type="Text" X="15" Y="50" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装程序已退出。Mosaic 的用户数据没有被改动；如程序文件不完整，重新运行本安装包即可修复。" />
         <Control Id="Close" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="关闭">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
@@ -198,7 +198,7 @@
 
       <Dialog Id="FilesInUse" Width="370" Height="270" Title="Mosaic 安装程序" NoMinimize="yes">
         <Control Id="Title" Type="Text" X="15" Y="15" Width="340" Height="24" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontBold}Mosaic 正在运行" />
-        <Control Id="Message" Type="Text" X="15" Y="50" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}以下程序正在使用需要更新或修复的文件。关闭这些程序后点击「重试」。" />
+        <Control Id="Message" Type="Text" X="15" Y="50" Width="340" Height="45" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}以下程序正在使用需要更新或修复的文件。Mosaic 通常会被自动关闭；仍列出的其他程序请手动关闭后点击「重试」。" />
         <Control Id="FileList" Type="ListBox" X="15" Y="100" Width="340" Height="90" Property="FileInUseProcess" Sunken="yes" Sorted="yes" />
         <Control Id="Retry" Type="PushButton" X="180" Y="243" Width="56" Height="17" Default="yes" Text="重试">
           <Publish Event="EndDialog" Value="Retry" />

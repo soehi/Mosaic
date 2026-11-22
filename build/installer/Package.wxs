@@ -9,6 +9,11 @@
          此前 ErrorDialog=FatalError 时，MSI 只创建当前消息需要的 Error 按钮，ErrorText
          的 Control_Next 指向未创建的 ErrorYes，导致 2814 覆盖真实错误。 -->
 
+    <!-- 禁用引擎回滚脚本：per-user 安装位于非系统驱动器时，任何文件替换都会让引擎在
+         目标卷根目录的 Config.Msi 生成 .rbf 回滚备份（仅 SYSTEM/Admin 可写），用户
+         上下文在「正在删除备份文件/设置文件安全」阶段报错误 5 并中断安装。代价是
+         安装失败时没有引擎级自动回滚，重新运行安装包即可继续修复。 -->
+    <Property Id="DISABLEROLLBACK" Value="1" />
     <Property Id="MOSAICLOCATIONMISSING" Hidden="yes" />
     <Property Id="MOSAICEXITTITLE" Value="操作已完成" Hidden="yes" />
     <Property Id="DefaultUIFont" Value="MosaicFont" />
@@ -48,6 +53,8 @@
     <CustomAction Id="ScanPayload" BinaryRef="MosaicActions" DllEntry="ScanPayload" Execute="immediate" Return="check" />
     <!-- REINSTALL 无法从 UI 序列传给服务端会话：修复请求由扫描标记在执行序列落地。 -->
     <CustomAction Id="ApplyRepairRequest" BinaryRef="MosaicActions" DllEntry="ApplyRepairRequest" Execute="immediate" Return="check" />
+    <!-- 安装/升级/修复/卸载前自动关闭安装目录内的 Mosaic 进程（先 WM_CLOSE，超时强制结束）。 -->
+    <CustomAction Id="CloseRunningApp" BinaryRef="MosaicActions" DllEntry="CloseRunningApp" Execute="immediate" Return="ignore" />
     <CustomAction Id="ValidateInstallFolder" BinaryRef="MosaicActions" DllEntry="ValidateInstallFolder" Execute="immediate" Return="check" />
     <!-- 位置页显示前预填默认目录：PathEdit 属性为空会让 MSI 创建对话框时报 2343。 -->
     <CustomAction Id="PrefillInstallPath" BinaryRef="MosaicActions" DllEntry="PrefillInstallPath" Execute="immediate" Return="check" />
@@ -65,15 +72,18 @@
       <Custom Action="EnforceInstallFolder" Sequence="950" Condition="NOT Installed AND NOT REMOVE" />
       <!-- 有 UI 时扫描已在 UI 序列完成，这里复用同一结果；静默安装没有 UI 序列，在此扫描。 -->
       <Custom Action="ScanPayload" Sequence="990" Condition="NOT REMOVE AND MOSAICSTATE = &quot;Maintenance&quot; AND NOT MOSAICSCANSTATUS" />
+      <!-- 扫描标记落成修复请求：必须在 CostFinalize(1000) 之前设置 REINSTALL=ALL，
+           显式 /f 由动作内部保留；放在 UI 序列无效，服务端会话收不到该属性。 -->
+      <Custom Action="ApplyRepairRequest" Sequence="995" Condition="NOT REMOVE" />
       <!-- InstallLocation 在安装、升级与已确认位置的维护中都要写入；位置未能确认的旧版本
            维护和卸载不写入，避免把猜测出的默认目录登记成真实位置。健康维护不做任何登记变更。 -->
-      <!-- 卸载后重装的自动修复：REMOVE=ALL 由 ApplyRepairRequest 设置，其登记位置
-           已在 DetectInstallState 恢复（MOSAICLOCATIONINHERITED）；修复模式同样要写
-           ARPINSTALLLOCATION，否则卸载的登记不会重建。 -->
       <Custom Action="SetArpInstallLocation" After="CostFinalize" Condition="NOT Installed OR (MOSAICLOCATIONINHERITED AND NOT (MOSAICSCANSTATUS = &quot;Healthy&quot; AND NOT REINSTALL))" />
-      <!-- 修复后复检在事务提交之后执行，只负责给出结论，不回滚已完成的修复。 -->
-      <!-- 复检只在实际执行了修复（REINSTALL）后运行；维护检测到缺失/损坏但不自动
-           修复时（MOSAICREPAIRNEEDED=1 无 REINSTALL）不复检，避免误报修复失败。 -->
+      <!-- 写入文件前关闭正在运行的 Mosaic：INSTALLFOLDER 在 CostFinalize 后已解析为
+           本次操作的真实目标，关闭动作在 InstallValidate(1250) 之前完成，正常情况
+           不再触发 FilesInUse。健康维护不改文件，不关闭应用。 -->
+      <Custom Action="CloseRunningApp" Sequence="1050" Condition="NOT (MOSAICSTATE = &quot;Maintenance&quot; AND MOSAICSCANSTATUS = &quot;Healthy&quot; AND NOT REINSTALL)" />
+      <!-- 修复后复检在事务提交之后执行，只负责给出结论，不回滚已完成的修复；
+           只有实际执行了修复（REINSTALL）才复检。 -->
       <Custom Action="VerifyRepairedPayload" Sequence="6700" Condition="NOT REMOVE AND REINSTALL" />
     </InstallExecuteSequence>
     <InstallUISequence>

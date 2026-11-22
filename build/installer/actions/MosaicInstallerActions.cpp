@@ -12,6 +12,7 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 #include <winver.h>
 
 #include <algorithm>
@@ -1050,6 +1051,151 @@ void PublishScanProperties(MSIHANDLE hInstall, const ScanOutcome& outcome, const
 
 } // namespace
 
+namespace {
+
+// 自动关闭进程只认可这些属性给出的安装根：INSTALLFOLDER 在执行序列 CostFinalize
+// 之后已是本次操作的真实目标；其余属性用于卸载恢复与旧登记位置兜底。
+std::vector<std::wstring> CollectAppRoots(MSIHANDLE hInstall)
+{
+    const wchar_t* propertyNames[] = {
+        L"INSTALLFOLDER", L"MOSAICINSTALLEDLOCATION", L"ARPINSTALLLOCATION", L"MOSAICINSTALLPATH"};
+    std::vector<std::wstring> roots;
+    for (const wchar_t* name : propertyNames)
+    {
+        std::wstring root = TrimEndingSeparators(Trim(GetProperty(hInstall, name)));
+        if (root.empty())
+            continue;
+        bool duplicate = false;
+        for (const std::wstring& existing : roots)
+        {
+            if (IsPathEqual(existing, root))
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate)
+            roots.push_back(root);
+    }
+    return roots;
+}
+
+// 只有可执行文件同时满足「文件名以 Mosaic 开头、.exe 结尾」且严格位于安装根之内
+// 才视为本产品的进程，避免误杀同名的其他副本或系统目录里的程序。
+bool IsMosaicProcessImage(const std::wstring& imagePath, const std::vector<std::wstring>& roots)
+{
+    size_t separator = imagePath.find_last_of(L"\\/");
+    std::wstring fileName = ToLower(separator == std::wstring::npos ? imagePath : imagePath.substr(separator + 1));
+    if (fileName.size() <= 10 || fileName.compare(0, 6, L"mosaic") != 0 ||
+        fileName.compare(fileName.size() - 4, 4, L".exe") != 0)
+        return false;
+    for (const std::wstring& root : roots)
+    {
+        if (IsPathInside(imagePath, root))
+            return true;
+    }
+    return false;
+}
+
+BOOL CALLBACK PostCloseToProcessWindows(HWND window, LPARAM parameter)
+{
+    DWORD windowProcessId = 0;
+    GetWindowThreadProcessId(window, &windowProcessId);
+    if (windowProcessId == static_cast<DWORD>(parameter))
+        PostMessageW(window, WM_CLOSE, 0, 0);
+    return TRUE;
+}
+
+struct RunningAppProcess
+{
+    DWORD processId;
+    HANDLE process;
+    std::wstring imagePath;
+};
+
+// 先请应用自行退出（顶层窗口 WM_CLOSE，让用户数据正常落盘），5 秒内未退出才强制
+// 结束。任何一步失败都只写日志、不阻断安装：仍有残留占用时由 InstallValidate 的
+// FilesInUse 与重启后替换兜底。
+void CloseRunningAppProcesses(MSIHANDLE hInstall)
+{
+    std::vector<std::wstring> roots = CollectAppRoots(hInstall);
+    if (roots.empty())
+    {
+        LogInfo(hInstall, L"Mosaic: 未确定安装位置，跳过自动关闭正在运行的 Mosaic。");
+        return;
+    }
+
+    std::vector<RunningAppProcess> targets;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot != INVALID_HANDLE_VALUE)
+    {
+        PROCESSENTRY32W entry = {};
+        entry.dwSize = sizeof(entry);
+        if (Process32FirstW(snapshot, &entry))
+        {
+            do
+            {
+                if (entry.th32ProcessID == GetCurrentProcessId())
+                    continue;
+                HANDLE process = OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, FALSE, entry.th32ProcessID);
+                if (process == nullptr)
+                    continue;
+                wchar_t imagePath[MAX_PATH * 4] = {};
+                DWORD imagePathLength = static_cast<DWORD>(sizeof(imagePath) / sizeof(imagePath[0]));
+                if (!QueryFullProcessImageNameW(process, 0, imagePath, &imagePathLength) ||
+                    !IsMosaicProcessImage(imagePath, roots))
+                {
+                    CloseHandle(process);
+                    continue;
+                }
+                RunningAppProcess target = {entry.th32ProcessID, process, imagePath};
+                targets.push_back(target);
+            } while (Process32NextW(snapshot, &entry));
+        }
+        CloseHandle(snapshot);
+    }
+
+    if (targets.empty())
+    {
+        LogInfo(hInstall, L"Mosaic: 未检测到正在运行的 Mosaic，无需关闭。");
+        return;
+    }
+
+    for (const RunningAppProcess& target : targets)
+    {
+        LogInfo(hInstall, L"Mosaic: 正在关闭 " + target.imagePath + L"（PID " + std::to_wstring(target.processId) + L"）。");
+        EnumWindows(PostCloseToProcessWindows, static_cast<LPARAM>(target.processId));
+    }
+
+    ULONGLONG deadline = GetTickCount64() + 5000;
+    for (const RunningAppProcess& target : targets)
+    {
+        ULONGLONG now = GetTickCount64();
+        DWORD remaining = now >= deadline ? 0 : static_cast<DWORD>(deadline - now);
+        if (WaitForSingleObject(target.process, remaining) == WAIT_OBJECT_0)
+        {
+            LogInfo(hInstall, L"Mosaic: 进程已退出（PID " + std::to_wstring(target.processId) + L"）。");
+            continue;
+        }
+        LogInfo(hInstall, L"Mosaic: Mosaic 未在 5 秒内退出，强制结束（PID " + std::to_wstring(target.processId) + L"）。");
+        TerminateProcess(target.process, 1);
+        WaitForSingleObject(target.process, 5000);
+    }
+    for (const RunningAppProcess& target : targets)
+        CloseHandle(target.process);
+}
+
+} // namespace
+
+// 安装、升级、修复和卸载前自动关闭正在运行的 Mosaic，避免 FilesInUse 中断或把文件
+// 安排到重启后替换。只结束安装目录内的 Mosaic*.exe；失败不阻断安装，始终返回成功。
+extern "C" __declspec(dllexport) UINT __stdcall CloseRunningApp(MSIHANDLE hInstall)
+{
+    CloseRunningAppProcesses(hInstall);
+    return ERROR_SUCCESS;
+}
+
 extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
 {
     ScanOutcome outcome = ScanInstallRoot(hInstall);
@@ -1073,13 +1219,13 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
     if (needsRepair)
     {
         SetProperty(hInstall, L"MOSAICREPAIRNEEDED", L"1");
-        // per-user 安装在非系统驱动器时，任何文件替换都会让引擎在目标卷根目录的
-        // Config.Msi 创建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），用户上下文删除时
-        // 报错误 5 并弹出引擎强制错误框（无法正常关闭）。无论是 REINSTALL 重写还是
-        // 同一事务的卸载后重装，都无法绕开。安全做法：不自动修复，由界面告知用户
-        // 通过「应用和功能」或重新运行安装包完成修复（新安装的客户端会话可以在
-        // 服务端以 SYSTEM 执行文件操作，不受此限制）。
-        SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"");
+        // 包内固定 DISABLEROLLBACK=1：引擎不再为目标卷根目录的 Config.Msi 生成 .rbf
+        // 回滚备份，per-user 安装位于非系统驱动器时也不会因用户上下文无法设置备份
+        // 文件安全而报错误 5（曾经导致「正在删除备份文件」阶段中断）。
+        // 因此维护扫描发现缺失或损坏时可以在线自动修复：ApplyRepairRequest 在执行
+        // 序列设置 REINSTALL=ALL。代价是安装失败时没有引擎级自动回滚，重新运行安装
+        // 包即可继续修复。
+        SetProperty(hInstall, L"MOSAICREPAIRAUTOMATIC", L"1");
     }
     else
     {
@@ -1090,15 +1236,25 @@ extern "C" __declspec(dllexport) UINT __stdcall ScanPayload(MSIHANDLE hInstall)
     return ERROR_SUCCESS;
 }
 
-// 修复请求落地：REINSTALL 不能从 UI 序列传给服务端会话（见 ScanPayload 注释），
-// 这里在执行序列 CostFinalize 之前根据扫描标记设置 REINSTALL=ALL，使组件重装计划
-// 在 InstallValidate 前生效；显式 /f（命令行 REINSTALL）优先，不覆盖。
-// 维护修复不支持自动在线执行：任何文件替换都会让引擎在目标卷根目录的 Config.Msi
-// 建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），per-user 安装位于非系统驱动器时用户
-// 上下文无法删除备份，报错误 5。用户须通过「应用和功能」修复或重新运行安装包。
-// 本动作保留为占位，防止旧包引用悬空；设置 REMOVE=ALL 的路径已废弃。
+// 修复请求落地：REINSTALL 无法从 UI 序列传给服务端会话（服务端只收到 REINSTALLMODE
+// 与 MOSAICREPAIRNEEDED），这里在执行序列 CostFinalize(1000) 之前根据扫描标记设置
+// REINSTALL=ALL，让组件重装计划在 InstallValidate 前生效并驱动 VerifyRepairedPayload。
+// 显式 /f（命令行 REINSTALL）优先，不覆盖调用方指定的修复选项。
+// 在线修复的前提是包级 DISABLEROLLBACK=1：否则引擎会在目标卷根目录的 Config.Msi
+// 生成 .rbf 回滚备份，非系统盘上的 per-user 安装会以错误 5 中断。
 extern "C" __declspec(dllexport) UINT __stdcall ApplyRepairRequest(MSIHANDLE hInstall)
 {
+    if (GetProperty(hInstall, L"MOSAICREPAIRNEEDED") != L"1")
+        return ERROR_SUCCESS;
+    if (!GetProperty(hInstall, L"REINSTALL").empty())
+    {
+        LogInfo(hInstall, L"Mosaic: 已显式指定 REINSTALL，沿用调用方的修复选项。");
+        return ERROR_SUCCESS;
+    }
+    SetProperty(hInstall, L"REINSTALL", L"ALL");
+    if (GetProperty(hInstall, L"REINSTALLMODE").empty())
+        SetProperty(hInstall, L"REINSTALLMODE", L"amus");
+    LogInfo(hInstall, L"Mosaic: 完整性扫描发现缺失或损坏，已安排重装全部受管文件进行修复。");
     return ERROR_SUCCESS;
 }
 
