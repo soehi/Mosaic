@@ -5,7 +5,6 @@ namespace Mosaic.Tasks.Contracts;
 public static class TaskAttachmentConstraints
 {
     public const int MaxFileMegabytes = 50;
-    public const int MaxFileBytes = MaxFileMegabytes * 1024 * 1024;
     public const int MaxPerTask = 10;
     public const int FileNameMaxCharacters = 260;
 }

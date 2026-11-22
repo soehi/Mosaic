@@ -160,6 +160,8 @@ public sealed class TaskTests
         Assert.Equal(5000, constraints.NotesMaxCharacters);
         Assert.False(constraints.TitleRequired);
         Assert.True(constraints.DefaultCompleted);
+        Assert.Equal(TaskAttachmentConstraints.MaxFileMegabytes, constraints.AttachmentMaxFileMegabytes);
+        Assert.Equal(TaskAttachmentConstraints.MaxPerTask, constraints.AttachmentMaxPerTask);
         await module.StopAsync();
         Assert.DoesNotContain("tasks-core", settings.RegisteredModules);
     }

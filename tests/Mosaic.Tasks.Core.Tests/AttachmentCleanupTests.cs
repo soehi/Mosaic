@@ -57,7 +57,7 @@ public sealed class AttachmentCleanupTests
     {
         var rules = Activator.CreateInstance(RulesType);
         var archive = Activator.CreateInstance(AutoArchiveType, new TestSupport.MemoryTaskRepository(), new StubTasksApi(), new Clock(), new Diagnostics());
-        var source = (ISettingSource)Activator.CreateInstance(SettingsSourceType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [rules!, archive!], null)!;
+        var source = (ISettingSource)Activator.CreateInstance(SettingsSourceType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [rules!, archive!, null], null)!;
 
         var setting = Assert.Single(source.Definitions, definition => definition.Id == "tasks.attachments.archiveCleanupDays");
         Assert.Equal(SettingValueKind.Integer, setting.Kind);

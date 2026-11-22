@@ -9,7 +9,9 @@ internal sealed class TaskAttachmentService(
     ITaskAttachmentRepository repository,
     TaskAttachmentStore store,
     TaskRules rules,
-    Action<TaskChange> changed)
+    Action<TaskChange> changed,
+    TimeProvider clock,
+    IIdGenerator ids)
 {
     internal Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAsync(Guid taskId, CancellationToken ct) =>
         repository.ListByTaskAsync(taskId, ct);
@@ -44,7 +46,7 @@ internal sealed class TaskAttachmentService(
             return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.ValidationFailed,
                 $"每个任务最多 {constraints.AttachmentMaxPerTask} 个附件。", "SourcePath", MessageKey: "Tasks.Attachments.Error.TooMany"));
 
-        var id = Guid.NewGuid();
+        var id = ids.NewId();
         var storedPath = Path.Combine(store.Root, task.Id.ToString("D"), id.ToString("D") + Path.GetExtension(fileName));
         try
         {
@@ -55,7 +57,7 @@ internal sealed class TaskAttachmentService(
         {
             return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.InternalError, "无法保存附件，请重试。"));
         }
-        var dto = new TaskAttachmentDto(id, task.Id, fileName, size, DateTimeOffset.UtcNow) { StoredPath = storedPath };
+        var dto = new TaskAttachmentDto(id, task.Id, fileName, size, clock.GetUtcNow()) { StoredPath = storedPath };
         var inserted = await repository.InsertAsync(dto, ct).ConfigureAwait(false);
         if (!inserted.IsSuccess)
         {
