@@ -15,15 +15,17 @@ namespace Mosaic.Tasks.Wpf.Internal;
 internal sealed class TaskAttachmentPanel : StackPanel
 {
     private readonly ITaskAttachmentTransferRegistry _registry;
+    private readonly ITaskAttachmentApi? _api;
     private Point _dragStart;
     private TaskAttachmentDto? _drag;
 
     // Move 成功后的回调（由宿主编排删除附件与刷新）；None/Copy 由组件自行清理暂存。
     internal Func<TaskAttachmentDragTransfer, Task>? MoveCompleted { get; set; }
 
-    internal TaskAttachmentPanel(ITaskAttachmentTransferRegistry registry)
+    internal TaskAttachmentPanel(ITaskAttachmentTransferRegistry registry, ITaskAttachmentApi? api)
     {
         _registry = registry;
+        _api = api;
         Orientation = Orientation.Vertical;
     }
 
@@ -79,21 +81,25 @@ internal sealed class TaskAttachmentPanel : StackPanel
             Math.Abs(pos.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
         var dto = _drag;
         _drag = null;
-        if (!File.Exists(dto.StoredPath)) return;
+        if (_api is null) return;
+        _ = StartDragAsync((DependencyObject)sender, dto);
+    }
+
+    // 暂存复制在后台完成，DoDragDrop 回到 UI 线程同步调用（0.18.0 崩溃根因）。
+    private async Task StartDragAsync(DependencyObject source, TaskAttachmentDto dto)
+    {
+        if (_api is null) return;
         var tempDir = Path.Combine(Path.GetTempPath(), "MosaicAttachments", dto.Id.ToString("D"));
-        try
-        {
-            Directory.CreateDirectory(tempDir);
-            File.Copy(dto.StoredPath, Path.Combine(tempDir, dto.FileName), overwrite: true);
-        }
-        catch { return; }
+        var copied = Path.Combine(tempDir, dto.FileName);
+        var staged = await StageCopyAsync(dto, tempDir, copied).ConfigureAwait(true);
+        if (!staged) return;
 
         var transfer = new TaskAttachmentDragTransfer(dto.TaskId, dto.Id, tempDir, ExpectedRevision: 0);
         _registry.Put(transfer);
         var data = new DataObject();
-        data.SetData(DataFormats.FileDrop, new[] { Path.Combine(tempDir, dto.FileName) });
+        data.SetData(DataFormats.FileDrop, new[] { copied });
         data.SetData(TaskAttachmentDragTransfer.FormatName, transfer);
-        var result = DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
+        var result = DragDrop.DoDragDrop(source, data, DragDropEffects.Copy | DragDropEffects.Move);
         if (result == DragDropEffects.Move && MoveCompleted is { } completed)
         {
             // 暂存副本已被外部接收方消耗，原件删除由宿主处理。
@@ -103,6 +109,29 @@ internal sealed class TaskAttachmentPanel : StackPanel
         {
             _registry.Discard(dto.Id);
         }
+    }
+
+    // 经附件 API 流式读取（不触碰绝对路径），后台线程写入暂存目录。
+    private async Task<bool> StageCopyAsync(TaskAttachmentDto dto, string tempDir, string copied)
+    {
+        if (_api is null) return false;
+        var opened = await _api.OpenReadAsync(dto.TaskId, dto.Id).ConfigureAwait(false);
+        if (!opened.IsSuccess) return false;
+        await using (opened.Value.ConfigureAwait(false))
+        {
+            try
+            {
+                Directory.CreateDirectory(tempDir);
+                await using var target = new FileStream(copied, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                await opened.Value.CopyToAsync(target).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+                return false;
+            }
+        }
+        return true;
     }
 
     private static string FormatSize(long bytes) => bytes switch

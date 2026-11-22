@@ -19,6 +19,26 @@ internal static class TaskErrorLocalizer
                 "Tasks.Error.NotFound", "任务不存在，可能已被删除。"),
             "Tasks.Error.Conflict" => TaskLocalization.Localize(
                 "Tasks.Error.Conflict", "任务已更改或删除。请重新加载后再保存。"),
+            "Tasks.Attachments.Error.TooLarge" when constraints is not null => TaskLocalization.Format(
+                "Tasks.Attachments.Error.TooLarge", "附件超过 {0} MB 大小限制。", constraints.AttachmentMaxFileMegabytes),
+            "Tasks.Attachments.Error.TooMany" when constraints is not null => TaskLocalization.Format(
+                "Tasks.Attachments.Error.TooMany", "每个任务最多 {0} 个附件。", constraints.AttachmentMaxPerTask),
+            "Tasks.Attachments.Error.ContentMissing" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.ContentMissing", "附件内容已丢失。"),
+            "Tasks.Attachments.Error.TargetExists" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.TargetExists", "目标文件夹已存在同名文件。"),
+            "Tasks.Attachments.Error.WriteFailed" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.WriteFailed", "无法写入目标文件夹，请检查权限后重试。"),
+            "Tasks.Attachments.Error.NotFound" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.NotFound", "附件不存在。"),
+            "Tasks.Attachments.Error.SaveFailed" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.SaveFailed", "无法保存附件，请重试。"),
+            "Tasks.Attachments.Error.SaveConflict" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.SaveConflict", "附件目录已有同名文件，请移除后重试。"),
+            "Tasks.Attachments.Error.AlreadyStored" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.AlreadyStored", "该文件已经在附件目录中。"),
+            "Tasks.Attachments.Error.StoreUnavailable" => TaskLocalization.Localize(
+                "Tasks.Attachments.Error.StoreUnavailable", "附件存储不可用，请重启应用后重试。"),
             _ => ContainsHan(error.Message) ? Generic(error) : error.Message
         };
     }

@@ -217,7 +217,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     internal TaskPeekViewModel(TasksUiDependencies dependencies, CompanionViewOptions options)
     {
         _dependencies = dependencies; _options = options;
-        _detailsView = new(dependencies.AttachmentTransfers);
+        _detailsView = new(dependencies.AttachmentTransfers, dependencies.Attachments);
         _selectedFilter = Enum.Parse<TaskFilter>(options.Filter);
         _view.CompleteRequested = CompleteAsync;
         _view.FilterRequested = SelectFilterAsync;

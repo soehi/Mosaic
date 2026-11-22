@@ -26,6 +26,10 @@ internal sealed class GuardedTaskAttachmentApi(TaskAttachmentService service, IM
     public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAsync(Guid taskId, CancellationToken cancellationToken = default) =>
         Invoke(taskId != Guid.Empty, () => service.ListAsync(taskId, cancellationToken), cancellationToken);
 
+    public Task<OperationResult<Stream>> OpenReadAsync(Guid taskId, Guid attachmentId, CancellationToken cancellationToken = default) =>
+        Invoke(taskId != Guid.Empty && attachmentId != Guid.Empty,
+            () => service.OpenReadAsync(taskId, attachmentId, cancellationToken), cancellationToken);
+
     public Task<OperationResult<TaskItemDto>> AddAsync(AddTaskAttachmentRequest request, CancellationToken cancellationToken = default) =>
         Invoke(request is { SourcePath: not null } && Valid(request.TaskId, request.ExpectedRevision) && request.SourcePath.Trim().Length > 0,
             () => service.AddAsync(request!, cancellationToken), cancellationToken);

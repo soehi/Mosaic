@@ -8,7 +8,7 @@ namespace Mosaic.Tasks.Sqlite.Internal;
 
 internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) : ITaskAttachmentRepository
 {
-    private const string Columns = "id,task_id,file_name,stored_path,size_bytes,added_at";
+    private const string Columns = "id,task_id,file_name,size_bytes,added_at";
 
     public async Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
@@ -20,7 +20,7 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
             : OperationResult<IReadOnlyList<TaskAttachmentDto>>.Failure(result.Error!);
     }
 
-    public async Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, CancellationToken cancellationToken = default)
+    public async Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default)
     {
         var result = await database.ExecuteAsync(new(
             "INSERT INTO task_attachments(id,task_id,file_name,stored_path,size_bytes,added_at) VALUES($id,$task,$name,$path,$size,$added)",
@@ -29,7 +29,7 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
                 ["$id"] = attachment.Id.ToString("D"),
                 ["$task"] = attachment.TaskId.ToString("D"),
                 ["$name"] = attachment.FileName,
-                ["$path"] = attachment.StoredPath,
+                ["$path"] = storedPath,
                 ["$size"] = attachment.SizeBytes,
                 ["$added"] = Utc(attachment.AddedAtUtc)!
             }), cancellationToken).ConfigureAwait(false);
@@ -46,21 +46,22 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
         return OperationResult<TaskAttachmentDto?>.Success(row is null ? null : Map(row));
     }
 
+    public async Task<OperationResult<string?>> FindStoredPathAsync(Guid attachmentId, CancellationToken cancellationToken = default)
+    {
+        var result = await database.QueryAsync(new(
+            "SELECT stored_path FROM task_attachments WHERE id = $id",
+            new Dictionary<string, object?> { ["$id"] = attachmentId.ToString("D") }), cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess) return OperationResult<string?>.Failure(result.Error!);
+        var row = result.Value.FirstOrDefault();
+        return OperationResult<string?>.Success(row?.String("stored_path"));
+    }
+
     public async Task<OperationResult> DeleteAsync(Guid attachmentId, CancellationToken cancellationToken = default)
     {
         var result = await database.ExecuteAsync(new(
             "DELETE FROM task_attachments WHERE id = $id",
             new Dictionary<string, object?> { ["$id"] = attachmentId.ToString("D") }), cancellationToken).ConfigureAwait(false);
         return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
-    }
-
-    public async Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListOrphanedAsync(CancellationToken cancellationToken = default)
-    {
-        var result = await database.QueryAsync(new(
-            $"SELECT {Columns} FROM task_attachments WHERE task_id NOT IN (SELECT id FROM tasks)"), cancellationToken).ConfigureAwait(false);
-        return result.IsSuccess
-            ? OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(result.Value.Select(Map).ToArray())
-            : OperationResult<IReadOnlyList<TaskAttachmentDto>>.Failure(result.Error!);
     }
 
     public async Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListExpiredArchivedAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default)
@@ -111,8 +112,7 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
         Guid.ParseExact(row.String("task_id"), "D"),
         row.String("file_name"),
         row.Int64("size_bytes"),
-        DateTimeOffset.ParseExact(row.String("added_at"), "O", CultureInfo.InvariantCulture))
-    { StoredPath = row.String("stored_path") };
+        DateTimeOffset.ParseExact(row.String("added_at"), "O", CultureInfo.InvariantCulture));
 
     private static string? Utc(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 }

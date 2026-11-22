@@ -23,7 +23,7 @@ public sealed class TasksModule : IModuleActivation
     private readonly TaskAutoArchive _archive;
     private readonly TaskAttachmentCleanup? _attachmentCleanup;
     private readonly TaskRules _rules = new();
-    private readonly TaskAttachmentStore _attachmentStore = new();
+    private readonly FileSystemTaskAttachmentBlobStore _attachmentBlobs = new();
     private readonly string? _defaultAttachmentRoot;
     private readonly Mosaic.Settings.Contracts.ISettingsCore? _settings;
     private IDisposable? _settingsRegistration;
@@ -32,12 +32,13 @@ public sealed class TasksModule : IModuleActivation
         _gate = dependencies.Gate;
         _settings = dependencies.Settings;
         _defaultAttachmentRoot = dependencies.DefaultAttachmentRoot;
-        _attachmentStore.Apply(new Dictionary<string, object?>
+        _attachmentBlobs.Apply(new Dictionary<string, object?>
         {
             ["tasks.attachments.storagePath"] = dependencies.DefaultAttachmentRoot ?? ""
         });
         _changes = new(dependencies.Diagnostics);
-        var service = new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish);
+        var service = new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish,
+            dependencies.AttachmentRepository, _attachmentBlobs);
         var api = new GuardedTasksApi(service, _gate, dependencies.Diagnostics);
         // 对外 API 附带附件计数；自动归档内部仍用原始 API，避免轮询时逐任务查询计数。
         Api = dependencies.AttachmentRepository is { } counter
@@ -49,10 +50,10 @@ public sealed class TasksModule : IModuleActivation
             ? new GuardedTaskTransferApi(new TaskTransferService(Api, transfer, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
             : null;
         Attachments = dependencies.AttachmentRepository is { } attachments
-            ? new GuardedTaskAttachmentApi(new TaskAttachmentService(service, attachments, _attachmentStore, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
+            ? new GuardedTaskAttachmentApi(new TaskAttachmentService(service, attachments, _attachmentBlobs, _rules, _changes.Publish, dependencies.Clock, dependencies.Ids), _gate, dependencies.Diagnostics)
             : null;
         if (dependencies.AttachmentRepository is { } attachmentRepository)
-            _attachmentCleanup = new(attachmentRepository, _attachmentStore, dependencies.Clock, dependencies.Diagnostics);
+            _attachmentCleanup = new(attachmentRepository, _attachmentBlobs, dependencies.Clock, dependencies.Diagnostics);
     }
     public static ModuleManifest Definition { get; } = new(
         "tasks-core",
@@ -71,11 +72,15 @@ public sealed class TasksModule : IModuleActivation
         IReadOnlyDictionary<string, object?>? initial = null;
         if (_settings is not null)
         {
-            _settingsRegistration ??= _settings.Register(new TaskSettingsSource(_rules, _archive, _attachmentStore, _attachmentCleanup));
+            _settingsRegistration ??= _settings.Register(new TaskSettingsSource(_rules, _archive, _attachmentCleanup));
             var values = await _settings.GetValuesAsync(cancellationToken).ConfigureAwait(false);
             if (!values.IsSuccess) throw new InvalidOperationException("Task settings could not be loaded.", new Exception(values.Error?.Message));
             _rules.Apply(values.Value);
-            ApplyAttachmentRoot(values.Value);
+            // storagePath 为 Restart 语义：仅在激活时决定一次。用户配置非空则覆盖构造时的默认 root，
+            // 空值保持默认 root（避免空配置把 root 抹成 null）。TaskSettingsSource 不再重复解析。
+            if (values.Value.TryGetValue("tasks.attachments.storagePath", out var configured) &&
+                configured is string configuredPath && configuredPath.Trim().Length > 0)
+                _attachmentBlobs.Apply(new Dictionary<string, object?> { ["tasks.attachments.storagePath"] = configuredPath });
             initial = values.Value;
         }
         _gate.Activate();
@@ -84,12 +89,6 @@ public sealed class TasksModule : IModuleActivation
             await _archive.ApplyAsync(initial).ConfigureAwait(false);
             if (_attachmentCleanup is not null) await _attachmentCleanup.ApplyAsync(initial).ConfigureAwait(false);
         }
-    }
-    private void ApplyAttachmentRoot(IReadOnlyDictionary<string, object?> values)
-    {
-        if (values.TryGetValue("tasks.attachments.storagePath", out var configured) && configured is string path && path.Trim().Length > 0)
-            return; // user-configured path takes precedence via TaskAttachmentStore.Apply
-        _attachmentStore.Apply(new Dictionary<string, object?> { ["tasks.attachments.storagePath"] = _defaultAttachmentRoot ?? "" });
     }
     public async Task StopAsync()
     {

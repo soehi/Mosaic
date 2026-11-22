@@ -7,16 +7,29 @@ namespace Mosaic.Tasks.Core.Internal;
 internal sealed class TaskAttachmentService(
     TaskService tasks,
     ITaskAttachmentRepository repository,
-    TaskAttachmentStore store,
+    ITaskAttachmentBlobStore blobs,
     TaskRules rules,
-    Action<TaskChange> changed)
+    Action<TaskChange> changed,
+    TimeProvider clock,
+    IIdGenerator ids)
 {
     internal Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAsync(Guid taskId, CancellationToken ct) =>
         repository.ListByTaskAsync(taskId, ct);
 
+    internal async Task<OperationResult<Stream>> OpenReadAsync(Guid taskId, Guid attachmentId, CancellationToken ct)
+    {
+        var found = await tasks.FindForAttachmentAsync(taskId, ct).ConfigureAwait(false);
+        if (!found.IsSuccess) return OperationResult<Stream>.Failure(found.Error!);
+        var attachment = await FindAsync(found.Value, attachmentId, ct).ConfigureAwait(false);
+        if (!attachment.IsSuccess) return OperationResult<Stream>.Failure(attachment.Error!);
+        var path = await repository.FindStoredPathAsync(attachmentId, ct).ConfigureAwait(false);
+        if (!path.IsSuccess) return OperationResult<Stream>.Failure(path.Error!);
+        return await blobs.OpenReadAsync(taskId, attachmentId, attachment.Value.FileName, path.Value, ct).ConfigureAwait(false);
+    }
+
     internal async Task<OperationResult<TaskItemDto>> AddAsync(AddTaskAttachmentRequest request, CancellationToken ct)
     {
-        if (store.Root is null) return OperationResult<TaskItemDto>.Failure(StoreUnavailable());
+        if (!blobs.CanStore) return OperationResult<TaskItemDto>.Failure(StoreUnavailable());
         var found = await tasks.FindForAttachmentAsync(request.TaskId, ct).ConfigureAwait(false);
         if (!found.IsSuccess) return found;
         var task = found.Value;
@@ -44,22 +57,14 @@ internal sealed class TaskAttachmentService(
             return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.ValidationFailed,
                 $"每个任务最多 {constraints.AttachmentMaxPerTask} 个附件。", "SourcePath", MessageKey: "Tasks.Attachments.Error.TooMany"));
 
-        var id = Guid.NewGuid();
-        var storedPath = Path.Combine(store.Root, task.Id.ToString("D"), id.ToString("D") + Path.GetExtension(fileName));
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(storedPath)!);
-            File.Copy(request.SourcePath, storedPath, overwrite: false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.InternalError, "无法保存附件，请重试。"));
-        }
-        var dto = new TaskAttachmentDto(id, task.Id, fileName, size, DateTimeOffset.UtcNow) { StoredPath = storedPath };
-        var inserted = await repository.InsertAsync(dto, ct).ConfigureAwait(false);
+        var id = ids.NewId();
+        var saved = await blobs.SaveAsync(task.Id, id, fileName, request.SourcePath, ct).ConfigureAwait(false);
+        if (!saved.IsSuccess) return OperationResult<TaskItemDto>.Failure(saved.Error!);
+        var dto = new TaskAttachmentDto(id, task.Id, fileName, size, clock.GetUtcNow());
+        var inserted = await repository.InsertAsync(dto, saved.Value, ct).ConfigureAwait(false);
         if (!inserted.IsSuccess)
         {
-            TryDelete(storedPath);
+            await blobs.DeleteAsync(task.Id, id, fileName, saved.Value, ct).ConfigureAwait(false);
             return OperationResult<TaskItemDto>.Failure(inserted.Error!);
         }
         return await TouchAsync(task, ct).ConfigureAwait(false);
@@ -75,37 +80,47 @@ internal sealed class TaskAttachmentService(
         var attachmentResult = await FindAsync(task, request.AttachmentId, ct).ConfigureAwait(false);
         if (!attachmentResult.IsSuccess) return OperationResult<TaskItemDto>.Failure(attachmentResult.Error!);
         var attachment = attachmentResult.Value;
-        if (!File.Exists(attachment.StoredPath))
-            return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.NotFound, "附件内容已丢失。", MessageKey: "Tasks.Attachments.Error.ContentMissing"));
 
         if (string.IsNullOrWhiteSpace(request.TargetDirectory) || !Directory.Exists(request.TargetDirectory))
             return OperationResult<TaskItemDto>.Failure(Invalid("目标文件夹不是有效目录。", "TargetDirectory"));
         string targetDirectory;
         try { targetDirectory = Path.GetFullPath(request.TargetDirectory); }
         catch { return OperationResult<TaskItemDto>.Failure(Invalid("目标文件夹不是有效目录。", "TargetDirectory")); }
-        if (store.Root is not null && targetDirectory.StartsWith(store.Root, StringComparison.OrdinalIgnoreCase))
+        if (blobs.IsWithinStore(targetDirectory))
             return OperationResult<TaskItemDto>.Failure(Invalid("不能导出到应用管理的附件目录。", "TargetDirectory"));
 
         var destination = Path.Combine(targetDirectory, attachment.FileName);
         if (File.Exists(destination))
             return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.Conflict, "目标文件夹已存在同名文件。", "TargetDirectory", MessageKey: "Tasks.Attachments.Error.TargetExists"));
-        try
+
+        var path = await repository.FindStoredPathAsync(attachment.Id, ct).ConfigureAwait(false);
+        if (!path.IsSuccess) return OperationResult<TaskItemDto>.Failure(path.Error!);
+        var opened = await blobs.OpenReadAsync(task.Id, attachment.Id, attachment.FileName, path.Value, ct).ConfigureAwait(false);
+        if (!opened.IsSuccess) return OperationResult<TaskItemDto>.Failure(opened.Error!);
+
+        await using (opened.Value.ConfigureAwait(false))
         {
-            if (request.Mode == TaskAttachmentTransferMode.Move) File.Move(attachment.StoredPath, destination);
-            else File.Copy(attachment.StoredPath, destination, overwrite: false);
+            try
+            {
+                await using var target = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                await opened.Value.CopyToAsync(target, ct).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                TryDelete(destination);
+                return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.InternalError, "无法写入目标文件夹，请检查权限后重试。", MessageKey: "Tasks.Attachments.Error.WriteFailed"));
+            }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.InternalError, "无法写入目标文件夹，请检查权限后重试。", MessageKey: "Tasks.Attachments.Error.WriteFailed"));
-        }
+
         if (request.Mode == TaskAttachmentTransferMode.Move)
         {
             var deleted = await repository.DeleteAsync(attachment.Id, ct).ConfigureAwait(false);
             if (!deleted.IsSuccess)
             {
-                try { File.Move(destination, attachment.StoredPath); } catch { /* best effort rollback */ }
+                TryDelete(destination);
                 return OperationResult<TaskItemDto>.Failure(deleted.Error!);
             }
+            await blobs.DeleteAsync(task.Id, attachment.Id, attachment.FileName, path.Value, ct).ConfigureAwait(false);
         }
         return await TouchAsync(task, ct).ConfigureAwait(false);
     }
@@ -119,9 +134,11 @@ internal sealed class TaskAttachmentService(
 
         var attachmentResult = await FindAsync(task, request.AttachmentId, ct).ConfigureAwait(false);
         if (!attachmentResult.IsSuccess) return OperationResult<TaskItemDto>.Failure(attachmentResult.Error!);
+        var path = await repository.FindStoredPathAsync(request.AttachmentId, ct).ConfigureAwait(false);
+        if (!path.IsSuccess) return OperationResult<TaskItemDto>.Failure(path.Error!);
         var deleted = await repository.DeleteAsync(request.AttachmentId, ct).ConfigureAwait(false);
         if (!deleted.IsSuccess) return OperationResult<TaskItemDto>.Failure(deleted.Error!);
-        TryDelete(attachmentResult.Value.StoredPath);
+        await blobs.DeleteAsync(task.Id, request.AttachmentId, attachmentResult.Value.FileName, path.Value, ct).ConfigureAwait(false);
         return await TouchAsync(task, ct).ConfigureAwait(false);
     }
 
@@ -145,21 +162,4 @@ internal sealed class TaskAttachmentService(
     private static OperationError Invalid(string message, string field) => new(ErrorCodes.ValidationFailed, message, field);
     private static OperationError StoreUnavailable() => new(ErrorCodes.CapabilityUnavailable, "附件存储不可用，请重启应用后重试。", MessageKey: "Tasks.Attachments.Error.StoreUnavailable");
     private static OperationError Conflict() => new(ErrorCodes.Conflict, "任务已更改或删除。请重新加载后再保存。", MessageKey: "Tasks.Error.Conflict");
-}
-
-internal sealed class TaskAttachmentStore
-{
-    private readonly object _sync = new();
-    private string? _root;
-    internal string? Root { get { lock (_sync) return _root; } }
-
-    internal void Apply(IReadOnlyDictionary<string, object?> values)
-    {
-        string? root = null;
-        if (values.TryGetValue("tasks.attachments.storagePath", out var value) && value is string configured && configured.Trim().Length > 0)
-        {
-            try { root = Path.GetFullPath(configured.Trim()); } catch { root = null; }
-        }
-        lock (_sync) _root = root;
-    }
 }

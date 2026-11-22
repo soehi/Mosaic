@@ -3,7 +3,7 @@ using Mosaic.Tasks.Persistence.Contracts;
 
 namespace Mosaic.Tasks.Core.Internal;
 
-internal sealed class TaskAttachmentCleanup(ITaskAttachmentRepository repository, TaskAttachmentStore store, TimeProvider clock, IDiagnosticSink diagnostics)
+internal sealed class TaskAttachmentCleanup(ITaskAttachmentRepository repository, ITaskAttachmentBlobStore blobs, TimeProvider clock, IDiagnosticSink diagnostics)
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
     private readonly SemaphoreSlim _policyGate = new(1, 1);
@@ -71,20 +71,17 @@ internal sealed class TaskAttachmentCleanup(ITaskAttachmentRepository repository
         foreach (var attachment in candidates.Value)
         {
             token.ThrowIfCancellationRequested();
+            var path = await repository.FindStoredPathAsync(attachment.Id, token).ConfigureAwait(false);
             var deleted = await repository.DeleteAsync(attachment.Id, token).ConfigureAwait(false);
             if (!deleted.IsSuccess)
             {
                 diagnostics.Report("tasks.attachments.cleanup.delete", new InvalidOperationException(deleted.Error!.Code));
                 continue;
             }
-            try
-            {
-                if (store.Root is not null && File.Exists(attachment.StoredPath)) File.Delete(attachment.StoredPath);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                diagnostics.Report("tasks.attachments.cleanup.file", exception);
-            }
+            var removed = await blobs.DeleteAsync(attachment.TaskId, attachment.Id, attachment.FileName,
+                path.IsSuccess ? path.Value : null, token).ConfigureAwait(false);
+            if (!removed.IsSuccess)
+                diagnostics.Report("tasks.attachments.cleanup.file", new InvalidOperationException(removed.Error!.Code));
         }
     }
 }

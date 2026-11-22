@@ -5,7 +5,6 @@ namespace Mosaic.Tasks.Contracts;
 public static class TaskAttachmentConstraints
 {
     public const int MaxFileMegabytes = 50;
-    public const int MaxFileBytes = MaxFileMegabytes * 1024 * 1024;
     public const int MaxPerTask = 10;
     public const int FileNameMaxCharacters = 260;
 }
@@ -17,10 +16,7 @@ public sealed record TaskAttachmentDto(
     Guid TaskId,
     string FileName,
     long SizeBytes,
-    DateTimeOffset AddedAtUtc)
-{
-    public string StoredPath { get; init; } = "";
-}
+    DateTimeOffset AddedAtUtc);
 
 public sealed record TaskAttachmentDragTransfer(
     Guid TaskId,
@@ -44,6 +40,7 @@ public sealed record RemoveTaskAttachmentRequest(Guid TaskId, Guid AttachmentId,
 public interface ITaskAttachmentApi
 {
     Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAsync(Guid taskId, CancellationToken cancellationToken = default);
+    Task<OperationResult<Stream>> OpenReadAsync(Guid taskId, Guid attachmentId, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> AddAsync(AddTaskAttachmentRequest request, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> ExportAsync(ExportTaskAttachmentRequest request, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskItemDto>> RemoveAsync(RemoveTaskAttachmentRequest request, CancellationToken cancellationToken = default);

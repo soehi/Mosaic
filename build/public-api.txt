@@ -219,6 +219,7 @@ Mosaic.Tasks.Contracts.TaskSortOrder
 Mosaic.Tasks.Contracts.UpdateTaskRequest
 Mosaic.Tasks.Core.TasksDependencies
 Mosaic.Tasks.Core.TasksModule
+Mosaic.Tasks.Persistence.Contracts.ITaskAttachmentBlobStore
 Mosaic.Tasks.Persistence.Contracts.ITaskAttachmentRepository
 Mosaic.Tasks.Persistence.Contracts.ITaskRepository
 Mosaic.Tasks.Persistence.Contracts.ITaskTransferRepository

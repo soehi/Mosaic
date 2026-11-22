@@ -77,7 +77,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         _diagnostics = diagnostics;
         _settings = settings;
         _settingsTarget = settingsTarget;
-        Editor = new(attachments);
+        Editor = new(attachments, dispatcher);
         AttachmentTransfers = attachmentTransfers ?? new TaskAttachmentDragRegistry();
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy && !_archivedOnly);

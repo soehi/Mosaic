@@ -10,6 +10,7 @@ namespace Mosaic.Tasks.Wpf.Internal;
 internal sealed class TaskEditorViewModel : ObservableObject
 {
     private readonly ITaskAttachmentApi? _attachmentApi;
+    private readonly Mosaic.Presentation.Contracts.IUiDispatcher? _dispatcher;
     private string _title = "";
     private string _notes = "";
     private string _titleError = "";
@@ -26,10 +27,15 @@ internal sealed class TaskEditorViewModel : ObservableObject
     internal TaskConstraintsDto Constraints => _constraints;
     private bool _validationErrors;
 
-    internal TaskEditorViewModel(ITaskAttachmentApi? attachmentApi = null)
+    internal TaskEditorViewModel(ITaskAttachmentApi? attachmentApi = null, Mosaic.Presentation.Contracts.IUiDispatcher? dispatcher = null)
     {
         _attachmentApi = attachmentApi;
+        _dispatcher = dispatcher;
     }
+
+    /// <summary>把后台线程的界面操作切回 UI 线程执行。</summary>
+    internal Task DispatcherInvoke(Action action) =>
+        _dispatcher is null ? Task.Run(action) : _dispatcher.InvokeAsync(action);
 
     public TaskItemDto? Current => _current;
     public ObservableCollection<TaskAttachmentDto> Attachments { get; } = new();
@@ -61,6 +67,13 @@ internal sealed class TaskEditorViewModel : ObservableObject
     public string NotesError { get => _notesError; private set { if (SetProperty(ref _notesError, value)) OnPropertyChanged(nameof(HasNotesError)); } }
     public bool HasTitleError => !string.IsNullOrEmpty(TitleError);
     public bool HasNotesError => !string.IsNullOrEmpty(NotesError);
+    private string _attachmentStatus = "";
+    public string AttachmentStatus
+    {
+        get => _attachmentStatus;
+        private set { if (SetProperty(ref _attachmentStatus, value)) OnPropertyChanged(nameof(HasAttachmentStatus)); }
+    }
+    public bool HasAttachmentStatus => !string.IsNullOrEmpty(AttachmentStatus);
     public bool IsDirty => Title != (_current?.Title ?? "") || Notes != (_current?.Notes ?? "");
     public bool HasTask => _current is not null;
     public bool IsArchived => _current?.IsArchived == true;
@@ -159,14 +172,28 @@ internal sealed class TaskEditorViewModel : ObservableObject
         _ = LoadAttachmentsAsync();
     }
 
+    /// <summary>附件操作会推进任务 Revision；只重通知依赖当前记录的属性，不重置标题/备注输入。</summary>
+    private void OnCurrentChanged()
+    {
+        OnPropertyChanged(nameof(Current));
+        OnPropertyChanged(nameof(Metadata));
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(IsArchived));
+        OnPropertyChanged(nameof(CanManageAttachments));
+    }
+
     internal async Task LoadAttachmentsAsync()
     {
         Attachments.Clear();
         if (_current is null || _attachmentApi is null) return;
         // 捕获 UI SynchronizationContext：回来后仍在 UI 线程改 ObservableCollection。
         var result = await _attachmentApi.ListAsync(_current.Id);
-        if (result.IsSuccess)
-            foreach (var item in result.Value) Attachments.Add(item);
+        if (!result.IsSuccess)
+        {
+            AttachmentStatus = TaskErrorLocalizer.Localize(result.Error!, _constraints);
+            return;
+        }
+        foreach (var item in result.Value) Attachments.Add(item);
     }
 
     // 新建模式：任务尚未保存，先加入暂存清单，保存草稿后随任务一起落库。
@@ -178,6 +205,7 @@ internal sealed class TaskEditorViewModel : ObservableObject
         if (_attachmentApi is null) return null;
         if (_current is null)
         {
+            // 草稿模式：先暂存，保存任务后由 FlushPendingAttachmentsAsync 落库。
             foreach (var path in paths)
             {
                 if (PendingAttachments.Count >= _constraints.AttachmentMaxPerTask) break;
@@ -190,14 +218,26 @@ internal sealed class TaskEditorViewModel : ObservableObject
             OnPropertyChanged(nameof(HasAttachments));
             return null;
         }
+        AttachmentStatus = "";
         TaskItemDto? latest = null;
-        foreach (var path in paths)
+        var failed = 0;
+        OperationError? lastError = null;
+        try
         {
-            var result = await _attachmentApi.AddAsync(new(_current.Id, path, _current.Revision), ct);
-            if (result.IsSuccess) { latest = result.Value; _current = result.Value; }
-            // 失败时继续处理其他文件
+            foreach (var path in paths)
+            {
+                // 取消后继续逐个调用只会刷一串 CANCELED：直接停下。
+                if (ct.IsCancellationRequested) { lastError ??= new(ErrorCodes.Canceled, "操作已取消。"); failed++; break; }
+                var result = await _attachmentApi.AddAsync(new(_current.Id, path, _current.Revision), ct);
+                if (result.IsSuccess) { latest = result.Value; _current = result.Value; }
+                else { failed++; lastError = result.Error; }
+            }
         }
-        if (latest is not null) { _ = LoadAttachmentsAsync(); }
+        finally
+        {
+            if (failed > 0 && lastError is not null) ReportAddFailure(failed, latest is not null, lastError);
+            if (latest is not null) { OnCurrentChanged(); _ = LoadAttachmentsAsync(); }
+        }
         OnPropertyChanged(nameof(HasAttachments));
         return latest;
     }
@@ -210,16 +250,23 @@ internal sealed class TaskEditorViewModel : ObservableObject
         PendingAttachments.Clear();
         OnPropertyChanged(nameof(HasAttachments));
         if (_attachmentApi is null) return;
+        AttachmentStatus = "";
         var current = created;
+        var failed = 0;
+        OperationError? lastError = null;
+        var succeeded = 0;
         foreach (var item in pending)
         {
+            if (ct.IsCancellationRequested) { lastError ??= new(ErrorCodes.Canceled, "操作已取消。"); failed++; break; }
             var result = await _attachmentApi.AddAsync(new(created.Id, item.SourcePath, current.Revision), ct);
-            if (!result.IsSuccess) continue;
+            if (!result.IsSuccess) { failed++; lastError = result.Error; continue; }
             current = result.Value;
+            succeeded++;
         }
         _current = current;
+        if (failed > 0 && lastError is not null) ReportAddFailure(failed, succeeded > 0, lastError);
+        OnCurrentChanged();
         await LoadAttachmentsAsync();
-        OnPropertyChanged(nameof(Current));
         OnPropertyChanged(nameof(HasAttachments));
     }
 
@@ -230,22 +277,58 @@ internal sealed class TaskEditorViewModel : ObservableObject
         return await RemoveAttachmentAsync(transfer.AttachmentId, ct);
     }
 
+    private void ReportAddFailure(int failed, bool partiallySucceeded, OperationError lastError)
+    {
+        var detail = TaskErrorLocalizer.Localize(lastError, _constraints);
+        var count = failed > 1
+            ? " " + TaskLocalization.Format("Tasks.Attachments.Error.WithCount", "（本次失败 {0} 项）", failed)
+            : "";
+        AttachmentStatus = partiallySucceeded || failed > 1
+            ? $"{TaskLocalization.Localize("Tasks.Attachments.AddFailed", "部分附件添加失败")}：{detail}{count}"
+            : $"{detail}{count}";
+    }
+
     internal async Task<bool> RemoveAttachmentAsync(Guid attachmentId, CancellationToken ct = default)
     {
         if (_current is null || _attachmentApi is null) return false;
         var result = await _attachmentApi.RemoveAsync(new(_current.Id, attachmentId, _current.Revision), ct);
-        if (!result.IsSuccess) return false;
+        if (!result.IsSuccess)
+        {
+            AttachmentStatus = TaskErrorLocalizer.Localize(result.Error!, _constraints);
+            return false;
+        }
+        AttachmentStatus = "";
         _current = result.Value;
+        OnCurrentChanged();
         _ = LoadAttachmentsAsync();
         return true;
+    }
+
+    /// <summary>把一次附件操作失败转成已本地化的界面提示。</summary>
+    internal void ReportAttachmentFailure(OperationError error) =>
+        AttachmentStatus = TaskErrorLocalizer.Localize(error, _constraints);
+
+    /// <summary>打开附件只读流；调用方负责释放。路径解析完全在附件模块内部完成。</summary>
+    internal async Task<OperationResult<Stream>> OpenAttachmentAsync(Guid attachmentId, CancellationToken ct = default)
+    {
+        if (_current is null || _attachmentApi is null)
+            return OperationResult<Stream>.Failure(new(ErrorCodes.CapabilityUnavailable, "任务功能尚未启用或正在关闭。"));
+        return await _attachmentApi.OpenReadAsync(_current.Id, attachmentId, ct);
     }
 
     internal async Task<TaskItemDto?> ExportAttachmentAsync(Guid attachmentId, string targetDir, TaskAttachmentTransferMode mode, CancellationToken ct = default)
     {
         if (_current is null || _attachmentApi is null) return null;
         var result = await _attachmentApi.ExportAsync(new(_current.Id, attachmentId, targetDir, mode, _current.Revision), ct);
-        if (!result.IsSuccess) return null;
+        if (!result.IsSuccess)
+        {
+            var detail = TaskErrorLocalizer.Localize(result.Error!, _constraints);
+            AttachmentStatus = $"{TaskLocalization.Localize("Tasks.Attachments.ExportFailed", "附件导出失败")}：{detail}";
+            return null;
+        }
+        AttachmentStatus = "";
         _current = result.Value;
+        OnCurrentChanged();
         _ = LoadAttachmentsAsync();
         return result.Value;
     }

@@ -30,9 +30,9 @@ internal sealed class TaskPeekDetailsView : Grid
         Card.Margin = new Thickness(0, 0, 0, gap);
         TimeText.Margin = new Thickness(0, 0, 0, gap);
     }
-    internal TaskPeekDetailsView(ITaskAttachmentTransferRegistry? attachmentTransfers = null)
+    internal TaskPeekDetailsView(ITaskAttachmentTransferRegistry? attachmentTransfers = null, ITaskAttachmentApi? attachmentApi = null)
     {
-        if (attachmentTransfers is not null) Attachments = new TaskAttachmentPanel(attachmentTransfers);
+        if (attachmentTransfers is not null) Attachments = new TaskAttachmentPanel(attachmentTransfers, attachmentApi);
         Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Mosaic.Tasks.Wpf;component/Themes/Peek.xaml", UriKind.Relative) });
         RowDefinitions.Add(new() { Height = GridLength.Auto });
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });

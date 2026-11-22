@@ -26,7 +26,7 @@ internal sealed class TaskFloatingDetailsView : Grid
     private bool _editing;
     internal TaskAttachmentPanel? Attachments { get; private set; }
 
-    internal TaskFloatingDetailsView(TaskFloatingNotesViewModel model, Action save, Action cancel, ITaskAttachmentTransferRegistry? attachmentTransfers = null)
+    internal TaskFloatingDetailsView(TaskFloatingNotesViewModel model, Action save, Action cancel, ITaskAttachmentTransferRegistry? attachmentTransfers = null, ITaskAttachmentApi? attachmentApi = null)
     {
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -55,7 +55,7 @@ internal sealed class TaskFloatingDetailsView : Grid
         Children.Add(footer);
         if (attachmentTransfers is not null)
         {
-            Attachments = new TaskAttachmentPanel(attachmentTransfers) { Margin = new Thickness(4, 0, 4, 0) };
+            Attachments = new TaskAttachmentPanel(attachmentTransfers, attachmentApi) { Margin = new Thickness(4, 0, 4, 0) };
             var scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 132, Content = Attachments };
             SetRow(scroller, 1);
             Children.Add(scroller);

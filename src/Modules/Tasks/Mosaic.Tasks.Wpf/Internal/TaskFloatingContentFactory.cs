@@ -45,7 +45,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     {
         _dependencies=dependencies;_id=id;
         _notes = new(dependencies, _lifetime.Token);
-        _details = new(_notes, () => Track(SaveNotesAsync()), () => Track(CancelNotesAsync()), dependencies.AttachmentTransfers);
+        _details = new(_notes, () => Track(SaveNotesAsync()), () => Track(CancelNotesAsync()), dependencies.AttachmentTransfers, dependencies.Attachments);
         if (_details.Attachments is { } attachmentPanel)
             attachmentPanel.MoveCompleted = async transfer =>
                 await dependencies.Dispatcher.InvokeAsync(() => Track(_notes.RemoveAttachmentAsync(transfer)));
