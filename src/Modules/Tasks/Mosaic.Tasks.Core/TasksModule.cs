@@ -39,11 +39,14 @@ public sealed class TasksModule : IModuleActivation
         _changes = new(dependencies.Diagnostics);
         var service = new TaskService(dependencies.Repository, dependencies.Clock, dependencies.Ids, _rules, _changes.Publish);
         var api = new GuardedTasksApi(service, _gate, dependencies.Diagnostics);
+        // 对外 API 附带附件计数；自动归档内部仍用原始 API，避免轮询时逐任务查询计数。
+        Api = dependencies.AttachmentRepository is { } counter
+            ? new AttachmentCountingTasksApi(api, counter)
+            : api;
         _archive = new(dependencies.Repository, api, dependencies.Clock, dependencies.Diagnostics);
-        Api = api;
         CreateOnceApi = api;
         Transfer = dependencies.TransferRepository is { } transfer
-            ? new GuardedTaskTransferApi(new TaskTransferService(api, transfer, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
+            ? new GuardedTaskTransferApi(new TaskTransferService(Api, transfer, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
             : null;
         Attachments = dependencies.AttachmentRepository is { } attachments
             ? new GuardedTaskAttachmentApi(new TaskAttachmentService(service, attachments, _attachmentStore, _rules, _changes.Publish), _gate, dependencies.Diagnostics)

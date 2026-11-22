@@ -17,6 +17,7 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
     internal bool IsMissing { get; private set; }
     internal bool HasConflict { get; private set; }
     internal bool IsArchived => Current?.IsArchived == true;
+    internal IReadOnlyList<TaskAttachmentDto> Attachments { get; private set; } = [];
     internal bool CanEdit => !IsArchived && IsEditing && Allowed && !IsMissing && !Reserved && !IsSaving;
     internal string? Error { get; private set; }
     internal event Action? Changed;
@@ -64,6 +65,32 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
         Draft = "";
         HasConflict = false;
         Error = null;
+        Changed?.Invoke();
+    }
+
+    // 从附件 API 拉取当前任务的附件列表；失败保留已有列表，不阻断备注编辑。
+    internal async Task RefreshAttachmentsAsync()
+    {
+        if (Current is not { } current || dependencies.Attachments is null || IsMissing) return;
+        try
+        {
+            var result = await dependencies.Attachments.ListAsync(current.Id, lifetime);
+            if (!result.IsSuccess || IsMissing) return;
+            Attachments = result.Value;
+            Changed?.Invoke();
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
+    }
+
+    // 拖出返回 Move 后删除原件与记录，成功后刷新当前任务与附件列表。
+    internal async Task RemoveAttachmentAsync(TaskAttachmentDragTransfer transfer)
+    {
+        if (Current is not { } current || dependencies.Attachments is null || IsArchived || IsMissing) return;
+        var result = await dependencies.Attachments.RemoveAsync(new(current.Id, transfer.AttachmentId, current.Revision), lifetime);
+        if (!result.IsSuccess) return;
+        Current = result.Value;
+        await RefreshAttachmentsAsync();
         Changed?.Invoke();
     }
 

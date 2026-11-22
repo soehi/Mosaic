@@ -45,7 +45,10 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     {
         _dependencies=dependencies;_id=id;
         _notes = new(dependencies, _lifetime.Token);
-        _details = new(_notes, () => Track(SaveNotesAsync()), () => Track(CancelNotesAsync()));
+        _details = new(_notes, () => Track(SaveNotesAsync()), () => Track(CancelNotesAsync()), dependencies.AttachmentTransfers);
+        if (_details.Attachments is { } attachmentPanel)
+            attachmentPanel.MoveCompleted = async transfer =>
+                await dependencies.Dispatcher.InvokeAsync(() => Track(_notes.RemoveAttachmentAsync(transfer)));
         _notes.Changed += RenderNotes;
         _view.Resources.MergedDictionaries.Add(new ResourceDictionary {Source=new Uri("/Mosaic.Tasks.Wpf;component/Themes/Floating.xaml",UriKind.Relative)});
         _state.SetResourceReference(FrameworkElement.StyleProperty,"TaskFloatingStateStyle");
@@ -77,7 +80,12 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
         // heading, so convert before asking it. Collapsed details expose no glyphs: everything
         // outside the heading is blank and may drag the window.
         if (_details.Visibility != Visibility.Visible) return FloatingContentDragKind.Immediate;
-        return _details.QueryContentDrag(_details.TransformToAncestor(_view).Inverse.Transform(pointInView));
+        var kind = _details.QueryContentDrag(_details.TransformToAncestor(_view).Inverse.Transform(pointInView));
+        // 附件行需要自行处理拖出，不让窗口层把手势当成移动窗口。
+        var hit = _details.InputHitTest(_details.TransformToAncestor(_view).Inverse.Transform(pointInView)) as DependencyObject;
+        for (var current = hit; current is not null && current != _details; current = current is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(current) : LogicalTreeHelper.GetParent(current))
+            if (current is FrameworkElement { Tag: TaskAttachmentDto }) return FloatingContentDragKind.None;
+        return kind;
     }
     public void ConfigureLayout(FloatingContentLayoutOptions options)
     {
@@ -106,7 +114,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
         await _dependencies.Dispatcher.InvokeAsync(()=>
         {
             if(_closed || linked.IsCancellationRequested || generation!=_generation)return;
-            if(result.IsSuccess){_notes.Observe(result.Value);_error="";}
+            if(result.IsSuccess){_notes.Observe(result.Value);_error="";Track(_notes.RefreshAttachmentsAsync());}
             else if(result.Error!.Code==ErrorCodes.NotFound) MarkMissing();
             else _error=TaskErrorLocalizer.Localize(result.Error!);
             Render();

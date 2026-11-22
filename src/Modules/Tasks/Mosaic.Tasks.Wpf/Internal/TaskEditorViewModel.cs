@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Mosaic.Contracts;
@@ -63,7 +64,7 @@ internal sealed class TaskEditorViewModel : ObservableObject
     public bool IsDirty => Title != (_current?.Title ?? "") || Notes != (_current?.Notes ?? "");
     public bool HasTask => _current is not null;
     public bool IsArchived => _current?.IsArchived == true;
-    public bool CanManageAttachments => HasTask && !IsArchived && _attachmentApi is not null;
+    public bool CanManageAttachments => !IsArchived && _attachmentApi is not null;
     public string AttachmentLimitLabel => TaskLocalization.Format(
         "Tasks.Attachments.Limit", "最多 {0} 个 · 单个 ≤ {1} MB",
         _constraints.AttachmentMaxPerTask, _constraints.AttachmentMaxFileMegabytes);
@@ -140,6 +141,8 @@ internal sealed class TaskEditorViewModel : ObservableObject
         Notes = task?.Notes ?? "";
         TitleError = "";
         NotesError = "";
+        PendingAttachments.Clear();
+        OnPropertyChanged(nameof(HasAttachments));
         foreach (var name in new[]
         {
             nameof(Current),
@@ -166,9 +169,27 @@ internal sealed class TaskEditorViewModel : ObservableObject
             foreach (var item in result.Value) Attachments.Add(item);
     }
 
+    // 新建模式：任务尚未保存，先加入暂存清单，保存草稿后随任务一起落库。
+    public ObservableCollection<PendingTaskAttachment> PendingAttachments { get; } = new();
+    public bool HasAttachments => Attachments.Count > 0 || PendingAttachments.Count > 0;
+
     internal async Task<TaskItemDto?> AddAttachmentsAsync(IEnumerable<string> paths, CancellationToken ct = default)
     {
-        if (_current is null || _attachmentApi is null) return null;
+        if (_attachmentApi is null) return null;
+        if (_current is null)
+        {
+            foreach (var path in paths)
+            {
+                if (PendingAttachments.Count >= _constraints.AttachmentMaxPerTask) break;
+                if (!File.Exists(path)) continue;
+                var info = new FileInfo(path);
+                if (info.Length > _constraints.AttachmentMaxFileMegabytes * 1024L * 1024L) continue;
+                if (PendingAttachments.Any(pending => string.Equals(pending.SourcePath, path, StringComparison.OrdinalIgnoreCase))) continue;
+                PendingAttachments.Add(new PendingTaskAttachment(path, Path.GetFileName(path), info.Length));
+            }
+            OnPropertyChanged(nameof(HasAttachments));
+            return null;
+        }
         TaskItemDto? latest = null;
         foreach (var path in paths)
         {
@@ -177,7 +198,36 @@ internal sealed class TaskEditorViewModel : ObservableObject
             // 失败时继续处理其他文件
         }
         if (latest is not null) { _ = LoadAttachmentsAsync(); }
+        OnPropertyChanged(nameof(HasAttachments));
         return latest;
+    }
+
+    // 草稿保存成功后由 TasksViewModel 调用：逐个落库暂存附件并清空清单。
+    internal async Task FlushPendingAttachmentsAsync(TaskItemDto created, CancellationToken ct = default)
+    {
+        if (PendingAttachments.Count == 0) return;
+        var pending = PendingAttachments.ToArray();
+        PendingAttachments.Clear();
+        OnPropertyChanged(nameof(HasAttachments));
+        if (_attachmentApi is null) return;
+        var current = created;
+        foreach (var item in pending)
+        {
+            var result = await _attachmentApi.AddAsync(new(created.Id, item.SourcePath, current.Revision), ct);
+            if (!result.IsSuccess) continue;
+            current = result.Value;
+        }
+        _current = current;
+        await LoadAttachmentsAsync();
+        OnPropertyChanged(nameof(Current));
+        OnPropertyChanged(nameof(HasAttachments));
+    }
+
+    internal async Task<bool> RemoveAttachmentAsync(TaskAttachmentDragTransfer transfer, CancellationToken ct = default)
+    {
+        // 拖出返回 Move 时传入拖拽开始时的 Revision，防止移动期间的外部修改被静默覆盖。
+        if (_current is null || _current.Revision != transfer.ExpectedRevision || _current.Id != transfer.TaskId) return false;
+        return await RemoveAttachmentAsync(transfer.AttachmentId, ct);
     }
 
     internal async Task<bool> RemoveAttachmentAsync(Guid attachmentId, CancellationToken ct = default)

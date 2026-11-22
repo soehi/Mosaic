@@ -41,6 +41,37 @@ public sealed class TaskAttachmentRepositoryTests
         finally { DeleteDatabase(path); }
     }
 
+    [Fact]
+    public async Task Batch_counts_group_by_task_and_skip_tasks_without_attachments()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "Mosaic-tests", Guid.NewGuid() + ".sqlite");
+        try
+        {
+            await using var database = new SqliteModule(new(path), new Diagnostics());
+            await database.ActivateAsync();
+            await using var tasks = new TasksSqliteModule(database.Session);
+            await tasks.ActivateAsync();
+            var first = Guid.NewGuid();
+            var second = Guid.NewGuid();
+            var empty = Guid.NewGuid();
+            foreach (var id in new[] { first, second, empty }) await InsertTask(database.Session, id, null);
+            foreach (var attachment in new[] { Attachment(first, Now), Attachment(first, Now), Attachment(second, Now) })
+                Assert.True((await tasks.AttachmentRepository.InsertAsync(attachment)).IsSuccess);
+
+            var result = await tasks.AttachmentRepository.CountsByTasksAsync([first, second, empty, Guid.NewGuid()]);
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal(2, result.Value[first]);
+            Assert.Equal(1, result.Value[second]);
+            Assert.False(result.Value.ContainsKey(empty));
+
+            var none = await tasks.AttachmentRepository.CountsByTasksAsync([]);
+            Assert.True(none.IsSuccess);
+            Assert.Empty(none.Value);
+        }
+        finally { DeleteDatabase(path); }
+    }
+
     private static Mosaic.Tasks.Contracts.TaskAttachmentDto Attachment(Guid taskId, DateTimeOffset addedAt) =>
         new(Guid.NewGuid(), taskId, "attachment.txt", 10, addedAt) { StoredPath = @"C:\attachments\attachment.txt" };
 

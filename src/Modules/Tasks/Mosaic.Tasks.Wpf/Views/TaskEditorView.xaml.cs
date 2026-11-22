@@ -69,8 +69,11 @@ public partial class TaskEditorView : UserControl
 
     private void AttachmentDropZone_DragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) && CanManageAttachments()
-            ? DragDropEffects.Copy : DragDropEffects.None;
+        var internalDrag = e.Data.GetDataPresent(TaskAttachmentDragTransfer.FormatName);
+        var move = internalDrag && (e.KeyStates & DragDropKeyStates.ShiftKey) == DragDropKeyStates.ShiftKey;
+        e.Effects = (internalDrag || e.Data.GetDataPresent(DataFormats.FileDrop)) && CanManageAttachments()
+            ? move ? DragDropEffects.Move : DragDropEffects.Copy
+            : DragDropEffects.None;
         e.Handled = true;
     }
 
@@ -81,6 +84,7 @@ public partial class TaskEditorView : UserControl
 
     private async void AttachmentDropZone_Drop(object sender, DragEventArgs e)
     {
+        if (await TryHandleInternalAttachmentDropAsync(e)) return;
         if (!CanManageAttachments() || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
         var vm = EditorViewModel;
@@ -108,6 +112,9 @@ public partial class TaskEditorView : UserControl
 
     private Point _attachmentDragStart;
     private TaskAttachmentDto? _dragAttachment;
+    private ITaskAttachmentTransferRegistry Registry =>
+        (DataContext as TasksViewModel)?.AttachmentTransfers ?? FallbackRegistry;
+    private static readonly TaskAttachmentDragRegistry FallbackRegistry = new();
 
     private void AttachmentItem_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -115,7 +122,9 @@ public partial class TaskEditorView : UserControl
         _dragAttachment = sender is Border { DataContext: TaskAttachmentDto dto } ? dto : null;
     }
 
-    private async void AttachmentItem_MouseMove(object sender, MouseEventArgs e)
+    // 必须在 UI 线程同步调用：DoDragDrop 内部构造事件路由，转到后台线程会抛出
+    // 「调用线程无法访问此对象」并使应用退出（0.18.0 崩溃根因）。
+    private void AttachmentItem_MouseMove(object sender, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || _dragAttachment is null) return;
         var pos = e.GetPosition(null);
@@ -136,18 +145,40 @@ public partial class TaskEditorView : UserControl
         }
         catch { return; }
 
-        var data = new DataObject(DataFormats.FileDrop, new[] { Path.Combine(tempDir, dto.FileName) });
+        var revision = EditorViewModel?.Current?.Revision ?? 0;
+        var transfer = new TaskAttachmentDragTransfer(dto.TaskId, dto.Id, tempDir, revision);
+        Registry.Put(transfer);
+        var data = new DataObject();
+        data.SetData(DataFormats.FileDrop, new[] { Path.Combine(tempDir, dto.FileName) });
+        data.SetData(TaskAttachmentDragTransfer.FormatName, transfer);
+        // Copy|Move 一起提供，实际效果由接收方与 Shift 键共同决定（与资源管理器语义一致）。
         var result = DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
-
-        try { Directory.Delete(tempDir, recursive: true); } catch { }
 
         if (result == DragDropEffects.Move)
         {
-            // 外部已完成移动：删除应用内原件与数据库记录，不再 Export（避免在临时目录留下重复副本）。
+            // 外部已接收并移走暂存副本：删除应用内原件与数据库记录，不再 Export（避免重复副本）。
+            Registry.CommitMove(dto.Id);
             var vm = EditorViewModel;
-            if (vm is not null)
-                await vm.RemoveAttachmentAsync(dto.Id);
+            if (vm is not null) _ = vm.RemoveAttachmentAsync(transfer);
         }
+        else
+        {
+            // Copy 与 None（含应用内放置，目标端已自行结算）都删除暂存副本，原件保留。
+            Registry.Discard(dto.Id);
+        }
+    }
+
+    // 应用内拖放：OLE 不会回调源端，放置目标按 Shift 决定复制或移动，并清理源端暂存。
+    private async Task<bool> TryHandleInternalAttachmentDropAsync(DragEventArgs e)
+    {
+        if (e.Data.GetData(TaskAttachmentDragTransfer.FormatName) is not TaskAttachmentDragTransfer transfer) return false;
+        if (!Registry.TryGet(transfer.AttachmentId, out var registered)) return true;
+        var vm = EditorViewModel;
+        if (vm is null || !CanManageAttachments()) { Registry.Discard(registered.AttachmentId); return true; }
+        if ((e.KeyStates & DragDropKeyStates.ShiftKey) == DragDropKeyStates.ShiftKey)
+            await vm.RemoveAttachmentAsync(registered);
+        Registry.Discard(registered.AttachmentId);
+        return true;
     }
 
     private void UpdateResponsiveActions(double width, double height)

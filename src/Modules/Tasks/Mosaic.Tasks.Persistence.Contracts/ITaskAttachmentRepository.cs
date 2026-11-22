@@ -12,4 +12,5 @@ public interface ITaskAttachmentRepository
     Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListOrphanedAsync(CancellationToken cancellationToken = default);
     Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListExpiredArchivedAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default);
     Task<OperationResult<long>> CountByTaskAsync(Guid taskId, CancellationToken cancellationToken = default);
+    Task<OperationResult<IReadOnlyDictionary<Guid, long>>> CountsByTasksAsync(IReadOnlyCollection<Guid> taskIds, CancellationToken cancellationToken = default);
 }

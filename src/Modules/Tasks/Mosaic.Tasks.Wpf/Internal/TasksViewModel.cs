@@ -62,7 +62,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IDiagnosticSink diagnostics,
         Mosaic.Settings.Contracts.ISettingsApi? settings = null,
         TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null, bool archivedOnly = false,
-        ITaskAttachmentApi? attachments = null)
+        ITaskAttachmentApi? attachments = null, ITaskAttachmentTransferRegistry? attachmentTransfers = null)
     {
         _archivedOnly = archivedOnly;
         if (archivedOnly) _filter = 3;
@@ -78,6 +78,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         _settings = settings;
         _settingsTarget = settingsTarget;
         Editor = new(attachments);
+        AttachmentTransfers = attachmentTransfers ?? new TaskAttachmentDragRegistry();
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy && !_archivedOnly);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
@@ -99,6 +100,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
     public ObservableCollection<TaskListItemViewModel> SelectedTasks { get; } = [];
     public TaskEditorViewModel Editor { get; }
+    internal ITaskAttachmentTransferRegistry AttachmentTransfers { get; }
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }
@@ -554,8 +556,10 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
                 if (!Editor.SetFieldError(result.Error!)) ShowError(result.Error!);
                 return false;
             }
-            EnsureTaskVisible(result.Value);
+            var pendingAttachments = Editor.PendingAttachments.Count > 0;
             Editor.Load(result.Value);
+            if (pendingAttachments) await Editor.FlushPendingAttachmentsAsync(result.Value, _lifetime.Token);
+            EnsureTaskVisible(Editor.Current ?? result.Value);
             ShowMessage(_text.SaveSuccess);
             await LoadAsync();
             return true;

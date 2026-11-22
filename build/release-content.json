@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.0",
+  "currentReleaseId": "mosaic-0.18.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -754,6 +754,21 @@
       "improved": [],
       "fixed": [],
       "contentSha256": "DC9F859951789682BB75E7E7EBD40167AA02C91964827EB3F07DADDA145A330D"
+    },
+    {
+      "releaseId": "mosaic-0.18.1",
+      "version": "0.18.1",
+      "releasedOn": "2026-11-22",
+      "previousReleaseId": "mosaic-0.18.0",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "修复新建任务时不显示附件区：草稿阶段即可拖入或点击选择附件（显示为「保存后添加」），保存任务后自动落库。",
+        "修复拖出附件导致应用崩溃：DoDragDrop 改回 UI 线程同步调用；应用内放置（速览、浮窗或编辑器之间）由放置目标结算，普通拖放复制、Shift 拖放移动，暂存副本随拖拽结束清理。",
+        "任务速览与浮窗详情现在显示附件列表（文件名与大小），并支持同样的拖出发送/移动。",
+        "任务主列表为含附件的任务显示 📎 数量徽标；任务 DTO 附带附件计数，列表批量一次查询，不逐条增加数据库往返。"
+      ],
+      "contentSha256": "D09E3F337AC3FC66EEB3ABC57DB437C4C9E7356CCB076D8AA57BBA51092AB47C"
     }
   ]
 }

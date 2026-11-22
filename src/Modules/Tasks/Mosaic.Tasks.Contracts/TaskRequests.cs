@@ -8,6 +8,8 @@ public sealed record TaskItemDto(Guid Id, string Title, string Notes, bool IsCom
     public DateTimeOffset? ArchivedAtUtc { get; init; }
     public DateTimeOffset? RestoredAtUtc { get; init; }
     public bool IsArchived => ArchivedAtUtc.HasValue;
+    public long AttachmentCount { get; init; }
+    public bool HasAttachments => AttachmentCount > 0;
 }
 public enum TaskFilter { All, Open, Completed }
 public enum TaskSortOrder { CreatedDesc, CreatedAsc, TitleAsc, TitleDesc }

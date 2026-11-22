@@ -90,7 +90,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     private bool _detailLoading;
     private bool _detailFailed;
     private bool _detailMissing;
-    private readonly TaskPeekDetailsView _detailsView = new();
+    private readonly TaskPeekDetailsView _detailsView;
+    private IReadOnlyList<TaskAttachmentDto> _detailAttachments = [];
     private double _listOffset;
     private async void OpenDetails(TaskPeekRow row)
     {
@@ -103,6 +104,10 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         _view.DetailHost.Visibility = Visibility.Visible;
         _detailsView.Back = () => TryGoBack();
         _detailsView.Retry = () => StartDetailQuery(row.Id);
+        if (_detailsView.Attachments is { } attachmentPanel)
+        {
+            attachmentPanel.MoveCompleted = async transfer => await _dependencies.Dispatcher.InvokeAsync(() => RemoveAttachmentFromPeekAsync(transfer));
+        }
         var query = StartDetailQuery(row.Id);
         _detailsView.BackButton.Focus();
         await query;
@@ -128,7 +133,9 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
                 _detailLoading = false; _detailFailed = !result.IsSuccess;
                 _detailMissing = result.Error?.Code == Mosaic.Contracts.ErrorCodes.NotFound;
                 _detail = result.IsSuccess ? result.Value : null;
+                if (_detail is null) { _detailAttachments = []; _detailsView.Attachments?.Update(_detailAttachments); }
                 RenderDetails();
+                if (result.IsSuccess) TrackDetailAttachments(id, cancellation.Token);
             });
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
@@ -143,6 +150,42 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         }
         finally { if (ReferenceEquals(_detailCancellation, cancellation)) _detailCancellation = null; cancellation.Dispose(); }
     }
+    private async void RemoveAttachmentFromPeekAsync(TaskAttachmentDragTransfer transfer)
+    {
+        if (_closed || _detail is not { } current || current.Id != transfer.TaskId || _dependencies.Attachments is null) return;
+        try
+        {
+            var result = await _dependencies.Attachments.RemoveAsync(new(current.Id, transfer.AttachmentId, current.Revision), _lifetime.Token);
+            if (!result.IsSuccess || _closed) return;
+            _detail = result.Value;
+            await LoadDetailAttachmentsAsync(result.Value.Id, _lifetime.Token);
+            RenderDetails();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) { _dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), exception); }
+    }
+
+    private void TrackDetailAttachments(Guid id, CancellationToken token) =>
+        _allQueries = Task.WhenAll(_allQueries, LoadDetailAttachmentsAsync(id, token));
+
+    private async Task LoadDetailAttachmentsAsync(Guid id, CancellationToken token)
+    {
+        if (_dependencies.Attachments is null) return;
+        try
+        {
+            var result = await _dependencies.Attachments.ListAsync(id, token);
+            if (!result.IsSuccess) return;
+            await _dependencies.Dispatcher.InvokeAsync(() =>
+            {
+                if (_closed || _detail?.Id != id) return;
+                _detailAttachments = result.Value;
+                _detailsView.Attachments?.Update(_detailAttachments);
+            });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception exception) { _dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), exception); }
+    }
+
     private void RenderDetails()
     {
         if (_selectedId is null || _closed) return;
@@ -174,6 +217,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     internal TaskPeekViewModel(TasksUiDependencies dependencies, CompanionViewOptions options)
     {
         _dependencies = dependencies; _options = options;
+        _detailsView = new(dependencies.AttachmentTransfers);
         _selectedFilter = Enum.Parse<TaskFilter>(options.Filter);
         _view.CompleteRequested = CompleteAsync;
         _view.FilterRequested = SelectFilterAsync;

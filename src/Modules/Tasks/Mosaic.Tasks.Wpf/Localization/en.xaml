@@ -137,6 +137,9 @@
     <sys:String x:Key="Tasks.Attachments.DragHint">Drag out to export (Shift = move)</sys:String>
     <sys:String x:Key="Tasks.Attachments.AddFailed">Some attachments could not be added</sys:String>
     <sys:String x:Key="Tasks.Attachments.ExportFailed">Could not export the attachment</sys:String>
+    <sys:String x:Key="Tasks.Attachments.PendingHint">added on save</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Count">📎 {0}</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Accessibility">{0} attachments</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">Archived attachment cleanup days</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">Automatically delete attachment files N days after a task is archived; 0 disables automatic cleanup.</sys:String>
 </ResourceDictionary>

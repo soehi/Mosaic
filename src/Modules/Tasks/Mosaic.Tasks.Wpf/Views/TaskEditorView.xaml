@@ -188,9 +188,9 @@
                         </TextBlock>
                     </Grid>
 
-                    <!-- 附件区块 -->
+                    <!-- 附件区块：新建（草稿）与编辑已有任务都可用 -->
                     <StackPanel Margin="0,16,0,0"
-                                Visibility="{Binding Editor.HasTask, Converter={StaticResource BoolVisibility}}">
+                                Visibility="{Binding Editor.CanManageAttachments, Converter={StaticResource BoolVisibility}}">
                         <Grid Margin="0,0,0,7">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -223,6 +223,33 @@
                                        HorizontalAlignment="Center"
                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                         </Border>
+
+                        <!-- 草稿暂存附件（新建任务，保存后落库） -->
+                        <ItemsControl ItemsSource="{Binding Editor.PendingAttachments}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Padding="8,5"
+                                            Margin="0,0,0,4"
+                                            CornerRadius="6"
+                                            Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                                            BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                                            BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="📎 " FontSize="12" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding FileName}"
+                                                       FontSize="13"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{DynamicResource Tasks.Attachments.PendingHint}"
+                                                       Margin="8,0,0,0"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
 
                         <!-- 附件列表 -->
                         <ItemsControl ItemsSource="{Binding Editor.Attachments}">
