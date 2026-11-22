@@ -266,6 +266,8 @@
     <sys:String x:Key="Settings.Setting.AutoArchive.Description">Only archives completed tasks whose waiting period has passed; open tasks are never archived automatically; when off, nothing is archived automatically</sys:String>
     <sys:String x:Key="Settings.Setting.ArchiveDelay">Auto archive waiting days</sys:String>
     <sys:String x:Key="Settings.Setting.ArchiveDelay.Description">Days to wait after completion or restore before archiving</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">Archived attachment cleanup days</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">Automatically delete attachments N days after archiving; 0 disables automatic cleanup</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon">Run Mosaic at sign-in</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon.Description">Start Mosaic with this workspace after Windows sign-in</sys:String>
     <sys:String x:Key="Settings.Setting.AuthServer">Account server address</sys:String>

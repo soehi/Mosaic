@@ -1,0 +1,65 @@
+using System.Globalization;
+using Mosaic.Contracts;
+using Mosaic.Storage.Contracts;
+using Mosaic.Storage.Sqlite;
+using Mosaic.Tasks.Sqlite;
+
+namespace Mosaic.Storage.Sqlite.Tests;
+
+public sealed class TaskAttachmentRepositoryTests
+{
+    private sealed class Diagnostics : IDiagnosticSink { public void Report(string id, Exception ex) { } }
+    private static readonly DateTimeOffset Now = new(2026, 11, 22, 0, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Expired_archived_query_filters_by_archive_cutoff_and_orders_attachments()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "Mosaic-tests", Guid.NewGuid() + ".sqlite");
+        try
+        {
+            await using var database = new SqliteModule(new(path), new Diagnostics());
+            await database.ActivateAsync();
+            await using var tasks = new TasksSqliteModule(database.Session);
+            await tasks.ActivateAsync();
+            var expiredTask = Guid.NewGuid();
+            var freshTask = Guid.NewGuid();
+            var activeTask = Guid.NewGuid();
+            await InsertTask(database.Session, expiredTask, Now.AddDays(-8));
+            await InsertTask(database.Session, freshTask, Now.AddDays(-6));
+            await InsertTask(database.Session, activeTask, null);
+            var later = Attachment(expiredTask, Now.AddDays(-3));
+            var earlier = Attachment(expiredTask, Now.AddDays(-4));
+            foreach (var attachment in new[] { later, earlier, Attachment(freshTask, Now.AddDays(-5)), Attachment(activeTask, Now.AddDays(-5)) })
+                Assert.True((await tasks.AttachmentRepository.InsertAsync(attachment)).IsSuccess);
+
+            var result = await tasks.AttachmentRepository.ListExpiredArchivedAsync(Now.AddDays(-7));
+
+            Assert.True(result.IsSuccess);
+            Assert.Equal([earlier.Id, later.Id], result.Value.Select(attachment => attachment.Id));
+            Assert.Equal(earlier.StoredPath, result.Value[0].StoredPath);
+        }
+        finally { DeleteDatabase(path); }
+    }
+
+    private static Mosaic.Tasks.Contracts.TaskAttachmentDto Attachment(Guid taskId, DateTimeOffset addedAt) =>
+        new(Guid.NewGuid(), taskId, "attachment.txt", 10, addedAt) { StoredPath = @"C:\attachments\attachment.txt" };
+
+    private static async Task InsertTask(IDatabaseSession database, Guid id, DateTimeOffset? archivedAt)
+    {
+        var result = await database.ExecuteAsync(new(
+            "INSERT INTO tasks(id,title,notes,completed,created_at,updated_at,revision,archived_at) VALUES($id,'task','',1,$time,$time,1,$archived)",
+            new Dictionary<string, object?>
+            {
+                ["$id"] = id.ToString("D"),
+                ["$time"] = Now.ToString("O", CultureInfo.InvariantCulture),
+                ["$archived"] = archivedAt?.ToString("O", CultureInfo.InvariantCulture)
+            }));
+        Assert.True(result.IsSuccess);
+    }
+
+    private static void DeleteDatabase(string path)
+    {
+        foreach (var candidate in new[] { path, path + "-wal", path + "-shm" })
+            if (File.Exists(candidate)) File.Delete(candidate);
+    }
+}

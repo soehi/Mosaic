@@ -9,7 +9,9 @@ internal sealed class TaskRules
         TaskConstraints.NotesMaxCharacters,
         TitleRequired: true,
         DefaultCompleted: false,
-        RevisionStart: 1);
+        RevisionStart: 1,
+        AttachmentMaxFileMegabytes: TaskAttachmentConstraints.MaxFileMegabytes,
+        AttachmentMaxPerTask: TaskAttachmentConstraints.MaxPerTask);
 
     internal TaskConstraintsDto Current => Volatile.Read(ref _current);
 
@@ -21,7 +23,9 @@ internal sealed class TaskRules
             ReadInt(values, "tasks.notes.maxCharacters", current.NotesMaxCharacters),
             ReadBool(values, "tasks.title.required", current.TitleRequired),
             ReadBool(values, "tasks.defaultCompleted", current.DefaultCompleted),
-            ReadLong(values, "tasks.revisionStart", current.RevisionStart));
+            ReadLong(values, "tasks.revisionStart", current.RevisionStart),
+            ReadInt(values, "tasks.attachments.maxFileMegabytes", current.AttachmentMaxFileMegabytes),
+            ReadInt(values, "tasks.attachments.maxPerTask", current.AttachmentMaxPerTask));
         Volatile.Write(ref _current, next);
     }
 

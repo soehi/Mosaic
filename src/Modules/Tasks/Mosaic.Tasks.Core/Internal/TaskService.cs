@@ -124,4 +124,25 @@ internal sealed class TaskService(ITaskRepository repository, TimeProvider clock
     }
     private static OperationError Conflict() => new(
         ErrorCodes.Conflict, "任务已更改或删除。请重新加载后再保存。", MessageKey: "Tasks.Error.Conflict");
+
+    internal async Task<OperationResult<TaskItemDto>> FindForAttachmentAsync(Guid id, CancellationToken ct)
+    {
+        var found = await repository.FindAsync(id, ct).ConfigureAwait(false);
+        if (!found.IsSuccess) return OperationResult<TaskItemDto>.Failure(found.Error!);
+        if (found.Value is not { } current)
+            return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.NotFound, "任务不存在，可能已被删除。", MessageKey: "Tasks.Error.NotFound"));
+        if (current.IsArchived)
+            return OperationResult<TaskItemDto>.Failure(new(ErrorCodes.Conflict, "请先恢复已归档的任务。", MessageKey: "Tasks.Error.Archived"));
+        return OperationResult<TaskItemDto>.Success(current);
+    }
+
+    internal async Task<OperationResult<TaskItemDto>> TouchForAttachmentAsync(TaskItemDto current, CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        var updated = current with { Revision = checked(current.Revision + 1), UpdatedAtUtc = now };
+        var saved = await repository.ReplaceAsync(updated, current.Revision, ct).ConfigureAwait(false);
+        if (saved.IsSuccess) return OperationResult<TaskItemDto>.Success(updated);
+        if (saved.Error!.Code == ErrorCodes.Conflict) return OperationResult<TaskItemDto>.Failure(Conflict());
+        return OperationResult<TaskItemDto>.Failure(saved.Error);
+    }
 }

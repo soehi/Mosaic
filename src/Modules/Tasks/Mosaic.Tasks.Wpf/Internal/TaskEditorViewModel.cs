@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Mosaic.Contracts;
@@ -7,6 +8,7 @@ namespace Mosaic.Tasks.Wpf.Internal;
 
 internal sealed class TaskEditorViewModel : ObservableObject
 {
+    private readonly ITaskAttachmentApi? _attachmentApi;
     private string _title = "";
     private string _notes = "";
     private string _titleError = "";
@@ -17,11 +19,19 @@ internal sealed class TaskEditorViewModel : ObservableObject
         TaskConstraints.NotesMaxCharacters,
         TitleRequired: true,
         DefaultCompleted: false,
-        RevisionStart: 1);
+        RevisionStart: 1,
+        AttachmentMaxFileMegabytes: TaskAttachmentConstraints.MaxFileMegabytes,
+        AttachmentMaxPerTask: TaskAttachmentConstraints.MaxPerTask);
     internal TaskConstraintsDto Constraints => _constraints;
     private bool _validationErrors;
 
+    internal TaskEditorViewModel(ITaskAttachmentApi? attachmentApi = null)
+    {
+        _attachmentApi = attachmentApi;
+    }
+
     public TaskItemDto? Current => _current;
+    public ObservableCollection<TaskAttachmentDto> Attachments { get; } = new();
     public string Title
     {
         get => _title;
@@ -52,6 +62,11 @@ internal sealed class TaskEditorViewModel : ObservableObject
     public bool HasNotesError => !string.IsNullOrEmpty(NotesError);
     public bool IsDirty => Title != (_current?.Title ?? "") || Notes != (_current?.Notes ?? "");
     public bool HasTask => _current is not null;
+    public bool IsArchived => _current?.IsArchived == true;
+    public bool CanManageAttachments => HasTask && !IsArchived && _attachmentApi is not null;
+    public string AttachmentLimitLabel => TaskLocalization.Format(
+        "Tasks.Attachments.Limit", "最多 {0} 个 · 单个 ≤ {1} MB",
+        _constraints.AttachmentMaxPerTask, _constraints.AttachmentMaxFileMegabytes);
     public string Heading => TaskLocalization.Localize(
         HasTask ? "Tasks.Editor.Details" : "Tasks.Editor.New",
         HasTask ? "任务详情" : "新建任务");
@@ -95,7 +110,8 @@ internal sealed class TaskEditorViewModel : ObservableObject
             nameof(TitleCountLabel),
             nameof(NotesCountLabel),
             nameof(TitleExceedsLimit),
-            nameof(NotesExceedsLimit)
+            nameof(NotesExceedsLimit),
+            nameof(AttachmentLimitLabel)
         })
             OnPropertyChanged(name);
     }
@@ -109,7 +125,9 @@ internal sealed class TaskEditorViewModel : ObservableObject
             nameof(ToggleLabel),
             nameof(Metadata),
             nameof(TitleHelpText),
-            nameof(NotesHelpText)
+            nameof(NotesHelpText),
+            nameof(AttachmentLimitLabel),
+            nameof(CanManageAttachments)
         })
             OnPropertyChanged(name);
         if (_validationErrors) Validate();
@@ -130,9 +148,56 @@ internal sealed class TaskEditorViewModel : ObservableObject
             nameof(StateLabel),
             nameof(ToggleLabel),
             nameof(Metadata),
-            nameof(IsDirty)
+            nameof(IsDirty),
+            nameof(IsArchived),
+            nameof(CanManageAttachments)
         })
             OnPropertyChanged(name);
+        _ = LoadAttachmentsAsync();
+    }
+
+    internal async Task LoadAttachmentsAsync()
+    {
+        Attachments.Clear();
+        if (_current is null || _attachmentApi is null) return;
+        // 捕获 UI SynchronizationContext：回来后仍在 UI 线程改 ObservableCollection。
+        var result = await _attachmentApi.ListAsync(_current.Id);
+        if (result.IsSuccess)
+            foreach (var item in result.Value) Attachments.Add(item);
+    }
+
+    internal async Task<TaskItemDto?> AddAttachmentsAsync(IEnumerable<string> paths, CancellationToken ct = default)
+    {
+        if (_current is null || _attachmentApi is null) return null;
+        TaskItemDto? latest = null;
+        foreach (var path in paths)
+        {
+            var result = await _attachmentApi.AddAsync(new(_current.Id, path, _current.Revision), ct);
+            if (result.IsSuccess) { latest = result.Value; _current = result.Value; }
+            // 失败时继续处理其他文件
+        }
+        if (latest is not null) { _ = LoadAttachmentsAsync(); }
+        return latest;
+    }
+
+    internal async Task<bool> RemoveAttachmentAsync(Guid attachmentId, CancellationToken ct = default)
+    {
+        if (_current is null || _attachmentApi is null) return false;
+        var result = await _attachmentApi.RemoveAsync(new(_current.Id, attachmentId, _current.Revision), ct);
+        if (!result.IsSuccess) return false;
+        _current = result.Value;
+        _ = LoadAttachmentsAsync();
+        return true;
+    }
+
+    internal async Task<TaskItemDto?> ExportAttachmentAsync(Guid attachmentId, string targetDir, TaskAttachmentTransferMode mode, CancellationToken ct = default)
+    {
+        if (_current is null || _attachmentApi is null) return null;
+        var result = await _attachmentApi.ExportAsync(new(_current.Id, attachmentId, targetDir, mode, _current.Revision), ct);
+        if (!result.IsSuccess) return null;
+        _current = result.Value;
+        _ = LoadAttachmentsAsync();
+        return result.Value;
     }
 
     internal bool Validate()

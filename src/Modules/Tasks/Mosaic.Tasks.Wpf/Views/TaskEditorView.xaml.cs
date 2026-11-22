@@ -1,6 +1,9 @@
+using System.IO;
 using System.Windows.Controls;
 using System.Windows;
+using System.Windows.Input;
 using System.ComponentModel;
+using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf.Internal;
 
 namespace Mosaic.Tasks.Wpf.Views;
@@ -57,6 +60,93 @@ public partial class TaskEditorView : UserControl
         {
             button.MinWidth = minimumWidth;
             button.MinHeight = minimumHeight;
+        }
+    }
+
+    private TaskEditorViewModel? EditorViewModel => (DataContext as TasksViewModel)?.Editor;
+
+    private bool CanManageAttachments() => EditorViewModel?.CanManageAttachments == true;
+
+    private void AttachmentDropZone_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) && CanManageAttachments()
+            ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void AttachmentDropZone_DragLeave(object sender, DragEventArgs e)
+    {
+        // 当前拖放区域没有需要还原的临时视觉状态。
+    }
+
+    private async void AttachmentDropZone_Drop(object sender, DragEventArgs e)
+    {
+        if (!CanManageAttachments() || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
+        var vm = EditorViewModel;
+        if (vm is null) return;
+        await vm.AddAttachmentsAsync(files);
+    }
+
+    private void AttachmentDropZone_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (!CanManageAttachments()) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = "选择附件" };
+        if (dlg.ShowDialog() != true) return;
+        var vm = EditorViewModel;
+        if (vm is null) return;
+        _ = vm.AddAttachmentsAsync(dlg.FileNames);
+    }
+
+    private async void AttachmentRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Guid id }) return;
+        var vm = EditorViewModel;
+        if (vm is null) return;
+        await vm.RemoveAttachmentAsync(id);
+    }
+
+    private Point _attachmentDragStart;
+    private TaskAttachmentDto? _dragAttachment;
+
+    private void AttachmentItem_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _attachmentDragStart = e.GetPosition(null);
+        _dragAttachment = sender is Border { DataContext: TaskAttachmentDto dto } ? dto : null;
+    }
+
+    private async void AttachmentItem_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _dragAttachment is null) return;
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _attachmentDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _attachmentDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        var dto = _dragAttachment;
+        _dragAttachment = null;
+
+        if (!File.Exists(dto.StoredPath)) return;
+
+        // 资源管理器从临时文件接收导出内容；每个附件用独立子目录避免同名互相覆盖。
+        var tempDir = Path.Combine(Path.GetTempPath(), "MosaicAttachments", dto.Id.ToString("D"));
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.Copy(dto.StoredPath, Path.Combine(tempDir, dto.FileName), overwrite: true);
+        }
+        catch { return; }
+
+        var data = new DataObject(DataFormats.FileDrop, new[] { Path.Combine(tempDir, dto.FileName) });
+        var result = DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
+
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
+
+        if (result == DragDropEffects.Move)
+        {
+            // 外部已完成移动：删除应用内原件与数据库记录，不再 Export（避免在临时目录留下重复副本）。
+            var vm = EditorViewModel;
+            if (vm is not null)
+                await vm.RemoveAttachmentAsync(dto.Id);
         }
     }
 

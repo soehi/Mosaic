@@ -61,7 +61,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IUserDialogService dialogs,
         IDiagnosticSink diagnostics,
         Mosaic.Settings.Contracts.ISettingsApi? settings = null,
-        TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null, bool archivedOnly = false)
+        TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null, bool archivedOnly = false,
+        ITaskAttachmentApi? attachments = null)
     {
         _archivedOnly = archivedOnly;
         if (archivedOnly) _filter = 3;
@@ -76,6 +77,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         _diagnostics = diagnostics;
         _settings = settings;
         _settingsTarget = settingsTarget;
+        Editor = new(attachments);
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy && !_archivedOnly);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
@@ -96,7 +98,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
     public ObservableCollection<TaskListItemViewModel> SelectedTasks { get; } = [];
-    public TaskEditorViewModel Editor { get; } = new();
+    public TaskEditorViewModel Editor { get; }
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }

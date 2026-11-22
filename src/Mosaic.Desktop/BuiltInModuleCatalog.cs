@@ -105,7 +105,9 @@ internal static class BuiltInModuleCatalog
                 new Mosaic.Kernel.ModuleExecutionGate(),
                 context.Diagnostics,
                 context.Settings?.Api,
-                context.Repository?.TransferRepository));
+                context.Repository?.TransferRepository,
+                context.Repository?.AttachmentRepository,
+                Path.Combine(context.Paths.Root, "Attachments")));
             return context.Tasks;
         }),
         [TasksUiModule.Definition.Id] = new(TasksUiModule.Definition, context =>
@@ -115,7 +117,7 @@ internal static class BuiltInModuleCatalog
                 context.Dispatcher,
                 context.Dialogs,
                 context.Diagnostics,
-                context.Settings?.Api, context.Tasks?.Changes));
+                context.Settings?.Api, context.Tasks?.Changes, Attachments: context.Tasks?.Attachments));
             context.FloatingFactory=module.FloatingFactory;
             context.DetachSource=module.DetachSource;
             context.CompanionFactory = module.CompanionFactory;

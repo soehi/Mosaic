@@ -266,6 +266,8 @@
     <sys:String x:Key="Settings.Setting.AutoArchive.Description">仅自动归档等待期已满且未恢复的已完成任务；未完成任务永远不会被自动归档；关闭时不自动归档任何任务</sys:String>
     <sys:String x:Key="Settings.Setting.ArchiveDelay">自动归档等待天数</sys:String>
     <sys:String x:Key="Settings.Setting.ArchiveDelay.Description">任务完成或恢复后等待多少天自动归档</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">归档附件清除天数</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">归档后 N 天自动删除附件，0 表示不自动清除</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon">登录后启动 Mosaic</sys:String>
     <sys:String x:Key="Settings.Setting.RunAtLogon.Description">Windows 登录时使用当前工作区自动启动 Mosaic</sys:String>
     <sys:String x:Key="Settings.Setting.AuthServer">账号服务器地址</sys:String>
