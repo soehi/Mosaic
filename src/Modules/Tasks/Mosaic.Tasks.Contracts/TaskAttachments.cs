@@ -18,6 +18,16 @@ public sealed record TaskAttachmentDto(
     long SizeBytes,
     DateTimeOffset AddedAtUtc);
 
+public sealed record TaskAttachmentDragTransfer(
+    Guid TaskId,
+    Guid AttachmentId,
+    string StagingDirectory,
+    long ExpectedRevision)
+{
+    public const string FormatName = "Mosaic.TaskAttachmentTransfer";
+    public const string ClipboardFormatName = "Mosaic.TaskAttachmentCopy";
+}
+
 public sealed record AddTaskAttachmentRequest(Guid TaskId, string SourcePath, long ExpectedRevision);
 public sealed record ExportTaskAttachmentRequest(
     Guid TaskId,

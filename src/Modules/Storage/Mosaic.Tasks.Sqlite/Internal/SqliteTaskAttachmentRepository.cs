@@ -84,6 +84,29 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
             : OperationResult<long>.Failure(result.Error!);
     }
 
+    public async Task<OperationResult<IReadOnlyDictionary<Guid, long>>> CountsByTasksAsync(IReadOnlyCollection<Guid> taskIds, CancellationToken cancellationToken = default)
+    {
+        if (taskIds.Count == 0)
+            return OperationResult<IReadOnlyDictionary<Guid, long>>.Success(new Dictionary<Guid, long>());
+        var parameters = new Dictionary<string, object?>();
+        var names = new string[taskIds.Count];
+        var index = 0;
+        foreach (var id in taskIds)
+        {
+            names[index] = "$t" + index;
+            parameters[names[index]] = id.ToString("D");
+            index++;
+        }
+        var result = await database.QueryAsync(new(
+            $"SELECT task_id, COUNT(*) AS count FROM task_attachments WHERE task_id IN ({string.Join(",", names)}) GROUP BY task_id",
+            parameters), cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess) return OperationResult<IReadOnlyDictionary<Guid, long>>.Failure(result.Error!);
+        var counts = new Dictionary<Guid, long>();
+        foreach (var row in result.Value)
+            counts[Guid.ParseExact(row.String("task_id"), "D")] = row.Int64("count");
+        return OperationResult<IReadOnlyDictionary<Guid, long>>.Success(counts);
+    }
+
     private static TaskAttachmentDto Map(SqlRow row) => new(
         Guid.ParseExact(row.String("id"), "D"),
         Guid.ParseExact(row.String("task_id"), "D"),

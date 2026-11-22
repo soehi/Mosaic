@@ -14,6 +14,7 @@ internal sealed class TaskPeekDetailsView : Grid
     internal Button BackButton { get; } = new() { HorizontalAlignment = HorizontalAlignment.Left };
     internal Border Card { get; } = new();
     internal TextBox NotesBox { get; }
+    internal TaskAttachmentPanel? Attachments { get; private set; }
     internal TextBlock TitleText { get; } = new() { FontSize = 17, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
     internal TextBlock StatusText { get; } = new() { FontSize = 12 };
     internal TextBlock TimeText { get; } = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
@@ -29,8 +30,9 @@ internal sealed class TaskPeekDetailsView : Grid
         Card.Margin = new Thickness(0, 0, 0, gap);
         TimeText.Margin = new Thickness(0, 0, 0, gap);
     }
-    internal TaskPeekDetailsView()
+    internal TaskPeekDetailsView(ITaskAttachmentTransferRegistry? attachmentTransfers = null, ITaskAttachmentApi? attachmentApi = null)
     {
+        if (attachmentTransfers is not null) Attachments = new TaskAttachmentPanel(attachmentTransfers, attachmentApi);
         Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Mosaic.Tasks.Wpf;component/Themes/Peek.xaml", UriKind.Relative) });
         RowDefinitions.Add(new() { Height = GridLength.Auto });
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -113,5 +115,10 @@ internal sealed class TaskPeekDetailsView : Grid
         TimeText.Margin = new Thickness(0, 0, 0, _gap);
         _body.Children.Add(Card);
         _body.Children.Add(TimeText);
+        if (Attachments is { } attachments)
+        {
+            attachments.Margin = new Thickness(0, 0, 0, _gap);
+            _body.Children.Add(attachments);
+        }
     }
 }

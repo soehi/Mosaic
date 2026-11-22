@@ -198,11 +198,17 @@
                                                 </Style>
                                             </TextBlock.Style>
                                         </TextBlock>
-                                        <TextBlock Text="{Binding CreatedLabel}"
-                                                   Margin="0,7,0,0"
-                                                   FontSize="12"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                        <Grid Margin="0,7,0,0">
+                                            <TextBlock Text="{Binding CreatedLabel}"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                            <TextBlock HorizontalAlignment="Right"
+                                                       Text="{Binding AttachmentCountLabel}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"
+                                                       AutomationProperties.Name="{Binding AttachmentCountLabel}"/>
+                                        </Grid>
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>

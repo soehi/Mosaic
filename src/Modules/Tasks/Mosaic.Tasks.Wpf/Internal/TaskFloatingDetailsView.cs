@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
+using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Tasks.Wpf.Internal;
 
@@ -23,10 +24,12 @@ internal sealed class TaskFloatingDetailsView : Grid
     private readonly Button _copy = Button("FloatingNotesCopy");
     private bool _rendering;
     private bool _editing;
+    internal TaskAttachmentPanel? Attachments { get; private set; }
 
-    internal TaskFloatingDetailsView(TaskFloatingNotesViewModel model, Action save, Action cancel)
+    internal TaskFloatingDetailsView(TaskFloatingNotesViewModel model, Action save, Action cancel, ITaskAttachmentTransferRegistry? attachmentTransfers = null, ITaskAttachmentApi? attachmentApi = null)
     {
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new() { Height = GridLength.Auto });
         RowDefinitions.Add(new() { Height = GridLength.Auto });
         _notes.SetResourceReference(StyleProperty, "TaskFloatingNotesStyle");
         AutomationProperties.SetAutomationId(_notes, "FloatingNotes");
@@ -48,8 +51,15 @@ internal sealed class TaskFloatingDetailsView : Grid
         var actions = new WrapPanel();
         foreach (var button in new[] { _edit, _save, _cancel, _copy }) actions.Children.Add(button);
         footer.Children.Add(actions);
-        SetRow(footer, 1);
+        SetRow(footer, 2);
         Children.Add(footer);
+        if (attachmentTransfers is not null)
+        {
+            Attachments = new TaskAttachmentPanel(attachmentTransfers, attachmentApi) { Margin = new Thickness(4, 0, 4, 0) };
+            var scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 132, Content = Attachments };
+            SetRow(scroller, 1);
+            Children.Add(scroller);
+        }
 
         _notes.TextChanged += (_, _) => { if (!_rendering) model.Change(_notes.Text); };
         _edit.Click += (_, _) => { model.Begin(); if (model.CanEdit) { _notes.Focus(); _notes.CaretIndex = _notes.Text.Length; } };
@@ -84,6 +94,11 @@ internal sealed class TaskFloatingDetailsView : Grid
             _updated.ToolTip = _updated.Text;
         }
         _created.Visibility = _updated.Visibility = Visible(model.Current is not null);
+        if (Attachments is not null)
+        {
+            Attachments.Update(model.Attachments);
+            Attachments.IsEnabled = !model.IsArchived && !model.IsMissing;
+        }
         _feedback.Text = model.IsMissing ? Text("Missing", "原任务已删除。可复制未保存的备注，或放弃草稿并关闭浮窗。")
             : !model.Allowed && model.IsDirty ? Text("Disabled", "浮窗编辑已关闭。未保存内容可复制或放弃。")
             : model.Error ?? (model.HasConflict ? Text("Conflict", "任务已在其他位置更改。可复制草稿，或重新读取已保存内容。")

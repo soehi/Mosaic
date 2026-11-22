@@ -49,6 +49,11 @@ public sealed class TaskDeleteAttachmentCleanupTests
             throw new NotSupportedException();
         public Task<OperationResult<long>> CountByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<long>.Success(_items.Count(a => a.TaskId == taskId)));
+        public Task<OperationResult<IReadOnlyDictionary<Guid, long>>> CountsByTasksAsync(IReadOnlyCollection<Guid> taskIds, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyDictionary<Guid, long> counts = taskIds.Distinct().ToDictionary(id => id, id => (long)_items.Count(a => a.TaskId == id)).Where(pair => pair.Value > 0).ToDictionary(pair => pair.Key, pair => pair.Value);
+            return Task.FromResult(OperationResult<IReadOnlyDictionary<Guid, long>>.Success(counts));
+        }
     }
 
     [Fact]

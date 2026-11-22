@@ -202,6 +202,7 @@ Mosaic.Tasks.Contracts.SetTaskArchivedRequest
 Mosaic.Tasks.Contracts.SetTaskCompletedRequest
 Mosaic.Tasks.Contracts.TaskArchiveScope
 Mosaic.Tasks.Contracts.TaskAttachmentConstraints
+Mosaic.Tasks.Contracts.TaskAttachmentDragTransfer
 Mosaic.Tasks.Contracts.TaskAttachmentDto
 Mosaic.Tasks.Contracts.TaskAttachmentTransferMode
 Mosaic.Tasks.Contracts.TaskChange

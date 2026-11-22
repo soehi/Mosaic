@@ -137,6 +137,9 @@
     <sys:String x:Key="Tasks.Attachments.DragHint">Drag out to export (Shift = move)</sys:String>
     <sys:String x:Key="Tasks.Attachments.AddFailed">Some attachments could not be added</sys:String>
     <sys:String x:Key="Tasks.Attachments.ExportFailed">Could not export the attachment</sys:String>
+    <sys:String x:Key="Tasks.Attachments.PendingHint">added on save</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Count">📎 {0}</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Accessibility">{0} attachments</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.TooLarge">The attachment exceeds the {0} MB size limit.</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.TooMany">Each task can have at most {0} attachments.</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.ContentMissing">The attachment content is missing.</sys:String>

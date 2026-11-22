@@ -45,6 +45,11 @@ public sealed class AttachmentBlobStoreTests
             throw new NotSupportedException();
         public Task<OperationResult<long>> CountByTaskAsync(Guid taskId, CancellationToken ct = default) =>
             Task.FromResult(OperationResult<long>.Success((long)Items.Count(a => a.TaskId == taskId)));
+        public Task<OperationResult<IReadOnlyDictionary<Guid, long>>> CountsByTasksAsync(IReadOnlyCollection<Guid> taskIds, CancellationToken ct = default)
+        {
+            IReadOnlyDictionary<Guid, long> counts = taskIds.Distinct().ToDictionary(id => id, id => (long)Items.Count(a => a.TaskId == id)).Where(pair => pair.Value > 0).ToDictionary(pair => pair.Key, pair => pair.Value);
+            return Task.FromResult(OperationResult<IReadOnlyDictionary<Guid, long>>.Success(counts));
+        }
     }
 
     private static (TasksModule Module, MemoryAttachments Repository, string Root, string Source) NewModule()

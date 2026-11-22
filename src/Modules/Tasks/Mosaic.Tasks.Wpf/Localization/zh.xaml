@@ -137,6 +137,9 @@
     <sys:String x:Key="Tasks.Attachments.DragHint">拖出以导出（Shift = 移动）</sys:String>
     <sys:String x:Key="Tasks.Attachments.AddFailed">部分附件添加失败</sys:String>
     <sys:String x:Key="Tasks.Attachments.ExportFailed">附件导出失败</sys:String>
+    <sys:String x:Key="Tasks.Attachments.PendingHint">保存后添加</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Count">📎 {0}</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Accessibility">{0} 个附件</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.TooLarge">附件超过 {0} MB 大小限制。</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.TooMany">每个任务最多 {0} 个附件。</sys:String>
     <sys:String x:Key="Tasks.Attachments.Error.ContentMissing">附件内容已丢失。</sys:String>

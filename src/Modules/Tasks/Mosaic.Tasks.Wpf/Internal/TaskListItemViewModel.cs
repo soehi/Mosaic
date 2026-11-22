@@ -9,6 +9,10 @@ internal sealed class TaskListItemViewModel(TaskItemDto item, string untitledTit
     public string Title => string.IsNullOrWhiteSpace(Item.Title) ? untitledTitle : Item.Title;
     public bool IsCompleted => Item.IsCompleted;
     public string CompletionGlyph => IsCompleted ? "✓" : "○";
+    public bool HasAttachments => Item.AttachmentCount > 0;
+    public string AttachmentCountLabel => HasAttachments
+        ? TaskLocalization.Format("Tasks.Attachments.Count", "📎 {0}", Item.AttachmentCount)
+        : "";
     public string CreatedLabel => TaskLocalization.Format(
         "Tasks.List.Created",
         "创建于 {0}",
@@ -21,5 +25,5 @@ internal sealed class TaskListItemViewModel(TaskItemDto item, string untitledTit
         "{0}，{1}，{2}",
         Title,
         CompletionLabel,
-        CreatedLabel);
+        HasAttachments ? TaskLocalization.Format("Tasks.Attachments.Accessibility", "{0} 个附件", Item.AttachmentCount) : CreatedLabel);
 }
