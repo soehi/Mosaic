@@ -130,4 +130,13 @@
     <sys:String x:Key="Tasks.Selection.Deleted">Deleted {0} tasks.</sys:String>
     <sys:String x:Key="Tasks.Selection.Archive.Partial">Processed {0}/{1}, the rest failed: {2}</sys:String>
     <sys:String x:Key="Tasks.Selection.Delete.Partial">Deleted {0}/{1}, the rest failed: {2}</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Label">Attachments</sys:String>
+    <sys:String x:Key="Tasks.Attachments.DropHint">Drop files here, or click to select</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Limit">Up to {0} · {1} MB each</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Remove">Remove attachment</sys:String>
+    <sys:String x:Key="Tasks.Attachments.DragHint">Drag out to export (Shift = move)</sys:String>
+    <sys:String x:Key="Tasks.Attachments.AddFailed">Some attachments could not be added</sys:String>
+    <sys:String x:Key="Tasks.Attachments.ExportFailed">Could not export the attachment</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">Archived attachment cleanup days</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">Automatically delete attachment files N days after a task is archived; 0 disables automatic cleanup.</sys:String>
 </ResourceDictionary>

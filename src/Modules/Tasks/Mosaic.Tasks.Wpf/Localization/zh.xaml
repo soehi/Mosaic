@@ -130,4 +130,13 @@
     <sys:String x:Key="Tasks.Selection.Deleted">已删除 {0} 项任务。</sys:String>
     <sys:String x:Key="Tasks.Selection.Archive.Partial">已处理 {0}/{1} 项，其余失败：{2}</sys:String>
     <sys:String x:Key="Tasks.Selection.Delete.Partial">已删除 {0}/{1} 项，其余失败：{2}</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Label">附件</sys:String>
+    <sys:String x:Key="Tasks.Attachments.DropHint">拖放文件到这里，或点击选择</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Limit">最多 {0} 个 · 单个 ≤ {1} MB</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Remove">移除附件</sys:String>
+    <sys:String x:Key="Tasks.Attachments.DragHint">拖出以导出（Shift = 移动）</sys:String>
+    <sys:String x:Key="Tasks.Attachments.AddFailed">部分附件添加失败</sys:String>
+    <sys:String x:Key="Tasks.Attachments.ExportFailed">附件导出失败</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">归档附件清除天数</sys:String>
+    <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">任务归档后超过 N 天自动删除其附件文件；0 表示不自动清除。</sys:String>
 </ResourceDictionary>

@@ -10,6 +10,7 @@ public sealed class TasksSqliteModule(IDatabaseSession database) : IModuleActiva
     private bool _active;
     private readonly ITaskRepository _repository = new SqliteTaskRepository(database);
     private readonly ITaskTransferRepository _transfer = new SqliteTaskTransferRepository(database);
+    private readonly ITaskAttachmentRepository _attachments = new SqliteTaskAttachmentRepository(database);
     public static ModuleManifest Definition { get; } = new(
         "tasks-sqlite",
         [new("tasks.repository", 1), new("tasks.transfer-repository", 1)],
@@ -18,10 +19,11 @@ public sealed class TasksSqliteModule(IDatabaseSession database) : IModuleActiva
     public ModuleManifest Manifest => Definition;
     public ITaskRepository Repository => _active ? _repository : throw new InvalidOperationException("Task repository is not active.");
     public ITaskTransferRepository TransferRepository => _active ? _transfer : throw new InvalidOperationException("Task repository is not active.");
+    public ITaskAttachmentRepository AttachmentRepository => _attachments;
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         var migrations = new List<MigrationDefinition>();
-        foreach (var (version, name) in new[] { (1, "001_CreateTasks"), (2, "002_CreateTaskReceipts"), (3, "003_TaskArchiving") })
+        foreach (var (version, name) in new[] { (1, "001_CreateTasks"), (2, "002_CreateTaskReceipts"), (3, "003_TaskArchiving"), (4, "004_TaskAttachments") })
         {
             using var stream = typeof(TasksSqliteModule).Assembly.GetManifestResourceStream($"Mosaic.Tasks.Sqlite.Migrations.{name}.sql")
                 ?? throw new InvalidOperationException("Missing embedded migration.");

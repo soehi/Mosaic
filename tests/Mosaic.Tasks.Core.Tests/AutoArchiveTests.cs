@@ -88,7 +88,7 @@ public sealed class AutoArchiveTests
     {
         var rules = Activator.CreateInstance(RulesType);
         var archive = NewArchive(new MemoryTaskRepository(), new StubTasksApi());
-        var source = (ISettingSource)Activator.CreateInstance(SettingsSourceType, rules!, archive)!;
+        var source = (ISettingSource)Activator.CreateInstance(SettingsSourceType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [rules!, archive], null)!;
 
         var autoEnabled = Assert.Single(source.Definitions, definition => definition.Id == "tasks.archive.autoEnabled");
         var delayDays = Assert.Single(source.Definitions, definition => definition.Id == "tasks.archive.delayDays");

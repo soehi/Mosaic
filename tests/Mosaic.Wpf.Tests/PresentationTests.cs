@@ -65,7 +65,7 @@ public sealed class PresentationTests
         internal Func<DeleteTaskRequest, OperationResult>? DeleteResult;
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(DeleteResult?.Invoke(request) ?? OperationResult.Success()); }
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1)));
+            Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1, 50, 10)));
     }
     private sealed class Diagnostics : IDiagnosticSink
     {

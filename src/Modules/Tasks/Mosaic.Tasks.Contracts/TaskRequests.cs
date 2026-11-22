@@ -16,7 +16,8 @@ public sealed record TaskQuery(TaskFilter Filter = TaskFilter.All, TaskSortOrder
 {
     public TaskArchiveScope ArchiveScope { get; init; }
 }
-public sealed record TaskConstraintsDto(int TitleMaxCharacters, int NotesMaxCharacters, bool TitleRequired, bool DefaultCompleted, long RevisionStart);
+public sealed record TaskConstraintsDto(int TitleMaxCharacters, int NotesMaxCharacters, bool TitleRequired, bool DefaultCompleted, long RevisionStart,
+    int AttachmentMaxFileMegabytes, int AttachmentMaxPerTask);
 public sealed record CreateTaskRequest(string Title, string Notes, bool IsCompleted = false);
 public sealed record UpdateTaskRequest(Guid Id, string Title, string Notes, long ExpectedRevision);
 public sealed record SetTaskCompletedRequest(Guid Id, bool IsCompleted, long ExpectedRevision);

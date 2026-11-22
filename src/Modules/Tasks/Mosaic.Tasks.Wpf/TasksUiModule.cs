@@ -11,7 +11,8 @@ public sealed record TasksUiDependencies(
     IUserDialogService Dialogs,
     IDiagnosticSink Diagnostics,
     Mosaic.Settings.Contracts.ISettingsCore? Settings = null,
-    ITaskChangeSource? Changes = null, IFloatingDetachSource? Detach = null);
+    ITaskChangeSource? Changes = null, IFloatingDetachSource? Detach = null,
+    ITaskAttachmentApi? Attachments = null);
 
 public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleActivation, IUiModule
 {
