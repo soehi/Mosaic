@@ -64,14 +64,16 @@ try {
     $expectedActions = @(
         'DetectInstallState', 'ScanPayload', 'EnforceInstallFolder', 'ValidateInstallFolder',
         'RestoreDefaultInstallFolder', 'BrowseInstallFolder', 'PrefillInstallPath',
-        'VerifyRepairedPayload')
+        'ApplyRepairRequest', 'CloseRunningApp', 'VerifyRepairedPayload')
     $customActions = @{}
     $customActionRows = Read-MsiRows $database 'SELECT * FROM CustomAction' 4
     foreach ($row in $customActionRows) { $customActions[$row[0]] = $row }
     foreach ($name in $expectedActions) {
         if (-not $customActions.ContainsKey($name)) { Fail "CustomAction '$name' is missing." }
         $action = $customActions[$name]
-        if ($action[1] -ne '1' -or $action[2] -cne 'MosaicActions' -or $action[3] -cne $name) {
+        # Type 1（DLL 动作）+ 64（Return="ignore" 的 msidbCustomActionTypeContinue）合法，
+        # 如 CloseRunningApp；按位检查类型位而不是严格等于 1。
+        if ((([int]$action[1] -band 1) -eq 0) -or $action[2] -cne 'MosaicActions' -or $action[3] -cne $name) {
             Fail "CustomAction '$name' must be type 1 from Binary 'MosaicActions' targeting '$name'."
         }
     }
@@ -98,16 +100,27 @@ try {
     if ($actionsSource -notlike '*RestoreInstallFolderForRemoval*' -or $actionsSource -notlike '*INSTALLPROPERTY_INSTALLLOCATION*') {
         Fail 'Uninstall must restore INSTALLFOLDER from the registered product location.'
     }
-    # 维护自动修复不支持在线执行：任何文件替换都会让引擎在目标卷根目录的 Config.Msi
-    # 建 .rbf 回滚备份（仅 SYSTEM/Admin 可写），per-user 安装位于非系统驱动器时用户
-    # 上下文无法删除备份，报错误 5 并弹出引擎强制错误框。用户须通过「应用和功能」
-    # 修复或重新运行安装包；包不得自动触发 REINSTALL/REMOVE 重写。
-    if ($actionsSource -like '*SetProperty(hInstall, L"REINSTALL", L"ALL");*' -or
-        $actionsSource -like '*SetProperty(hInstall, L"REMOVE", L"ALL");*') {
-        Fail 'Maintenance must not auto-repair via REINSTALL/REMOVE; guide users to reinstall instead.'
+    # 维护自动修复改为在线执行：包内固定 DISABLEROLLBACK=1，引擎不再在目标卷根目录
+    # 的 Config.Msi 生成 .rbf 回滚备份（仅 SYSTEM/Admin 可写），per-user 安装位于
+    # 非系统驱动器时用户上下文也不会因「设置备份文件安全」报错误 5。代价是安装失败
+    # 时没有引擎级自动回滚，需重新运行安装包。
+    if ($properties['DISABLEROLLBACK'] -cne '1') {
+        Fail "DISABLEROLLBACK must be 1 (found '$($properties['DISABLEROLLBACK'])') so the engine never creates Config.Msi rollback backups on non-system drives."
     }
-    if ($actionsSource -like '*REINSTALLMODE", L"amus"*' -or $actionsSource -like '*REINSTALLMODE", L"emus"*') {
-        Fail 'Maintenance must not rewrite files via REINSTALLMODE.'
+    # 扫描发现缺失/损坏后由 ApplyRepairRequest 在执行序列设置 REINSTALL=ALL，
+    # 显式 /f 优先；REINSTALLMODE 只在为空时补 amus。
+    if ($actionsSource -notlike '*SetProperty(hInstall, L"REINSTALL", L"ALL");*') {
+        Fail 'Maintenance auto-repair must set REINSTALL=ALL from ApplyRepairRequest.'
+    }
+    if ($actionsSource -notlike '*REINSTALLMODE", L"amus"*') {
+        Fail 'ApplyRepairRequest must default REINSTALLMODE to amus when the caller did not specify it.'
+    }
+    if ($actionsSource -notlike '*MOSAICREPAIRAUTOMATIC*') {
+        Fail 'ScanPayload must mark MOSAICREPAIRAUTOMATIC when the payload needs repair.'
+    }
+    # 自动关闭正在运行的 Mosaic：按安装位置枚举进程、先 WM_CLOSE 再强制结束。
+    foreach ($needle in @('CreateToolhelp32Snapshot', 'QueryFullProcessImageNameW', 'TerminateProcess', 'CloseRunningApp')) {
+        if ($actionsSource -notlike "*$needle*") { Fail "CloseRunningApp must implement '$needle'." }
     }
     # 扫描动作借用 Binary 表读取清单，必须关闭 MsiGetActiveDatabase 返回的数据库句柄。
     if ($actionsSource -notlike '*MsiCloseHandle(database)*') {
@@ -115,8 +128,7 @@ try {
     }
 
     # 执行序列：状态检测早于成本计算，扫描在成本计算前运行，复检在提交之后。
-    # 维护自动修复通过 ApplyRepairRequest 设置 REMOVE=ALL（卸载后重装），其登
-    # 记位置在 DetectInstallState 恢复；REINSTALL 重写会触发 Config.Msi 权限问题。
+    # 维护自动修复由 ApplyRepairRequest 在 CostFinalize 之前设置 REINSTALL=ALL。
     $executeSequence = Read-MsiRows $database 'SELECT * FROM InstallExecuteSequence' 3
     $detect = Find-Row $executeSequence 'DetectInstallState' 'InstallExecuteSequence entry'
     if ($detect[2] -ne '26' -or $detect[1] -notlike '*NOT REMOVE*') { Fail "DetectInstallState must run at 26 with 'NOT REMOVE'." }
@@ -143,9 +155,25 @@ try {
     if ([int]$arp[2] -le 1000 -or $arp[1] -notlike '*MOSAICLOCATIONINHERITED*') {
         Fail 'SetArpInstallLocation must run after CostFinalize and also for confirmed inherited maintenance locations.'
     }
-    # 维护自动修复不支持在线执行：不得自动设置 REINSTALL/REMOVE/REINSTALLMODE。
-    $badRepair = @($executeSequence | Where-Object { $_[0] -ceq 'ApplyRepairRequest' })
-    if ($badRepair.Count -ne 0) { Fail 'ApplyRepairRequest must not run automatically; users reinstall to repair.' }
+    # 维护自动修复：ApplyRepairRequest 必须在 CostFinalize 之前把扫描结果落成 REINSTALL。
+    $repairRequest = Find-Row $executeSequence 'ApplyRepairRequest' 'InstallExecuteSequence entry'
+    $costFinalizeRow = Find-Row $executeSequence 'CostFinalize' 'InstallExecuteSequence entry'
+    if ([int]$repairRequest[2] -ge [int]$costFinalizeRow[2] -or $repairRequest[1] -notlike '*NOT REMOVE*') {
+        Fail 'ApplyRepairRequest must run before CostFinalize and never on uninstall.'
+    }
+    if ([int]$repairRequest[2] -le [int]$scan[2]) {
+        Fail 'ApplyRepairRequest must run after ScanPayload so the repair marker is already set.'
+    }
+    # 自动关闭应用必须在 CostFinalize（INSTALLFOLDER 已解析）之后、InstallValidate 之前，
+    # 健康维护不改文件时不关闭应用。
+    $closeApp = Find-Row $executeSequence 'CloseRunningApp' 'InstallExecuteSequence entry'
+    $installValidate = Find-Row $executeSequence 'InstallValidate' 'InstallExecuteSequence entry'
+    if ([int]$closeApp[2] -le [int]$costFinalizeRow[2] -or [int]$closeApp[2] -ge [int]$installValidate[2]) {
+        Fail 'CloseRunningApp must run after CostFinalize and before InstallValidate.'
+    }
+    if ($closeApp[1] -notlike '*MOSAICSCANSTATUS*Healthy*') {
+        Fail 'CloseRunningApp must skip healthy maintenance that does not touch files.'
+    }
 
     # 界面序列：自动路由到首次安装、维护、升级或阻断页，完成页与错误页不可缺失。
     $uiSequence = Read-MsiRows $database 'SELECT * FROM InstallUISequence' 3
