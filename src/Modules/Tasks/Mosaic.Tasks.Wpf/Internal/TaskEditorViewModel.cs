@@ -60,6 +60,13 @@ internal sealed class TaskEditorViewModel : ObservableObject
     public string NotesError { get => _notesError; private set { if (SetProperty(ref _notesError, value)) OnPropertyChanged(nameof(HasNotesError)); } }
     public bool HasTitleError => !string.IsNullOrEmpty(TitleError);
     public bool HasNotesError => !string.IsNullOrEmpty(NotesError);
+    private string _attachmentStatus = "";
+    public string AttachmentStatus
+    {
+        get => _attachmentStatus;
+        private set { if (SetProperty(ref _attachmentStatus, value)) OnPropertyChanged(nameof(HasAttachmentStatus)); }
+    }
+    public bool HasAttachmentStatus => !string.IsNullOrEmpty(AttachmentStatus);
     public bool IsDirty => Title != (_current?.Title ?? "") || Notes != (_current?.Notes ?? "");
     public bool HasTask => _current is not null;
     public bool IsArchived => _current?.IsArchived == true;
@@ -169,12 +176,22 @@ internal sealed class TaskEditorViewModel : ObservableObject
     internal async Task<TaskItemDto?> AddAttachmentsAsync(IEnumerable<string> paths, CancellationToken ct = default)
     {
         if (_current is null || _attachmentApi is null) return null;
+        AttachmentStatus = "";
         TaskItemDto? latest = null;
+        var failed = 0;
+        OperationError? lastError = null;
         foreach (var path in paths)
         {
             var result = await _attachmentApi.AddAsync(new(_current.Id, path, _current.Revision), ct);
             if (result.IsSuccess) { latest = result.Value; _current = result.Value; }
-            // 失败时继续处理其他文件
+            else { failed++; lastError = result.Error; }
+        }
+        if (failed > 0 && lastError is not null)
+        {
+            var detail = TaskErrorLocalizer.Localize(lastError, _constraints);
+            AttachmentStatus = failed > 1 || latest is not null
+                ? $"{TaskLocalization.Localize("Tasks.Attachments.AddFailed", "部分附件添加失败")}：{detail}"
+                : detail;
         }
         if (latest is not null) { _ = LoadAttachmentsAsync(); }
         return latest;
@@ -184,7 +201,12 @@ internal sealed class TaskEditorViewModel : ObservableObject
     {
         if (_current is null || _attachmentApi is null) return false;
         var result = await _attachmentApi.RemoveAsync(new(_current.Id, attachmentId, _current.Revision), ct);
-        if (!result.IsSuccess) return false;
+        if (!result.IsSuccess)
+        {
+            AttachmentStatus = TaskErrorLocalizer.Localize(result.Error!, _constraints);
+            return false;
+        }
+        AttachmentStatus = "";
         _current = result.Value;
         _ = LoadAttachmentsAsync();
         return true;
@@ -194,7 +216,13 @@ internal sealed class TaskEditorViewModel : ObservableObject
     {
         if (_current is null || _attachmentApi is null) return null;
         var result = await _attachmentApi.ExportAsync(new(_current.Id, attachmentId, targetDir, mode, _current.Revision), ct);
-        if (!result.IsSuccess) return null;
+        if (!result.IsSuccess)
+        {
+            var detail = TaskErrorLocalizer.Localize(result.Error!, _constraints);
+            AttachmentStatus = $"{TaskLocalization.Localize("Tasks.Attachments.ExportFailed", "附件导出失败")}：{detail}";
+            return null;
+        }
+        AttachmentStatus = "";
         _current = result.Value;
         _ = LoadAttachmentsAsync();
         return result.Value;

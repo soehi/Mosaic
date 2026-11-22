@@ -137,6 +137,13 @@
     <sys:String x:Key="Tasks.Attachments.DragHint">拖出以导出（Shift = 移动）</sys:String>
     <sys:String x:Key="Tasks.Attachments.AddFailed">部分附件添加失败</sys:String>
     <sys:String x:Key="Tasks.Attachments.ExportFailed">附件导出失败</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.TooLarge">附件超过 {0} MB 大小限制。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.TooMany">每个任务最多 {0} 个附件。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.ContentMissing">附件内容已丢失。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.TargetExists">目标文件夹已存在同名文件。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.WriteFailed">无法写入目标文件夹，请检查权限后重试。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.NotFound">附件不存在。</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.StoreUnavailable">附件存储不可用，请重启应用后重试。</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">归档附件清除天数</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">任务归档后超过 N 天自动删除其附件文件；0 表示不自动清除。</sys:String>
 </ResourceDictionary>

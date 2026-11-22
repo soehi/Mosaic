@@ -137,6 +137,13 @@
     <sys:String x:Key="Tasks.Attachments.DragHint">Drag out to export (Shift = move)</sys:String>
     <sys:String x:Key="Tasks.Attachments.AddFailed">Some attachments could not be added</sys:String>
     <sys:String x:Key="Tasks.Attachments.ExportFailed">Could not export the attachment</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.TooLarge">The attachment exceeds the {0} MB size limit.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.TooMany">Each task can have at most {0} attachments.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.ContentMissing">The attachment content is missing.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.TargetExists">A file with the same name already exists in the target folder.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.WriteFailed">Could not write to the target folder. Check permissions and try again.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.NotFound">The attachment does not exist.</sys:String>
+    <sys:String x:Key="Tasks.Attachments.Error.StoreUnavailable">Attachment storage is unavailable. Restart the app and try again.</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays">Archived attachment cleanup days</sys:String>
     <sys:String x:Key="Settings.Setting.AttachmentArchiveCleanupDays.Description">Automatically delete attachment files N days after a task is archived; 0 disables automatic cleanup.</sys:String>
 </ResourceDictionary>
