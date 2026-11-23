@@ -53,6 +53,7 @@
   - `dotnet build Mosaic.sln -v:minimal -m:1`：0 警告 0 错误。
   - `build/test.ps1 -Configuration Release`：Release 构建 0 警告 0 错误，16 个测试工程 475 项全部通过（exit 0）——Architecture 4、Auth.Core 26、Auth.Http 36、Desktop.SmokeTests 54/54、DesktopPresence 17、FloatingWindows 12、Kernel 7、Maintenance 16、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 6、Storage.Sqlite 29、Sync.Core 14、Tasks.Contract 8、Tasks.Core 39、Wpf 165。smoke 在 30 秒等待上限与串行模式下 54 项全绿（71s）。
   - 主题用例同时校验浅色与深色解析，smoke 按钮禁用态取色通过；浮动窗口真实鼠标拖动/缩放/点击用例在串行模式下通过。
+  - 发布核验：提交 `c802be8`（`main`）；tag `v0.18.7` 指向 `c802be8`；Release <https://github.com/soehi/Mosaic/releases/tag/v0.18.7> 非草稿、非预发布，资产 `Mosaic-0.18.7-win-x64.msi` 52,566,264 字节，SHA-256 `B5001F6AEB66E5082002C6E00677F8FE7634E8FC0E4C31034F12B6C5D24AC015`，与 GitHub 资产 digest `sha256:b5001f6aeb66e5082002c6e00677f8fe7634e8fc0e4c31034f12b6c5d24ac015` 一致；Release 正文与 `docs/releases/v0.18.7.md` 逐字一致（964 字符）；`build/verify-published.ps1 -PublishDirectory artifacts/local-run -ProductVersion 0.18.7` PASS（`published payload is a release build with manifest mosaic-0.18.7`）；`scripts/release_content_verify.py` PASS（53 条索引）。
 
 - 未验证项：未在真实双显示器热插拔过程中重复验证窗口钳制；未在 Windows 10 1809–1903 实机上验证 DWM 属性 19 回退；未对 0.18.6 之前更老版本的 `settings` 表结构做额外迁移矩阵（表结构自 001 起未变）。
 
