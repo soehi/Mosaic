@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.4",
+  "currentReleaseId": "mosaic-0.18.5",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -818,6 +818,18 @@
         "编辑器、任务速览与浮窗的附件行新增按文件类型着色的扩展名徽标（PDF、文档、表格、演示、图片、压缩包、音视频、代码、文本等），文件名过长时省略、大小保持可读。"
       ],
       "contentSha256": "7BB2D5035815E90BE6B7367399A4C62C3583BC321E68F234AE0BE95D0FEBB20D"
+    },
+    {
+      "releaseId": "mosaic-0.18.5",
+      "version": "0.18.5",
+      "releasedOn": "2026-11-23",
+      "previousReleaseId": "mosaic-0.18.4",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "修复 0.18.4 升级后应用无法启动：迁移摘要改为对 SQL 换行归一化后计算，旧库中按 LF 或 CRLF 原文记录的摘要都接受，并在校验通过后回写规范摘要；真正的 SQL 改动仍会被拒绝。"
+      ],
+      "contentSha256": "99F58A27BA892AF8DEF77193270600E7EFE0AA9A83BCCB6A0C5FE4E9C101E7A1"
     }
   ]
 }

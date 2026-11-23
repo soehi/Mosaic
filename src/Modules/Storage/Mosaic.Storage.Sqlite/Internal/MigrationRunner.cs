@@ -17,8 +17,18 @@ internal static class MigrationRunner
         foreach (var row in applied)
         {
             var version = row.Int64("version");
-            if (version < 1 || version > migrations.Count || row.String("digest") != Digest(migrations[(int)version - 1].Sql))
+            if (version < 1 || version > migrations.Count)
                 throw new InvalidOperationException("Migration checksum or database version is incompatible.");
+            var migration = migrations[(int)version - 1];
+            var stored = row.String("digest");
+            var canonical = Digest(migration.Sql);
+            if (stored == canonical) continue;
+            if (!MatchesLegacyDigest(stored, migration.Sql))
+                throw new InvalidOperationException("Migration checksum or database version is incompatible.");
+            // 0.18.4 及更早版本按嵌入资源原文取摘要，Git 检出或编辑器改写换行后同一 SQL 会得到不同摘要。
+            // 旧摘要校验通过后回写为换行归一化的规范摘要，之后版本不再受工作副本换行差异影响。
+            session.Execute(new("UPDATE mosaic_migrations SET digest=$digest WHERE module_id=$module AND version=$version",
+                new Dictionary<string, object?> { ["$module"] = moduleId, ["$version"] = version, ["$digest"] = canonical }));
         }
         if (applied.Count == migrations.Count) return;
         var hasUserTables = session.Query(new("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'mosaic_migrations'")).Count > 0;
@@ -59,5 +69,9 @@ internal static class MigrationRunner
             catch (UnauthorizedAccessException) { }
         }
     }
-    private static string Digest(string sql) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sql)));
+    internal static string Normalize(string sql) => sql.Replace("\r\n", "\n").Replace('\r', '\n');
+    private static string Digest(string sql) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Normalize(sql))));
+    private static bool MatchesLegacyDigest(string stored, string sql) =>
+        stored == RawDigest(sql) || stored == RawDigest(Normalize(sql).Replace("\n", "\r\n"));
+    private static string RawDigest(string sql) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sql)));
 }

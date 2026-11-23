@@ -1,5 +1,16 @@
 # Mosaic：实施与验证记录
 
+## 0.18.5：修复 0.18.4 升级后启动失败（迁移摘要换行敏感）（2026-11-23）
+
+- 根因位置：`src/Modules/Storage/Mosaic.Storage.Sqlite/Internal/MigrationRunner.cs` 的 `Digest(string sql)` 直接对迁移 SQL 原文取 SHA-256。迁移 SQL 以嵌入资源从 `src/Modules/**/Migrations/*.sql` 读取，文件换行随 Git 检出（`core.autocrlf`）或编辑器保存变化；`mosaic_migrations.digest` 记录的是建库当次构建的原文摘要。本机升级前的库中 `settings-sqlite` v1 与 `tasks-sqlite` v1/v2/v5 记录的是 LF 摘要，`tasks-sqlite` v3/v4 记录的是 CRLF 摘要；0.18.4 的嵌入资源里 `001_CreateSettings.sql` 等为 CRLF、`004_TaskAttachments.sql` 为 LF，于是启动时 `SettingsSqliteModule.ActivateAsync` 的摘要校验失败，抛出「Settings migration failed.」，`Mosaic.Desktop.Bootstrapper.StartAsync` 记录本地存储不可用并结束进程。触发条件：升级安装的二进制与旧库建库时的迁移文件换行不一致，SQL 文本本身没有变化。日志证据：`%LOCALAPPDATA%\Mosaic\Logs\mosaic-20261123.log` 08:41:53Z「Operation failed: 07de3c0dbd3b44fa9202ba5d46bad758 ... Settings migration failed. ... Bootstrapper.StartAsync」。
+- 改动位置：
+  - `src/Modules/Storage/Mosaic.Storage.Sqlite/Internal/MigrationRunner.cs`：新增 `Normalize`（`\r\n` 与孤立 `\r` 统一为 `\n`）与 `RawDigest`；`Digest` 改为对归一化文本取 SHA-256；`MatchesLegacyDigest` 接受旧算法在 LF 原文与 CRLF 原文下的两种摘要；`Apply` 的已应用行校验先比对规范摘要，不匹配时再按历史摘要兼容判定，通过后 `UPDATE mosaic_migrations SET digest=$digest` 回写规范值，仍不匹配则维持原来的「Migration checksum or database version is incompatible.」失败；版本越界检查独立保留。新增迁移仍写入规范摘要。
+  - `tests/Mosaic.Storage.Sqlite.Tests/MigrationDigestCompatibilityTests.cs`（新增，4 例）：旧 CRLF 摘要 + 当前 LF 资源、旧 LF 摘要 + 当前 CRLF 资源都通过并回写规范摘要；回写后再次在 LF/CRLF 之间切换仍通过；真正改动 SQL 文本仍失败。
+  - 版本与发布元数据：`Directory.Build.props:12`（0.18.5）、`build/release-content.json`（第 51 条 `mosaic-0.18.5`，`previousReleaseId=mosaic-0.18.4`，指纹 `99F58A27BA892AF8DEF77193270600E7EFE0AA9A83BCCB6A0C5FE4E9C101E7A1`）、`build/published-release-index.json`（第 51 条）、`build/release-manifest.json`、`docs/releases/v0.18.5.md`、`README.md:3` 与当前版本说明/下载链接。
+- 迁移逻辑与验收项：数据库结构不变，无新表新列；升级时只把 `mosaic_migrations.digest` 规范化为 LF 摘要，不改业务数据。已有安装升级后：①应用正常启动，设置、任务、附件计数与列表原样可见；②`SELECT module_id, version, digest FROM mosaic_migrations` 的值等于对应 SQL 以 LF 归一化后的 SHA-256 大写十六进制；③再次启动不重复改写；④人为改动任一迁移 SQL 后启动仍失败，防止被篡改的迁移静默通过；⑤全新数据库首次启动建表并写入规范摘要。
+- 验证：`MigrationDigestCompatibilityTests` 4/4 通过；`Mosaic.Storage.Sqlite.Tests` 29/29 通过；受影响测试集合（Storage/Wpf/Tasks.Core/Contracts/Architecture/FloatingWindows/Maintenance）272/272 通过；用本机真实 `mosaic.sqlite` 副本（settings v1、tasks v1–v5 的 LF/CRLF 混合摘要）驱动 `SettingsSqliteModule`、`TasksSqliteModule`、`FloatingWindowsSqliteModule`，三个模块全部激活成功并回写摘要；Release 构建 0 警告 0 错误；`build/publish.ps1` 与 `build/package.ps1 -NoPublish` 校验通过。
+- 未验证项：未在多台不同 Git 配置（`core.autocrlf=false`）生成的旧库上重复升级；未覆盖迁移文件出现混合换行的数据库（当前只接受纯 LF 或纯 CRLF 的历史摘要）。
+
 ## 0.18.4：附件拖出改纯复制、矢量回形针、附件类型徽标（2026-11-23）
 
 - 根因位置：
