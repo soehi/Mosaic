@@ -28,6 +28,8 @@ public interface ICompanionViewSession : IAsyncDisposable
 {
     FrameworkElement View { get; }
     event EventHandler? LayoutInvalidated { add { } remove { } }
+    // Lets the host apply its dismissal policy after a completed interaction.
+    event EventHandler? DismissRequested { add { } remove { } }
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task CloseAsync();
 }

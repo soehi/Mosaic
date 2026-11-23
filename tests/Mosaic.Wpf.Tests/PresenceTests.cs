@@ -167,8 +167,9 @@ public sealed class PresenceTests
     {
         internal int PreviewBegins, PreviewUpdates, PreviewEnds;
         internal FloatingPlacementHint? Hint;
+        internal Func<FloatingContentReference, FloatingPlacementHint?, CancellationToken, Task<OperationResult<FloatingOpenResult>>>? Open;
         public Task<OperationResult<FloatingOpenResult>> OpenAsync(FloatingContentReference reference, FloatingPlacementHint? hint = null, CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<FloatingOpenResult>.Success(new(FloatingOpenDisposition.Created)));
+            Open?.Invoke(reference, hint, cancellationToken) ?? Task.FromResult(OperationResult<FloatingOpenResult>.Success(new(FloatingOpenDisposition.Created)));
         public Task<OperationResult> CloseAsync(FloatingContentReference reference, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult.Success());
         public void BeginPlacementPreview(FloatingContentReference reference, FloatingPlacementHint hint) { PreviewBegins++; Hint = hint; }
         public void UpdatePlacementPreview(FloatingPlacementHint hint) { PreviewUpdates++; Hint = hint; }
@@ -207,46 +208,74 @@ public sealed class PresenceTests
     });
 
     [Fact]
-    public Task Peek_drag_hint_does_not_steal_capture_and_capture_loss_finishes_drag() => Sta.Run(async () =>
+    public Task Peek_drop_releases_capture_before_open_and_requests_dismiss_only_on_success() => Sta.Run(async () =>
     {
-        var item = Item("拖出回归");
-        var detachCount = 0;
-        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item])) };
+        var first = Item("拖出回归一");
+        var second = Item("拖出回归二");
+        var requests = new List<string>();
+        var dismissCount = 0;
+        var firstOpen = new TaskCompletionSource<OperationResult<FloatingOpenResult>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var floating = new FloatingApi
+        {
+            Open = (reference, _, _) =>
+            {
+                requests.Add(reference.ItemKey);
+                return requests.Count == 1 ? firstOpen.Task : Task.FromResult(OperationResult<FloatingOpenResult>.Success(new(FloatingOpenDisposition.Created)));
+            }
+        };
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([first, second])) };
         await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
         await module.ActivateAsync();
+        using var registration = module.DetachSource.RegisterDetachHandler(floating);
         await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        session.DismissRequested += (_, _) => dismissCount++;
         await session.InitializeAsync(); Texts(session.View);
         var view = session.View; var type = view.GetType();
-        type.GetField("CanDetach", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<bool>)(() => true));
-        type.GetField("DetachRequested", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, (Func<object, FloatingPlacementHint?, CancellationToken, Task>)((_, _, _) => { detachCount++; return Task.CompletedTask; }));
+        var interaction = (ICompanionInteraction)session;
+        var candidate = type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var activate = type.GetMethod("ActivateDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var finish = type.GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var host = new Window { Content = view, Width = 300, Height = 200, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
         host.Show();
         host.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative) });
         view.UpdateLayout();
-        var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
-        var row = (FrameworkElement)card.Parent;
+        var rows = Descendants(view).OfType<Button>().Where(button => button.Name == "TaskCard").Select(button => (FrameworkElement)button.Parent).ToArray();
+        Task Drop(FrameworkElement row, Point windowPosition) => (Task)finish.Invoke(view, [row, windowPosition, windowPosition])!;
+        void Start(FrameworkElement row)
+        {
+            candidate.SetValue(view, row);
+            activate.Invoke(view, [new Point(60, 60)]);
+            Assert.True(row.IsMouseCaptured);
+            Assert.True(interaction.IsInteracting);
+        }
         try
         {
-            type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, row);
-            type.GetField("_start", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
-            type.GetField("_grab", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(view, new Point(10, 10));
-            type.GetMethod("ActivateDrag", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, [new Point(60, 60)]);
-            host.UpdateLayout();
-            Assert.True((bool)type.GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
+            Start(rows[0]);
             Assert.Null(Descendants(view).OfType<Popup>().FirstOrDefault());
             var layer = AdornerLayer.GetAdornerLayer(view);
             Assert.NotNull(layer);
             Assert.Contains(layer.GetAdorners(view) ?? [], adorner => adorner.GetType().Name == "DragHintAdorner");
-            var root = new DirectoryInfo(AppContext.BaseDirectory);
-            while (root is not null && !File.Exists(Path.Combine(root.FullName, "Mosaic.sln"))) root = root.Parent;
-            var directory = Path.Combine(root!.FullName, "artifacts/ui-preview"); Directory.CreateDirectory(directory);
-            var image = new RenderTargetBitmap(300, 200, 96, 96, PixelFormats.Pbgra32); image.Render(host);
-            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
-            using var stream = File.Create(Path.Combine(directory, "peek-drag-frame.png")); encoder.Save(stream);
-            await (Task)type.GetMethod("FinishDrag", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.Invoke(view, [row, new Point(-500, -500), new Point(-500, -500)])!;
-            Assert.Equal(1, detachCount);
-            Assert.False((bool)type.GetField("_dragging", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!);
-            Assert.Null((UIElement?)type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view));
+            var pending = Drop(rows[0], new Point(-500, -500));
+            Assert.False(pending.IsCompleted);
+            Assert.False(rows[0].IsMouseCaptured);
+            Assert.Empty(layer.GetAdorners(view) ?? []);
+            Assert.True(interaction.IsInteracting);
+            Assert.Equal(0, dismissCount);
+            firstOpen.SetResult(OperationResult<FloatingOpenResult>.Failure(new(ErrorCodes.CapabilityUnavailable, "无法打开")));
+            await pending;
+            Assert.False(interaction.IsInteracting);
+            Assert.Equal(0, dismissCount);
+
+            Start(rows[1]);
+            await Drop(rows[1], new Point(60, 60));
+            Assert.False(rows[1].IsMouseCaptured);
+            Assert.Equal(0, dismissCount);
+            Start(rows[1]);
+            await Drop(rows[1], new Point(-500, -500));
+            Assert.False(rows[1].IsMouseCaptured);
+            Assert.False(interaction.IsInteracting);
+            Assert.Equal(1, dismissCount);
+            Assert.Equal([first.Id.ToString("D"), second.Id.ToString("D")], requests);
         }
         finally { host.Close(); }
     });

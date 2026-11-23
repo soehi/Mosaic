@@ -57,20 +57,35 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     private CancellationTokenSource? _listCancellation;
     private CancellationTokenSource? _feedbackCancellation;
     public event EventHandler? InteractionChanged;
+    public event EventHandler? DismissRequested;
     public bool CancelInteraction() => _view.CancelDrag();
     private readonly IDisposable? _changes;
-    private async Task DetachAsync(TaskPeekRow row, FloatingPlacementHint? hint, CancellationToken cancellationToken)
+    private async Task<bool> DetachAsync(TaskPeekRow row, FloatingPlacementHint? hint, CancellationToken cancellationToken)
     {
-        if (_closed || _dependencies.Detach is not { } source) return;
+        if (_closed || _dependencies.Detach is not { } source) return false;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, cancellationToken);
         try
         {
             _view.DetachFeedback.Visibility = Visibility.Collapsed;
             var result = await source.RequestDetachAsync(new("tasks-ui", row.Id.ToString("D")), hint, linked.Token);
-            if (!_closed && !linked.IsCancellationRequested && !result.IsSuccess) { _view.DetachFeedback.Text = result.Error!.Message; _view.DetachFeedback.Visibility = Visibility.Visible; LayoutInvalidated?.Invoke(this, EventArgs.Empty); }
+            if (_closed || linked.IsCancellationRequested) return false;
+            if (result.IsSuccess) return true;
+            ShowDetachError(result.Error!.Message);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
-        catch (Exception ex) { _dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), ex); if (!_closed) { _view.DetachFeedback.Text = TaskLocalization.Localize("Tasks.Floating.Error", "无法打开小窗，请重试"); _view.DetachFeedback.Visibility = Visibility.Visible; } }
+        catch (Exception exception)
+        {
+            _dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), exception);
+            if (!_closed && !linked.IsCancellationRequested)
+                ShowDetachError(TaskLocalization.Localize("Tasks.Floating.Error", "无法打开小窗，请重试"));
+        }
+        return false;
+    }
+    private void ShowDetachError(string message)
+    {
+        _view.DetachFeedback.Text = message;
+        _view.DetachFeedback.Visibility = Visibility.Visible;
+        LayoutInvalidated?.Invoke(this, EventArgs.Empty);
     }
     private readonly TasksUiDependencies _dependencies;
     private readonly CompanionViewOptions _options;
@@ -207,6 +222,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         _view.OpenRequested += OpenDetails;
         _view.CanDetach = () => !_closed && dependencies.Detach?.IsAvailable == true;
         _view.DetachRequested = DetachAsync;
+        _view.Detached += DragDetached;
         _view.PreviewRequested = (row, hint) => dependencies.Detach?.BeginPlacementPreview(new("tasks-ui", row.Id.ToString("D")), hint);
         _view.PreviewMoved = hint => dependencies.Detach?.UpdatePlacementPreview(hint);
         _view.PreviewEnded = () => dependencies.Detach?.EndPlacementPreview();
@@ -220,6 +236,11 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
         MosaicLocalizationManager.LanguageChanged += LanguageChanged;
         MosaicThemeManager.ThemeChanged += LanguageChanged;
         UpdateView();
+    }
+
+    private void DragDetached()
+    {
+        if (!_closed) DismissRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public FrameworkElement View => _view;
@@ -377,9 +398,10 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     public Task CloseAsync()
     {
         if (_closed) return Task.CompletedTask;
-        _view.CancelDrag(); _changes?.Dispose();
         _closed = true; ++_generation; ++_detailGeneration; _detailCancellation?.Cancel();
+        _view.CancelDrag(); _changes?.Dispose();
         _view.CompleteRequested = null; _view.FilterRequested = null;
+        _view.DetachRequested = null; _view.Detached -= DragDetached;
         _view.PreviewRequested = null; _view.PreviewMoved = null; _view.PreviewEnded = null;
         _view.OpenRequested -= OpenDetails; _lifetime.Cancel();
         MosaicLocalizationManager.LanguageChanged -= LanguageChanged;

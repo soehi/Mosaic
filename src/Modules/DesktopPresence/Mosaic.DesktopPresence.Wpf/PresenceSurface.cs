@@ -168,6 +168,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         var generation = ++_sessionGeneration;
         _sessionLayoutHandler = (_, _) => QueueMeasure(generation);
         _session.LayoutInvalidated += _sessionLayoutHandler;
+        _session.DismissRequested += SessionDismissRequested;
         _popup = CreateWindow("Presence.Title", "PresencePopup");
         var popupView = new PresencePopupView(_session.View, RestoreAsync, ExitAsync, DismissAsync,
             Read("desktop.popup.autoHide", true), Read("desktop.popup.padding", 16), Read("desktop.popup.cornerRadius", 12),
@@ -194,6 +195,12 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _lastPressed = PresenceScreen.LeftPressed; _pointer.Start();
         _ = InitializeSessionAsync(_session, _sessionCancellation.Token, generation);
         return Task.CompletedTask;
+    }
+
+    private async void SessionDismissRequested(object? sender, EventArgs e)
+    {
+        if (_popup is not null && ReferenceEquals(sender, _session) && Read("desktop.popup.autoHide", true))
+            await DismissAsync();
     }
 
     private async Task InitializeSessionAsync(ICompanionViewSession session, CancellationToken token, int generation)
@@ -225,7 +232,11 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _measureOperation?.Abort(); _measureOperation = null;
         var popup = _popup; _popup = null;
         var session = _session; _session = null;
-        if (session is not null && _sessionLayoutHandler is not null) session.LayoutInvalidated -= _sessionLayoutHandler;
+        if (session is not null)
+        {
+            if (_sessionLayoutHandler is not null) session.LayoutInvalidated -= _sessionLayoutHandler;
+            session.DismissRequested -= SessionDismissRequested;
+        }
         _sessionLayoutHandler = null;
         var cancellation = _sessionCancellation; _sessionCancellation = null;
         if (popup is not null)

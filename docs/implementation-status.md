@@ -1,5 +1,16 @@
 # Mosaic：实施与验证记录
 
+## 0.18.8：任务速览拖出与自动收起（2026-11-23）
+
+- 根因：`TaskPeekView.EndGesture` 和 `CaptureLost` 在调用 `FinishDrag` 前把 `_candidate` 清空，清理时拿不到捕获鼠标的任务行。松手后捕获可能残留，影响下一次拖动。成功打开小窗时 `TaskPeekViewModel.DetachAsync` 没有把结果传回速览宿主，而 `PresenceSurface.Inside` 把速览内的键盘焦点视为保留窗口的条件，成功拖出后速览仍可停留。
+- 改动位置：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs` 的 `ActivateDrag`、`EndGesture`、`CaptureLost`、`FinishDrag`、`CancelDrag` 和 `ResetGesture` 统一清理捕获与预览，在等待小窗打开前释放捕获；落点按速览视图换算屏幕坐标。`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs` 的 `TaskPeekViewModel.DetachAsync` 回传成功状态，`DragDetached` 请求宿主收起；打开失败在原速览反馈。
+- 改动位置：`src/Mosaic.Presentation.Contracts/PresentationContracts.cs` 为 `ICompanionViewSession` 添加可选 `DismissRequested` 事件。`src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs` 在会话打开/关闭时订阅和退订，收到成功通知后按 `desktop.popup.autoHide` 收起当前速览。任务浮窗继续由 FloatingWindows 模块持有。
+- 测试：`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 覆盖仍在等待打开时就释放捕获、失败后不发收起通知、面板内放下取消和后续任务拖出成功。`tests/Mosaic.Desktop.SmokeTests/PeekDragTests.cs` 验收真实鼠标依次拖出两条任务、速览每次收起、两个浮窗同时存在。
+- 发布文件：`Directory.Build.props` 更新版本，`README.md` 更新当前版本与下载链接，`build/release-content.json`、`build/published-release-index.json`、`build/release-manifest.json` 与 `docs/releases/v0.18.8.md` 记录本次发布。本条记录位于 `docs/implementation-status.md`。
+- 升级沿用原安装位置和数据目录。此版本无数据库或设置迁移。关闭「离开自动收起」时，拖出成功后保留速览。
+- 回归验收：`build/test.ps1 -Configuration Release` 构建 0 警告、0 错误，16 个工程 476 项全部通过，其中 Desktop Smoke 55 项。独立真实鼠标用例还确认关闭第一个浮窗后，第二个浮窗继续保留。
+- 打包验收：`build/package.ps1` 已通过发布载荷、快捷方式、维护路由、对话框、清单和 CAB 内容校验。`Mosaic-0.18.8-win-x64.msi` 为 52,566,264 字节，SHA-256 `DCC42B5E0710E93654B4AB53968383FFC56440043489C4AB7402A4C3CB91D5E5`。
+
 ## 0.18.7：评审问题收口——启动页契约、账户/同步状态、主题与窗口、配置键名迁移（2026-11-23）
 
 - 根因位置：

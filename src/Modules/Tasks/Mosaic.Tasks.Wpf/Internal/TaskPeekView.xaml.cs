@@ -23,7 +23,8 @@ internal partial class TaskPeekView : UserControl
         CancelDrag();
         if (sender is RadioButton { Tag: string tag } && FilterRequested is { } filter) await filter(Enum.Parse<Mosaic.Tasks.Contracts.TaskFilter>(tag));
     }
-    internal Func<TaskPeekRow, FloatingPlacementHint?, CancellationToken, Task>? DetachRequested;
+    internal Func<TaskPeekRow, FloatingPlacementHint?, CancellationToken, Task<bool>>? DetachRequested;
+    internal event Action? Detached;
     internal Action<TaskPeekRow, FloatingPlacementHint>? PreviewRequested;
     internal Action<FloatingPlacementHint>? PreviewMoved;
     internal Action? PreviewEnded;
@@ -44,6 +45,7 @@ internal partial class TaskPeekView : UserControl
     }
     private void StartGesture(object sender, MouseButtonEventArgs e)
     {
+        if (_opening is not null) { e.Handled = true; return; }
         CancelDrag(); _suppressClick = false;
         if (CanDetach?.Invoke() != true || sender is not FrameworkElement surface) return;
         _candidate = surface; _start = e.GetPosition(this); _grab = e.GetPosition(surface);
@@ -61,7 +63,8 @@ internal partial class TaskPeekView : UserControl
     internal void ActivateDrag(Point position)
     {
         if (_candidate is not { } surface) return;
-        _dragging = true; _suppressClick = true; surface.CaptureMouse(); DragChanged?.Invoke(true);
+        if (!surface.CaptureMouse()) { _candidate = null; return; }
+        _dragging = true; _suppressClick = true; DragChanged?.Invoke(true);
         _preview = new DragHintAdorner(this, TaskLocalization.Localize("Tasks.Floating.Drag", "松手以创建小窗 · Esc取消"), surface);
         AdornerLayer.GetAdornerLayer(this)?.Add(_preview);
         _escapeHandler = (_, args) => { if (args.Key == Key.Escape) CancelDrag(); };
@@ -87,42 +90,60 @@ internal partial class TaskPeekView : UserControl
     }
     private FloatingPlacementHint? Hint(Point viewPoint)
     {
-        var window = Window.GetWindow(this);
-        if (window is null) return null;
-        var screen = window.PointToScreen(viewPoint);
+        if (PresentationSource.FromVisual(this) is null) return null;
+        var screen = PointToScreen(viewPoint);
         return new FloatingPlacementHint(screen.X, screen.Y, _grab.X, _grab.Y);
     }
     private async void EndGesture(object sender, MouseButtonEventArgs e)
     {
         if (!_dragging || _candidate is null) { _candidate = null; return; }
         e.Handled = true;
-        var surface = _candidate; _candidate = null;
-        await FinishDrag(surface, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
+        await FinishDrag(_candidate, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
     }
     private async void CaptureLost(object sender, MouseEventArgs e)
     {
-        if (!_dragging || _candidate is null) return;
-        // A child button releasing its own capture during hand-off must not end the drag.
-        if (!ReferenceEquals(e.OriginalSource, _candidate)) return;
-        var surface = _candidate; _candidate = null;
+        // A child button releasing its capture during hand-off does not end the drag.
+        if (!_dragging || _candidate is not { } surface || !ReferenceEquals(e.OriginalSource, surface)) return;
+        if (e.LeftButton == MouseButtonState.Pressed) { CancelDrag(); return; }
         await FinishDrag(surface, e.GetPosition((UIElement?)Window.GetWindow(this) ?? this), e.GetPosition(this));
     }
     internal async Task FinishDrag(FrameworkElement surface, Point windowPosition, Point viewPosition)
     {
-        EndPreview();
-        if (surface.DataContext is not TaskPeekRow row) { CancelDrag(); return; }
+        if (!_dragging || !ReferenceEquals(surface, _candidate)) return;
         var window = Window.GetWindow(this);
-        var outside = window is not null && (windowPosition.X < 0 || windowPosition.Y < 0 || windowPosition.X > window.ActualWidth || windowPosition.Y > window.ActualHeight);
-        var opening = new CancellationTokenSource(); _opening = opening;
-        var screen = window?.PointToScreen(viewPosition);
-        try { if (outside && screen is not null && DetachRequested is { } request) await request(row, new(screen.Value.X, screen.Value.Y, _grab.X, _grab.Y), opening.Token); }
-        finally { if (ReferenceEquals(_opening, opening)) { _opening = null; CancelDrag(); } opening.Dispose(); }
+        if (window is null || new Rect(window.RenderSize).Contains(windowPosition) ||
+            surface.DataContext is not TaskPeekRow row || Hint(viewPosition) is not { } hint || DetachRequested is not { } request)
+        {
+            CancelDrag();
+            return;
+        }
+
+        using var opening = new CancellationTokenSource();
+        _opening = opening;
+        ResetGesture();
+        bool opened;
+        try { opened = await request(row, hint, opening.Token); }
+        finally
+        {
+            if (ReferenceEquals(_opening, opening))
+            {
+                _opening = null;
+                DragChanged?.Invoke(false);
+            }
+        }
+        if (opened && !opening.IsCancellationRequested) Detached?.Invoke();
     }
     internal bool CancelDrag()
     {
-        EndPreview();
+        var was = _dragging || _opening is not null;
         var opening = _opening; _opening = null; opening?.Cancel();
-        var was = _dragging; _dragging = false;
+        ResetGesture();
+        if (was) DragChanged?.Invoke(false);
+        return was;
+    }
+    private void ResetGesture()
+    {
+        _dragging = false;
         if (_preview is not null)
         {
             AdornerLayer.GetAdornerLayer(this)?.Remove(_preview);
@@ -133,8 +154,8 @@ internal partial class TaskPeekView : UserControl
         _escapeHandler = null;
         var surface = _candidate; _candidate = null;
         if (surface?.IsMouseCaptured == true) surface.ReleaseMouseCapture();
-        if (was) DragChanged?.Invoke(false);
-        return was;
+        _suppressClick = false;
+        EndPreview();
     }
     private void OpenMenu(object sender, ContextMenuEventArgs e)
     {
