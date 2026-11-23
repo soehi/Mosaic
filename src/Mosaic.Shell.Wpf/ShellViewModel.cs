@@ -78,19 +78,10 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
                 await ShellSettingsApplier.ApplyAsync(current);
             }
         }
-        if (_settingsPages is not null && InitialValues is { } initial && !IsAccountChoiceMade(initial) &&
-            _settingsPages.Pages.FirstOrDefault() is { } firstPage && _registry.Find("settings.home") is not null)
-        {
-            _firstChoiceActive = true;
-            _settingsPages.IsInitialChoiceActive = true;
-            _settingsPages.InitialGroupId = firstPage.GroupId;
-            await NavigateToViewAsync("settings.home");
-            _settingsPages.InitialGroupId = null;
-        }
-        else if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
+        // 无论是否完成过账户选择，启动都落在导航第一项（任务页）。账户选择只在用户
+        // 主动进入账户设置或退出登录后出现，不再劫持启动路径。
+        if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
     }
-    internal static bool IsAccountChoiceMade(IReadOnlyDictionary<string, object?> values) =>
-        values.TryGetValue("auth.accountChoiceMade", out var raw) && raw is true;
     internal static string? ReadString(IReadOnlyDictionary<string, object?> values, string id) =>
         values.TryGetValue(id, out var raw) ? raw as string : null;
     private async Task NavigateAsync(NavigationItem? item)

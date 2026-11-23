@@ -616,6 +616,30 @@ public sealed class AccountViewModelTests
     });
 
     [Fact]
+    public Task A_signed_out_account_page_shows_the_choice_without_an_open_first_run_flow() => Run(async () =>
+    {
+        await using var fixture = new Fixture();
+        Assert.False(fixture.Pages.IsInitialChoiceActive);
+        await fixture.StartAsync();
+        await fixture.ViewModel.InitializeAsync();
+
+        // 启动页固定为任务页后，用户从设置进入账户页也必须看到登录入口，而不是空白设置页。
+        Assert.True(fixture.ViewModel.ShowStartPage);
+        Assert.False(fixture.ViewModel.ShowAccountSettings);
+        Assert.True(fixture.ViewModel.ShowLoginCard);
+    });
+
+    [Fact]
+    public Task A_signed_in_account_page_switches_from_the_start_page_to_settings() => Run(async () =>
+    {
+        await using var fixture = await new Fixture().StartAsync(signedIn: true);
+        await fixture.ViewModel.InitializeAsync();
+
+        Assert.True(fixture.ViewModel.ShowAccountSettings);
+        Assert.False(fixture.ViewModel.ShowStartPage);
+    });
+
+    [Fact]
     public Task Choosing_offline_completes_the_first_run_choice_for_the_settings_shell() => Run(async () =>
     {
         await using var fixture = new Fixture();

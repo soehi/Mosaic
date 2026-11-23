@@ -207,17 +207,31 @@
                                                        FontSize="12"
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                                            <!-- 回形针只做存在性提示，不显示附件数量 -->
-                                            <TextBlock Grid.Column="1"
-                                                       Text="&#xE723;"
-                                                       FontFamily="Segoe MDL2 Assets"
-                                                       FontSize="13"
-                                                       Margin="8,0,0,0"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"
-                                                       ToolTip="{DynamicResource Tasks.Attachments.Indicator}"
-                                                       AutomationProperties.Name="{Binding AccessibilityLabel}"
-                                                       Visibility="{Binding HasAttachments, Converter={StaticResource BoolVisibility}}"/>
+                                            <!-- 回形针只做存在性提示，不显示附件数量。
+                                                 矢量化绘制不依赖 Segoe MDL2 字体是否可用；胶囊底色让图标在深浅两套调色板下都保持可辨。 -->
+                                            <Border Grid.Column="1"
+                                                    Height="18" MinWidth="22"
+                                                    Margin="8,0,0,0" Padding="4,0"
+                                                    VerticalAlignment="Center"
+                                                    CornerRadius="9"
+                                                    Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
+                                                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                                                    BorderThickness="1"
+                                                    ToolTip="{DynamicResource Tasks.Attachments.Indicator}"
+                                                    AutomationProperties.Name="{DynamicResource Tasks.Attachments.Indicator}"
+                                                    Visibility="{Binding HasAttachments, Converter={StaticResource BoolVisibility}}">
+                                                <Path Width="10" Height="12"
+                                                      Stretch="Uniform"
+                                                      Data="M 16.5,6 L 16.5,17.5 A 4.5,4.5 0 0 1 7.5,17.5 L 7.5,5 A 3,3 0 0 1 13.5,5 L 13.5,15.5 A 1.5,1.5 0 0 1 10.5,15.5 L 10.5,6"
+                                                      Stroke="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"
+                                                      StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round"
+                                                      StrokeEndLineCap="Round"
+                                                      StrokeLineJoin="Round"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      SnapsToDevicePixels="True"/>
+                                            </Border>
                                         </Grid>
                                     </StackPanel>
                                 </Grid>

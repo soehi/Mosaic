@@ -415,4 +415,380 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <!-- ===== 深色模式补齐：以下控件此前直接落在 Aero2 默认模板上，深色调色板下会出现
+         白底黑字、系统色高亮或系统色菜单等与主题割裂的区域。模板全部使用动态画笔，
+         切换调色板时无需重建。 ===== -->
+
+    <Style TargetType="ToolTip">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+        <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="MaxWidth" Value="380"/>
+        <Setter Property="HasDropShadow" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="8"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#000000" Opacity="0.26" BlurRadius="14" ShadowDepth="2" Direction="270"/>
+                        </Border.Effect>
+                        <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="CheckBoxBorder"
+                                Width="18" Height="18" CornerRadius="5"
+                                VerticalAlignment="Center"
+                                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                                BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.ControlHoverBorderBrushKey}}"
+                                BorderThickness="1.4"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Path x:Name="CheckGlyph"
+                                      Width="10" Height="8" Stretch="Uniform"
+                                      Data="M 1,5 L 4.2,8 L 10,1.6"
+                                      Stroke="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Visibility="Collapsed"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Path x:Name="MixedGlyph"
+                                      Width="9" Height="2" Stretch="Fill"
+                                      Data="M 0,0 L 9,0"
+                                      Stroke="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Visibility="Collapsed"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <ContentPresenter Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                          RecognizesAccessKey="True"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CheckBoxBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="CheckBoxBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="CheckBoxBorder" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
+                            <Setter TargetName="CheckBoxBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
+                            <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="{x:Null}">
+                            <Setter TargetName="CheckBoxBorder" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
+                            <Setter TargetName="MixedGlyph" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                            <Setter TargetName="CheckBoxBorder" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledSurfaceBrushKey}}"/>
+                            <Setter TargetName="CheckBoxBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="RadioBorder"
+                                Width="18" Height="18" CornerRadius="9"
+                                VerticalAlignment="Center"
+                                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                                BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.ControlHoverBorderBrushKey}}"
+                                BorderThickness="1.4"
+                                SnapsToDevicePixels="True">
+                            <Ellipse x:Name="RadioDot"
+                                     Width="8" Height="8"
+                                     Fill="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"
+                                     Visibility="Collapsed"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ContentPresenter Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                          RecognizesAccessKey="True"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="RadioBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="RadioBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="RadioBorder" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
+                            <Setter TargetName="RadioBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
+                            <Setter TargetName="RadioDot" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                            <Setter TargetName="RadioBorder" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledSurfaceBrushKey}}"/>
+                            <Setter TargetName="RadioBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="PasswordBox">
+        <Setter Property="Padding" Value="13,10"/>
+        <Setter Property="MinHeight" Value="42"/>
+        <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.SelectionBrushKey}}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border x:Name="PasswordBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="8"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="PasswordBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.ControlHoverBorderBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="PasswordBorder" Property="BorderBrush"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"/>
+                            <Setter TargetName="PasswordBorder" Property="BorderThickness" Value="2"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="PasswordBorder" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledSurfaceBrushKey}}"/>
+                            <Setter Property="Foreground"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ProgressBar">
+        <Setter Property="Height" Value="5"/>
+        <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledSurfaceBrushKey}}"/>
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid x:Name="ProgressRoot" ClipToBounds="True" SnapsToDevicePixels="True">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="2.5"/>
+                        <Border x:Name="PART_Indicator"
+                                HorizontalAlignment="Left"
+                                Background="{TemplateBinding Foreground}"
+                                CornerRadius="2.5"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Setter TargetName="PART_Indicator" Property="HorizontalAlignment" Value="Stretch"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="IndeterminateStoryboard">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="PART_Indicator"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         From="0.25" To="1"
+                                                         Duration="0:0:0.9"
+                                                         AutoReverse="True"
+                                                         RepeatBehavior="Forever"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="IndeterminateStoryboard"/>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="4"/>
+        <Setter Property="HasDropShadow" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="9"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#000000" Opacity="0.3" BlurRadius="16" ShadowDepth="3" Direction="270"/>
+                        </Border.Effect>
+                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Grid>
+                        <Border x:Name="MenuItemHeader"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter ContentSource="Icon"
+                                                  VerticalAlignment="Center"
+                                                  Margin="0,0,8,0"/>
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                <TextBlock Grid.Column="2"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           Margin="24,0,0,0"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                <Path x:Name="SubmenuArrow"
+                                      Grid.Column="3"
+                                      Data="M 0,0 L 4.5,4.5 L 0,9"
+                                      Margin="12,0,0,0"
+                                      Stroke="{TemplateBinding Foreground}"
+                                      StrokeThickness="1.3"
+                                      VerticalAlignment="Center"
+                                      Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <Popup x:Name="PART_Popup"
+                               Placement="Right"
+                               HorizontalOffset="-2"
+                               IsOpen="{TemplateBinding IsSubmenuOpen}"
+                               AllowsTransparency="True"
+                               Focusable="False"
+                               PopupAnimation="Fade">
+                            <Border Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"
+                                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
+                                    BorderThickness="1"
+                                    CornerRadius="9"
+                                    Padding="4"
+                                    Margin="0,0,6,0">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#000000" Opacity="0.3" BlurRadius="16" ShadowDepth="3" Direction="270"/>
+                                </Border.Effect>
+                                <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="MenuItemHeader" Property="Background"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                        </Trigger>
+                        <Trigger Property="Role" Value="SubmenuHeader">
+                            <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Margin="8,4"
+                            Background="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

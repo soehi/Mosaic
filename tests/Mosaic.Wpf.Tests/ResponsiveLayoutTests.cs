@@ -369,6 +369,34 @@ public sealed class ResponsiveLayoutTests
         shell.UpdateLayout();
     }
 
+    [Fact]
+    public Task Shell_starts_on_tasks_even_when_the_account_choice_is_still_open() => Sta.Run(async () =>
+    {
+        var registry = new ContributionRegistry();
+        var dialogs = new Dialogs();
+        var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
+        await module.ActivateAsync();
+        using var registration = registry.Register(module.Navigation, module.Views);
+
+        // 手工制造“未完成首次账户选择”的状态：启动路径不应再被 settings.home 劫持。
+        var settingsPages = new SettingsPageRegistry();
+        var shell = new ShellWindow(registry, dialogs, null, settingsPages)
+        {
+            Left = -4000,
+            Top = -4000,
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false
+        };
+        shell.Resources.MergedDictionaries.Add(LoadTheme());
+
+        await shell.InitializeAsync();
+
+        Assert.Equal("tasks.navigation", Get<string>(shell.DataContext!, "CurrentNavigationId"));
+        Assert.False(settingsPages.IsInitialChoiceActive);
+        await shell.DisposeAsync();
+    });
+
     private static void Arrange(FrameworkElement element, double width, double height)
     {
         var size = new Size(width, height);

@@ -40,17 +40,11 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private readonly Action<Uri> _openUri;
     private readonly Action<string> _copyText;
     private readonly SettingsPageRegistry? _settingsPages;
-    private bool _showStartPage;
 
-    public bool ShowStartPage
-    {
-        get => _showStartPage;
-        private set
-        {
-            if (SetProperty(ref _showStartPage, value)) OnPropertyChanged(nameof(ShowAccountSettings));
-        }
-    }
-    public bool ShowAccountSettings => !ShowStartPage;
+    // 未登录时账户页永远是选择/登录界面：启动页不再被首次运行流程占用，
+    // 用户从设置进入账户页时也必须能看到登录、设备码或离线三种入口，而不是空白页。
+    public bool ShowStartPage => IsSignedOut;
+    public bool ShowAccountSettings => IsSignedIn;
     private readonly CancellationTokenSource _lifetime = new();
 
     private CancellationTokenSource? _devicePolling;
@@ -102,7 +96,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _openUri = openUri ?? DefaultOpenUri;
         _copyText = copyText ?? DefaultCopy;
         _settingsPages = settingsPages;
-        ShowStartPage = settingsPages?.IsInitialChoiceActive == true;
         Sessions = new(_sessions);
 
         StartDeviceCommand = Async(StartDeviceAsync);
@@ -532,7 +525,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             }
         }
         _offlineChosen = false;
-        ShowStartPage = true;
         _settingsPages?.RequestStartPage();
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
@@ -1054,6 +1046,8 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     {
         OnPropertyChanged(nameof(IsSignedIn));
         OnPropertyChanged(nameof(IsSignedOut));
+        OnPropertyChanged(nameof(ShowStartPage));
+        OnPropertyChanged(nameof(ShowAccountSettings));
         OnPropertyChanged(nameof(IsServerConfigured));
         OnPropertyChanged(nameof(ServerText));
         OnPropertyChanged(nameof(ServerDisplay));

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using Mosaic.Presentation.Contracts;
+using Mosaic.Presentation.Wpf;
 
 namespace Mosaic.Shell.Wpf;
 
@@ -41,6 +42,7 @@ public partial class ShellWindow : Window, IAsyncDisposable
         VersionText.Text = MosaicVersion.Display;
         VersionText.ToolTip = MosaicVersion.Display;
         _model = new(contributions, dialogs, settings, settingsPages); DataContext = _model;
+        MosaicWindowChrome.Attach(this);
         ShellSettingsApplier.Attach(this);
         Closed += (_, _) => ShellSettingsApplier.Detach(this);
     }

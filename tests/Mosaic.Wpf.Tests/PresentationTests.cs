@@ -382,7 +382,7 @@ public sealed class PresentationTests
         var root = new ResourceDictionary();
         root.MergedDictionaries.Add(LoadTheme());
         MosaicThemeManager.Apply(root, MosaicThemeVariant.Dark);
-        Assert.Equal(Color.FromRgb(0x0F, 0x15, 0x12), Assert.IsType<SolidColorBrush>(root[MosaicTheme.CanvasBrushKey]).Color);
+        Assert.Equal(Color.FromRgb(0x0B, 0x11, 0x0D), Assert.IsType<SolidColorBrush>(root[MosaicTheme.CanvasBrushKey]).Color);
         Assert.Equal(Color.FromRgb(0xE6, 0xF0, 0xE9), Assert.IsType<SolidColorBrush>(root[MosaicTheme.TextPrimaryBrushKey]).Color);
         MosaicThemeManager.Apply(root, MosaicThemeVariant.Light);
         Assert.Equal(Color.FromRgb(0xF7, 0xF9, 0xF5), Assert.IsType<SolidColorBrush>(root[MosaicTheme.CanvasBrushKey]).Color);

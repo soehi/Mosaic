@@ -64,6 +64,15 @@
     <CustomAction Id="BrowseInstallFolder" BinaryRef="MosaicActions" DllEntry="BrowseInstallFolder" Execute="immediate" Return="check" />
     <CustomAction Id="VerifyRepairedPayload" BinaryRef="MosaicActions" DllEntry="VerifyRepairedPayload" Execute="immediate" Return="check" />
     <CustomAction Id="SetArpInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" />
+    <!-- 安装/升级/实际修复结束后默认启动 Mosaic。ExeCommand（Type 34）+ asyncNoWait：
+         进程拉起后立即返回，不阻塞安装程序的完成页；只在完整 UI 序列中调度，静默安装、
+         卸载与「健康维护」不会多开一个实例。 -->
+    <CustomAction Id="LaunchMosaic"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]Mosaic.Desktop.exe&quot;"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
     <InstallExecuteSequence>
       <Custom Action="DetectInstallState" Sequence="26" Condition="NOT REMOVE" />
       <!-- 卸载要在 CostFinalize 之前把 INSTALLFOLDER 指回产品登记的位置，否则自定义位置的文件不会被移除。 -->
@@ -98,6 +107,9 @@
       <Show Dialog="ProgressDlg" Sequence="1290" />
       <!-- 修复完成后在 UI 侧复检并显示结论（成功、待重启或失败）；静默安装由 ExecuteSequence 6700 复检。 -->
       <Custom Action="VerifyRepairedPayload" Sequence="1301" Condition="NOT REMOVE AND REINSTALL" />
+      <!-- 完成页出现前启动应用：新装、升级与实际修复都算安装完成；
+           健康维护没有改动任何文件，保持“只检查、不启动”。 -->
+      <Custom Action="LaunchMosaic" Sequence="1302" Condition="NOT REMOVE AND NOT (MOSAICSTATE = &quot;Maintenance&quot; AND MOSAICSCANSTATUS = &quot;Healthy&quot;)" />
       <Show Dialog="Exit" Sequence="1303" />
       <Show Dialog="FatalError" OnExit="error" />
       <Show Dialog="UserExit" OnExit="cancel" />

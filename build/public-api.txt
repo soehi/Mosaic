@@ -107,6 +107,7 @@ Mosaic.Presentation.Wpf.MosaicLocalizationManager
 Mosaic.Presentation.Wpf.MosaicTheme
 Mosaic.Presentation.Wpf.MosaicThemeManager
 Mosaic.Presentation.Wpf.MosaicThemeVariant
+Mosaic.Presentation.Wpf.MosaicWindowChrome
 Mosaic.ReleaseSummary.IReleaseSummaryApi
 Mosaic.ReleaseSummary.ReleaseContent
 Mosaic.ReleaseSummary.ReleaseManifest

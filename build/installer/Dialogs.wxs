@@ -64,7 +64,7 @@
         <Control Id="Title" Type="Text" X="15" Y="15" Width="340" Height="24" Transparent="yes" NoPrefix="yes" Text="{\MosaicFontBold}确认安装" />
         <Control Id="TargetLabel" Type="Text" X="15" Y="50" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}Mosaic 将安装到：" />
         <Control Id="Target" Type="Text" X="15" Y="68" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="[INSTALLFOLDER]" />
-        <Control Id="Hint" Type="Text" X="15" Y="110" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}同时会创建桌面和开始菜单快捷方式。安装完成后不会自动启动程序。" />
+        <Control Id="Hint" Type="Text" X="15" Y="110" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}同时会创建桌面和开始菜单快捷方式。安装完成后会自动启动 Mosaic，用户数据与设置保留在本地。" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="上一步">
           <Publish Event="NewDialog" Value="LocationDlg" />
         </Control>
@@ -107,7 +107,7 @@
         <Control Id="Version" Type="Text" X="15" Y="50" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}[MOSAICINSTALLEDVERSION] 将升级到 [ProductVersion]。" />
         <Control Id="LocationLabel" Type="Text" X="15" Y="72" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}安装位置保持不变：" />
         <Control Id="Location" Type="Text" X="15" Y="90" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="[MOSAICINSTALLEDLOCATION]" />
-        <Control Id="Hint" Type="Text" X="15" Y="130" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}升级会替换程序文件，保留用户数据、配置和备份。正在运行的 Mosaic 会在升级开始前自动关闭，升级完成后可重新打开。" />
+        <Control Id="Hint" Type="Text" X="15" Y="130" Width="340" Height="60" Transparent="yes" NoPrefix="yes" Text="{\MosaicFont}升级会替换程序文件，保留用户数据、配置和备份。正在运行的 Mosaic 会在升级开始前自动关闭，升级完成后自动重新打开，并沿用现有用户设置。" />
         <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="升级">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
