@@ -13,6 +13,9 @@ internal static class TaskLocalization
     public static string Localize(string key, string fallback) =>
         Mosaic.Presentation.Wpf.MosaicLocalizationManager.TryFindResource(key) ?? fallback;
 
+    public static string AttachmentCountLabel(long count) =>
+        Format("Tasks.Attachments.Accessibility", "{0} 个附件", count);
+
     public static string Format(string key, string fallback, params object?[] arguments) =>
         string.Format(System.Globalization.CultureInfo.CurrentCulture, Localize(key, fallback), arguments);
 }

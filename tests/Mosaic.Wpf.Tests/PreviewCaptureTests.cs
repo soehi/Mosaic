@@ -40,6 +40,7 @@ public sealed class PreviewCaptureTests
         await CaptureTasksOnly(output, 920, 780, "tasks-detail-920.png", selectTask: true);
         await CaptureTasksOnly(output, 480, 480, "tasks-list-480.png", selectTask: false);
         await CaptureTasksOnly(output, 460, 640, "tasks-list-narrow.png", selectTask: false);
+        await CaptureTasksOnly(output, 460, 640, "tasks-list-narrow-dark.png", selectTask: false, MosaicThemeVariant.Dark);
         await CaptureSettings(output, 1220, 780, "settings-wide.png");
         await CaptureSettings(output, 760, 620, "settings-760.png");
         await CaptureSettings(output, 1100, 720, "settings-dark.png", variant: MosaicThemeVariant.Dark);
@@ -82,7 +83,8 @@ public sealed class PreviewCaptureTests
         double width,
         double height,
         string fileName,
-        bool selectTask)
+        bool selectTask,
+        MosaicThemeVariant variant = MosaicThemeVariant.Light)
     {
         var dialogs = new Dialogs();
         var module = new TasksUiModule(new(new Api(), new UiDispatcher(Dispatcher.CurrentDispatcher), dialogs, new Diagnostics()));
@@ -96,6 +98,10 @@ public sealed class PreviewCaptureTests
             await select.ExecuteAsync(Api.First);
         }
         var resources = LoadTheme();
+        resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri($"/Mosaic.Presentation.Wpf;component/Themes/Palettes/{variant}.xaml", UriKind.Relative)
+        });
         var host = new Grid { Resources = resources };
         host.Children.Add(page.View);
         Arrange(host, width, height);
@@ -249,7 +255,7 @@ public sealed class PreviewCaptureTests
             false,
             DateTimeOffset.UtcNow.AddDays(-2),
             DateTimeOffset.UtcNow.AddDays(-1),
-            3);
+            3) { AttachmentCount = 2 };
         private static readonly TaskItemDto Second = new(
             Guid.NewGuid(),
             "给任务页补上窄窗口布局",

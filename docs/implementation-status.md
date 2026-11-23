@@ -1,5 +1,31 @@
 # Mosaic：实施与验证记录
 
+## 0.18.9 源码更新 · 任务列表与速览
+
+- 主任务列表使用圆角状态徽标，深色模式下提高未完成任务标题的可读性。
+- 主任务列表与任务速览共用矢量回形针。有附件的任务在行右侧显示回形针，悬停可查看数量。
+- 任务速览用图标区分完成状态，顶部筛选和屏幕阅读器的状态提示仍可使用。旧安装保存的「显示状态文字」设置值会被忽略，其余设置照常读取。
+
+### 移除速览行状态文字
+
+- 原有行为来自 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml` 的 `TaskCard` 模板。状态文字占用独立列，由 `TaskPeekRow.StatusVisibility` 读取默认开启的 `desktop.popup.showStatusText`，与左侧状态图标重复显示。
+- `TaskPeekView.xaml:140` 删除状态列，回形针靠右。`Internal/TaskPeekViewFactory.cs` 的 `TaskPeekRow` 移除文字可见性属性，`AccessibleName` 仍提供本地化的完成状态。`src/Mosaic.Presentation.Contracts/PresentationContracts.cs` 的 `CompanionViewOptions` 移除该开关。`src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs:163` 不再读取旧设置，`PresenceSettings.cs` 移除定义与显示名索引，`PresenceLocalization.cs` 移除对应说明。
+- 旧安装兼容处理由设置核心 `SettingsService.GetValuesAsync` 按现行定义筛选：旧 `desktop.popup.showStatusText` 即使保存为 `true` 也不再生效，持久值保留以支持回退。`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 的 `Settings_register_28_rows_project_6_normal_validate_save_and_revoke` 验证旧键从运行时和值列表消失，且已保存的标题字号仍生效。该文件的速览用例验证状态图标、无障碍名称、回形针右对齐和整行拖动。
+- 本次源码更新的 Release 方案构建为 0 警告、0 错误。16 个测试工程共 482 项全部通过，其中 171 项 WPF 测试验证界面行为，55 项桌面冒烟测试使用本次构建的桌面程序。
+
+### 任务状态与附件图标
+
+- 原有实现位于 `Views/TasksView.xaml` 的任务行模板，状态使用 `○` 和 `✓` 字符，旧回形针嵌在创建时间行。`Internal/TaskPeekViewFactory.cs` 的 `TaskPeekViewModel.UpdateView` 已能获得 `TaskItemDto.AttachmentCount`，但投影为 `TaskPeekRow` 时没有传入该字段，速览模板也没有附件徽标。
+- `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml:187` 使用圆角底板区分未完成圆点和已完成对勾，并将附件徽标放在独立右列。新增 `Themes/TaskRowIcons.xaml` 为主列表与速览提供共用的斜向矢量回形针和显示规则。`Internal/TaskPeekView.xaml:140` 在速览卡片右侧使用同一徽标。`Internal/TaskPeekViewFactory.cs` 的 `TaskPeekRow` 与 `TaskPeekViewModel.UpdateView` 传递附件数量，并将其加入有附件任务的无障碍标签。`Internal/TaskListItemViewModel.cs` 的 `AttachmentLabel` 与速览共用 `Internal/TaskLocalization.cs` 的 `AttachmentCountLabel`。
+- `tests/Mosaic.Wpf.Tests/PresentationTests.cs` 的 `Task_list_renders_status_marks_and_shows_paperclip_only_with_attachments` 验证浅色、深色及高对比度主题。`tests/Mosaic.Wpf.Tests/PresenceTests.cs` 的附件徽标回归验证窄布局与刷新后的附件显隐；速览预览示例加入有附件行，原有状态图标断言改用 `CompletionMark`。`tests/Mosaic.Wpf.Tests/PreviewCaptureTests.cs` 的 `Write_required_responsive_previews_to_artifacts` 增加含附件的深色列表预览。
+- 已查看主列表与速览的浅色和深色截图。此次改动复用现有附件计数，无数据、配置或安装迁移。
+
+### 深色模式任务标题
+
+- 根因位于 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml:227` 的主任务列表标题模板。原样式仅在 `IsCompleted=True` 时指定主题字色。未完成项继承列表项的默认前景色，WPF 用例实测为 `#000000`，与深色普通行背景的对比度为 1.27:1。
+- `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml:232` 为标题样式添加 `TextPrimaryBrushKey` 动态资源。完成项的触发器继续使用 `TextSecondaryBrushKey` 和删除线。`tests/Mosaic.Wpf.Tests/PresentationTests.cs` 的 `Task_list_titles_use_readable_theme_colors_in_dark_mode` 检查实际生成的列表行，覆盖普通和选中背景下两种完成状态的字色、至少 4.5:1 的对比度及完成项删除线。本节记录本次改动及验证结果。
+- 专项用例在旧样式下复现黑色标题，修复后通过。深色模式下，未完成项与普通、选中背景的对比度分别为 14.15:1、10.00:1。Release 构建 0 警告、0 错误，WPF 测试 166 项全部通过。这次改动仅涉及标题显示，无数据或配置迁移。
+
 ## 0.18.9：设置分区切换布局（2026-11-23）
 
 - 根因：`src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml:105` 的 `SubtitleText` 和 `ModeBar` 原先把可见性绑定到 `HasSelectedPage` 的反值。`SettingsViewModel.SelectPageAsync` 在模块页初始化完成后更新该状态，WPF 随即折叠这两处控件并缩短顶部 `Auto` 行，使下方导航与内容整体上移。回归用例在 860 × 620 的布局中复现导航顶部从 155.33 移到 53.33，相差 102 个设备无关单位。

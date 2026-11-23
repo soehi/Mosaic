@@ -10,7 +10,12 @@
              UseLayoutRounding="True"
              SnapsToDevicePixels="True">
     <UserControl.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Mosaic.Tasks.Wpf;component/Themes/TaskRowIcons.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
+        </ResourceDictionary>
     </UserControl.Resources>
 
     <Grid x:Name="LayoutRoot"
@@ -175,19 +180,56 @@
                             <DataTemplate>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="30"/>
+                                        <ColumnDefinition Width="34"/>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding CompletionGlyph}"
-                                               FontSize="20"
-                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.FocusBrushKey}}"
-                                               AutomationProperties.Name="{Binding CompletionLabel}"/>
+                                    <Border x:Name="CompletionBadge" Width="22" Height="22" CornerRadius="7"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            ToolTip="{Binding CompletionLabel}"
+                                            AutomationProperties.Name="{Binding CompletionLabel}">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"/>
+                                                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+                                                <Setter Property="BorderThickness" Value="1"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonBackgroundBrushKey}}"/>
+                                                        <Setter Property="BorderThickness" Value="0"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Path x:Name="CompletionMark" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Data">
+                                                        <Setter.Value>
+                                                            <EllipseGeometry Center="3,3" RadiusX="3" RadiusY="3"/>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <Setter Property="Fill" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                                                            <Setter Property="Data" Value="M 0,5 L 4,9 L 12,1"/>
+                                                            <Setter Property="Fill" Value="{x:Null}"/>
+                                                            <Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonTextBrushKey}}"/>
+                                                            <Setter Property="StrokeThickness" Value="1.8"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                    </Border>
                                     <StackPanel Grid.Column="1">
                                         <TextBlock Text="{Binding Title}"
                                                    TextTrimming="CharacterEllipsis"
                                                    FontSize="15">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsCompleted}" Value="True">
                                                             <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
@@ -197,42 +239,15 @@
                                                 </Style>
                                             </TextBlock.Style>
                                         </TextBlock>
-                                        <Grid Margin="0,7,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding CreatedLabel}"
-                                                       FontSize="12"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                                            <!-- 回形针只做存在性提示，不显示附件数量。
-                                                 矢量化绘制不依赖 Segoe MDL2 字体是否可用；胶囊底色让图标在深浅两套调色板下都保持可辨。 -->
-                                            <Border Grid.Column="1"
-                                                    Height="18" MinWidth="22"
-                                                    Margin="8,0,0,0" Padding="4,0"
-                                                    VerticalAlignment="Center"
-                                                    CornerRadius="9"
-                                                    Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
-                                                    BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
-                                                    BorderThickness="1"
-                                                    ToolTip="{Binding AttachmentLabel}"
-                                                    AutomationProperties.Name="{Binding AttachmentLabel}"
-                                                    Visibility="{Binding HasAttachments, Converter={StaticResource BoolVisibility}}">
-                                                <Path Width="10" Height="12"
-                                                      Stretch="Uniform"
-                                                      Data="M 16.5,6 L 16.5,17.5 A 4.5,4.5 0 0 1 7.5,17.5 L 7.5,5 A 3,3 0 0 1 13.5,5 L 13.5,15.5 A 1.5,1.5 0 0 1 10.5,15.5 L 10.5,6"
-                                                      Stroke="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"
-                                                      StrokeThickness="1.5"
-                                                      StrokeStartLineCap="Round"
-                                                      StrokeEndLineCap="Round"
-                                                      StrokeLineJoin="Round"
-                                                      HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"
-                                                      SnapsToDevicePixels="True"/>
-                                            </Border>
-                                        </Grid>
+                                        <TextBlock Text="{Binding CreatedLabel}"
+                                                   Margin="0,7,0,0"
+                                                   FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
                                     </StackPanel>
+                                    <Border x:Name="AttachmentBadge" Grid.Column="2" Style="{StaticResource TaskAttachmentBadge}">
+                                        <Path Style="{StaticResource TaskPaperclip}"/>
+                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

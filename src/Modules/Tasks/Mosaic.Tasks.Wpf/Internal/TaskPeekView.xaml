@@ -1,59 +1,64 @@
 <UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:theme="clr-namespace:Mosaic.Presentation.Wpf;assembly=Mosaic.Presentation.Wpf" x:Class="Mosaic.Tasks.Wpf.Internal.TaskPeekView" x:ClassModifier="internal" AutomationProperties.AutomationId="TaskPeekView">
     <UserControl.Resources>
-        <Style x:Key="PeekStatusGlyph" TargetType="Path">
-            <Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsCompleted}" Value="True">
-                    <Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding HasCustomColor}" Value="True">
-                    <Setter Property="Stroke" Value="{Binding CustomColor}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="PeekFilterButton" TargetType="RadioButton">
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
-            <Setter Property="MinHeight" Value="26"/>
-            <Setter Property="MinWidth" Value="54"/>
-            <Setter Property="Margin" Value="1,0"/>
-            <Setter Property="Padding" Value="10,3"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="IsMouseOver" Value="True"/>
-                                    <Condition Property="IsChecked" Value="False"/>
-                                </MultiTrigger.Conditions>
-                                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
-                            </MultiTrigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
-                                <Setter Property="FontWeight" Value="SemiBold"/>
-                                <Setter TargetName="Frame" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
-                                <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Frame" Property="Opacity" Value="0.72"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Frame" Property="Opacity" Value="1"/>
-                                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Mosaic.Tasks.Wpf;component/Themes/TaskRowIcons.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="PeekStatusGlyph" TargetType="Path">
+                <Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                        <Setter Property="Stroke" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding HasCustomColor}" Value="True">
+                        <Setter Property="Stroke" Value="{Binding CustomColor}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="PeekFilterButton" TargetType="RadioButton">
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{DynamicResource MosaicButtonFocusVisual}"/>
+                <Setter Property="MinHeight" Value="26"/>
+                <Setter Property="MinWidth" Value="54"/>
+                <Setter Property="Margin" Value="1,0"/>
+                <Setter Property="Padding" Value="10,3"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsMouseOver" Value="True"/>
+                                        <Condition Property="IsChecked" Value="False"/>
+                                    </MultiTrigger.Conditions>
+                                    <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
+                                </MultiTrigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentTextBrushKey}}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter TargetName="Frame" Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
+                                    <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Frame" Property="Opacity" Value="0.72"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Frame" Property="Opacity" Value="1"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.DisabledTextBrushKey}}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
     </UserControl.Resources>
     <Grid>
         <Grid x:Name="ListPage">
@@ -103,7 +108,7 @@
                                         <Button x:Name="CompleteButton" AutomationProperties.AutomationId="PeekComplete" Click="CompleteTask" Width="30" Padding="4" Margin="0,0,4,0" Visibility="{Binding CompletionVisibility}" IsEnabled="{Binding CanComplete}" AutomationProperties.Name="{Binding CompletionName}" ToolTip="{Binding CompletionName}" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}">
                                             <Grid>
                                                 <TextBlock Text="…" Visibility="{Binding BusyVisibility}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                <Path Visibility="{Binding GlyphVisibility}" Width="18" Height="18" Stretch="Uniform" Data="{Binding Geometry}" StrokeThickness="1.7" Style="{StaticResource PeekStatusGlyph}"/>
+                                                <Path x:Name="CompletionMark" Visibility="{Binding GlyphVisibility}" Width="18" Height="18" Stretch="Uniform" Data="{Binding Geometry}" StrokeThickness="1.7" Style="{StaticResource PeekStatusGlyph}"/>
                                             </Grid>
                                         </Button>
                                         <Button x:Name="TaskCard" Grid.Column="1" Click="OpenTask" ContextMenuOpening="OpenMenu" Padding="{Binding Padding}" BorderThickness="1" HorizontalContentAlignment="Stretch" Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}" BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}" AutomationProperties.Name="{Binding AccessibleName}" ToolTip="{DynamicResource Tasks.Peek.ViewDetails}">
@@ -132,7 +137,9 @@
                                                         </Style>
                                                     </TextBlock.Style>
                                                 </TextBlock>
-                                                <TextBlock Grid.Column="2" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                                <Border x:Name="AttachmentBadge" Grid.Column="2" Margin="0" Style="{StaticResource TaskAttachmentBadge}">
+                                                    <Path Style="{StaticResource TaskPaperclip}"/>
+                                                </Border>
                                             </Grid>
                                         </Button>
                                     </Grid>

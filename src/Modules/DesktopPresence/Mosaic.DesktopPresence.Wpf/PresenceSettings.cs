@@ -36,7 +36,6 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         Define("desktop.popup.rowPaddingY", "任务行纵向留白", "每行上方和下方的留白（DIP）", 12, min: 6, max: 20),
         Define("desktop.popup.titleFontSize", "速览标题字号", "任务标题字号（DIP）", 14, min: 12, max: 20),
         Define("desktop.popup.titleMaxLines", "标题最多行数", "超出行数省略，悬停可查看完整标题", 2, min: 1, max: 3),
-        Define("desktop.popup.showStatusText", "显示状态文字", "隐藏后仍保留矢量标记和无障碍名称", true),
         Define("desktop.popup.showHints", "常驻显示收起提示", "关闭时通过工具提示查看收起方式", false)
     ];
 
@@ -80,7 +79,6 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         ["desktop.popup.rowPaddingY"] = "Settings.Setting.Desktop.PopupRowPaddingY",
         ["desktop.popup.titleFontSize"] = "Settings.Setting.Desktop.PopupTitleFontSize",
         ["desktop.popup.titleMaxLines"] = "Settings.Setting.Desktop.PopupTitleMaxLines",
-        ["desktop.popup.showStatusText"] = "Settings.Setting.Desktop.PopupShowStatusText",
         ["desktop.popup.showHints"] = "Settings.Setting.Desktop.PopupShowHints"
     };
 

@@ -24,7 +24,7 @@ internal sealed class TaskPeekViewFactory(TasksUiDependencies dependencies, Func
     }
 }
 
-internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string Status, bool IsCompleted, CompanionViewOptions Options, Brush? CustomColor) : INotifyPropertyChanged
+internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string Status, bool IsCompleted, long AttachmentCount, CompanionViewOptions Options, Brush? CustomColor) : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
     private bool _busy;
@@ -35,7 +35,10 @@ internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string 
     public string CompletionName => Title + " · " + TaskLocalization.Localize(IsBusy ? "Tasks.Peek.Processing" : IsCompleted ? "Tasks.Peek.Reopen" : "Tasks.Peek.Complete", IsBusy ? "处理中…" : IsCompleted ? "恢复未完成" : "标记完成");
     public Visibility CompletionVisibility => Options.ShowCompletionToggle ? Visibility.Visible : Visibility.Collapsed;
     public Visibility StaticStatusVisibility => Options.ShowCompletionToggle ? Visibility.Collapsed : Visibility.Visible;
-    public string AccessibleName => Title + "，" + Status + "，" + TaskLocalization.Localize("Tasks.Peek.ViewDetails", "查看任务详情");
+    public bool HasAttachments => AttachmentCount > 0;
+    public string AttachmentLabel => TaskLocalization.AttachmentCountLabel(AttachmentCount);
+    public string AccessibleName => Title + "，" + Status + "，" + (HasAttachments ? AttachmentLabel + "，" : string.Empty)
+        + TaskLocalization.Localize("Tasks.Peek.ViewDetails", "查看任务详情");
     public string Geometry => IsCompleted ? "M 2,9 L 7,14 L 17,3" : "M 18,9 A 8,8 0 1 1 2,9 A 8,8 0 1 1 18,9";
     public bool HasCustomColor => CustomColor is not null;
     public Thickness Padding => new(8, Options.RowPaddingY, 8, Options.RowPaddingY);
@@ -43,7 +46,6 @@ internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string 
     public double FontSize => Options.TitleFontSize;
     public double LineHeight => Options.TitleFontSize * 1.4;
     public double MaximumTitleHeight => LineHeight * Options.TitleMaxLines;
-    public Visibility StatusVisibility => Options.ShowStatusText ? Visibility.Visible : Visibility.Collapsed;
 }
 
 internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavigation, ICompanionInteraction
@@ -314,7 +316,10 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
             Brush? brush = color != "Theme" && !SystemParameters.HighContrast && MosaicThemeManager.Current != MosaicThemeVariant.HighContrast &&
                 color.Length == 7 && color[0] == '#' && color[1..].All(Uri.IsHexDigit)
                 ? new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)) : null;
-            return new TaskPeekRow(item.Id, item.Revision, title, status, item.IsCompleted, _options, brush) { IsBusy = _pending.Contains(item.Id) };
+            return new TaskPeekRow(item.Id, item.Revision, title, status, item.IsCompleted, item.AttachmentCount, _options, brush)
+            {
+                IsBusy = _pending.Contains(item.Id)
+            };
         }).ToArray();
         _view.More.Text = TaskLocalization.Format("Tasks.Peek.More", "显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。", _options.MaxItems, _items.Count);
         _view.More.Visibility = !state && _items.Count > _options.MaxItems ? Visibility.Visible : Visibility.Collapsed;

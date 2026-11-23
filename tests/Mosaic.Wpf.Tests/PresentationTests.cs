@@ -866,6 +866,102 @@ public sealed class PresentationTests
         await page.Controller.DisposeAsync();
     });
     [Fact]
+    public Task Task_list_titles_use_readable_theme_colors_in_dark_mode() => Sta.Run(async () =>
+    {
+        var api = new Api();
+        var active = api.Item with { Title = "Active task" };
+        var completed = api.Item with { Id = Guid.NewGuid(), Title = "Completed task", IsCompleted = true };
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([active, completed]));
+        var page = await Page(api, new());
+        await page.Controller.InitializeAsync();
+        try
+        {
+            var theme = LoadTheme();
+            var dark = new ResourceDictionary
+            {
+                Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Palettes/Dark.xaml", UriKind.Relative)
+            };
+            theme.MergedDictionaries.Add(dark);
+            page.View.Resources.MergedDictionaries.Add(theme);
+            Arrange(page.View, 900, 650);
+            var list = Assert.IsType<ListBox>(page.View.FindName("TaskListBox"));
+            var primary = Assert.IsType<SolidColorBrush>(dark[MosaicTheme.TextPrimaryBrushKey]).Color;
+            var secondary = Assert.IsType<SolidColorBrush>(dark[MosaicTheme.TextSecondaryBrushKey]).Color;
+
+            foreach (var task in new[] { active, completed })
+            {
+                var title = Assert.Single(FindVisualChildren<TextBlock>(list), text => text.Text == task.Title);
+                var container = Assert.IsType<ListBoxItem>(ItemsControl.ContainerFromElement(list, title));
+                var row = Assert.IsType<Border>(container.Template.FindName("TaskRow", container));
+                var foreground = Assert.IsType<SolidColorBrush>(title.Foreground).Color;
+                Assert.Equal(task.IsCompleted ? secondary : primary, foreground);
+                if (task.IsCompleted)
+                    Assert.Equal(TextDecorationLocation.Strikethrough, Assert.Single(title.TextDecorations).Location);
+
+                var background = Assert.IsType<SolidColorBrush>(row.Background).Color;
+                Assert.True(ContrastRatio(foreground, background) >= 4.5);
+                container.IsSelected = true;
+                page.View.UpdateLayout();
+                var selectedBackground = Assert.IsType<SolidColorBrush>(row.Background).Color;
+                Assert.Equal(Assert.IsType<SolidColorBrush>(dark[MosaicTheme.AccentSoftBrushKey]).Color, selectedBackground);
+                Assert.Equal(foreground, Assert.IsType<SolidColorBrush>(title.Foreground).Color);
+                Assert.True(ContrastRatio(foreground, selectedBackground) >= 4.5);
+                container.IsSelected = false;
+            }
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+    [Theory]
+    [InlineData(MosaicThemeVariant.Light)]
+    [InlineData(MosaicThemeVariant.Dark)]
+    [InlineData(MosaicThemeVariant.HighContrast)]
+    public Task Task_list_renders_status_marks_and_shows_paperclip_only_with_attachments(MosaicThemeVariant variant) => Sta.Run(async () =>
+    {
+        var api = new Api();
+        var open = api.Item with { Title = "Open task", AttachmentCount = 2 };
+        var done = api.Item with { Id = Guid.NewGuid(), Title = "Done task", IsCompleted = true };
+        api.Query = _ => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([open, done]));
+        var page = await Page(api, new());
+        await page.Controller.InitializeAsync();
+        try
+        {
+            var resources = LoadTheme();
+            resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri($"/Mosaic.Presentation.Wpf;component/Themes/Palettes/{variant}.xaml", UriKind.Relative)
+            });
+            page.View.Resources.MergedDictionaries.Add(resources);
+            Arrange(page.View, 900, 650);
+            var list = Assert.IsType<ListBox>(page.View.FindName("TaskListBox"));
+            foreach (var task in new[] { open, done })
+            {
+                var title = Assert.Single(FindVisualChildren<TextBlock>(list), text => text.Text == task.Title);
+                var row = Assert.IsType<ListBoxItem>(ItemsControl.ContainerFromElement(list, title));
+                var state = Assert.Single(FindVisualChildren<Border>(row), border => border.Name == "CompletionBadge");
+                var mark = Assert.IsType<System.Windows.Shapes.Path>(state.Child);
+                Assert.True(mark.ActualWidth > 0 && mark.ActualHeight > 0);
+                var markBrush = task.IsCompleted ? mark.Stroke : mark.Fill;
+                Assert.Same(resources[task.IsCompleted ? MosaicTheme.AccentButtonTextBrushKey : MosaicTheme.TextSecondaryBrushKey], markBrush);
+                var badge = Assert.Single(FindVisualChildren<Border>(row), border => border.Name == "AttachmentBadge");
+                Assert.Equal(task.HasAttachments ? Visibility.Visible : Visibility.Collapsed, badge.Visibility);
+                if (task.HasAttachments)
+                {
+                    var clip = Assert.IsType<System.Windows.Shapes.Path>(badge.Child);
+                    Assert.Same(resources[MosaicTheme.AccentTextBrushKey], clip.Stroke);
+                    Assert.False(clip.RenderedGeometry.IsEmpty());
+                    Assert.Equal(TaskLocalization.AttachmentCountLabel(task.AttachmentCount), badge.ToolTip);
+                }
+            }
+        }
+        finally
+        {
+            await page.Controller.DisposeAsync();
+        }
+    });
+    [Fact]
     public Task Accent_button_text_and_disabled_colors_are_not_overridden_by_a_textblock_style() => Sta.Run(() =>
     {
         var resources = LoadTheme();

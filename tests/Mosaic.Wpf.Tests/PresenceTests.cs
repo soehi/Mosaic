@@ -96,9 +96,10 @@ public sealed class PresenceTests
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
     [Fact]
-    public Task Peek_whole_label_routes_title_status_padding_and_buttons_but_filter_does_not() => Sta.Run(async () =>
+    public Task Peek_whole_label_routes_title_attachment_padding_and_buttons_but_filter_does_not() => Sta.Run(async () =>
     {
-        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([Item("整卡标题")])) };
+        var item = Item("整卡标题") with { AttachmentCount = 1 };
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item])) };
         await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await module.ActivateAsync();
         await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme")); await session.InitializeAsync(); Texts(session.View);
         var view = session.View; var type = view.GetType();
@@ -106,10 +107,10 @@ public sealed class PresenceTests
         var card = Descendants(view).OfType<Button>().Single(button => button.Name == "TaskCard");
         var row = (FrameworkElement)card.Parent;
         var title = Descendants(card).OfType<TextBlock>().Single(text => text.Text == "整卡标题");
-        var status = Descendants(card).OfType<TextBlock>().Single(text => text.Text == "未完成");
+        var badge = Descendants(card).OfType<Border>().Single(border => border.Name == "AttachmentBadge");
         var cancel = type.GetMethod("CancelDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var candidate = type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        foreach (var origin in new UIElement[] { title, status, card, Completion(view) })
+        foreach (var origin in new UIElement[] { title, badge.Child, card, Completion(view) })
         {
             origin.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseDownEvent });
             Assert.Same(row, candidate.GetValue(view)); cancel.Invoke(view, null);
@@ -133,6 +134,58 @@ public sealed class PresenceTests
         var right = filters.TranslatePoint(new Point(filters.ActualWidth, 0), session.View).X;
         Assert.InRange(right, 1, 236);
         Assert.InRange(filters.ActualWidth, 120, 236);
+    });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task Peek_keeps_attachment_badges_right_aligned_with_or_without_completion_button(bool showCompletionToggle) => Sta.Run(async () =>
+    {
+        var open = Item("附有资料的长标题任务，窄布局仍要预留标题空间") with { AttachmentCount = 2 };
+        var done = Item("已完成任务", true);
+        IReadOnlyList<TaskItemDto> items = [open, done];
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(items)) };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme", ShowCompletionToggle: showCompletionToggle));
+        var view = session.View;
+        IReadOnlyList<Button> Cards()
+        {
+            view.Measure(new Size(236, 420));
+            view.Arrange(new Rect(0, 0, 236, 420));
+            view.UpdateLayout();
+            return Descendants(view).OfType<Button>().Where(button => button.Name == "TaskCard").ToArray();
+        }
+        static Border Badge(Button card) => Assert.Single(Descendants(card).OfType<Border>(), border => border.Name == "AttachmentBadge");
+        void AssertBadgePosition(Button card)
+        {
+            var badge = Badge(card);
+            var content = Assert.IsType<Grid>(card.Content);
+            var badgeRight = badge.TranslatePoint(new Point(badge.ActualWidth, 0), content).X;
+            Assert.InRange(content.ActualWidth, 1, 236);
+            Assert.Equal(content.ActualWidth, badgeRight, precision: 1);
+            Assert.DoesNotContain(Descendants(card).OfType<TextBlock>(), text => text.Text is "未完成" or "已完成");
+        }
+
+        await session.InitializeAsync();
+        var cards = Cards();
+        Assert.Equal(2, cards.Count);
+        var badge = Badge(cards[0]);
+        var countLabel = Mosaic.Tasks.Wpf.Internal.TaskLocalization.AttachmentCountLabel(2);
+        Assert.Equal(Visibility.Visible, badge.Visibility);
+        Assert.Equal(countLabel, badge.ToolTip);
+        Assert.Contains(countLabel, System.Windows.Automation.AutomationProperties.GetName(cards[0]));
+        Assert.Equal(Visibility.Collapsed, Badge(cards[1]).Visibility);
+        AssertBadgePosition(cards[0]);
+        var title = Assert.Single(Descendants(cards[0]).OfType<TextBlock>(), text => text.Text == open.Title);
+        Assert.True(title.ActualWidth > 0);
+
+        items = [open with { AttachmentCount = 0 }, done with { AttachmentCount = 1 }];
+        await session.InitializeAsync();
+        cards = Cards();
+        Assert.Equal(Visibility.Collapsed, Badge(cards[0]).Visibility);
+        Assert.Equal(Visibility.Visible, Badge(cards[1]).Visibility);
+        AssertBadgePosition(cards[1]);
     });
 
     [Fact]
@@ -389,13 +442,21 @@ public sealed class PresenceTests
     });
 
     [Fact]
-    public Task Settings_register_29_rows_project_6_normal_validate_save_and_revoke() => Sta.Run(async () =>
+    public Task Settings_register_28_rows_project_6_normal_validate_save_and_revoke() => Sta.Run(async () =>
     {
-        await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
+        const string legacyStatusText = "desktop.popup.showStatusText";
+        var repository = new Repository();
+        await repository.SaveAsync(new Dictionary<string, object?> { [legacyStatusText] = true, ["desktop.popup.titleFontSize"] = 16 });
+        await using var settings = new SettingsModule(new(repository)); await settings.ActivateAsync();
         await using var module = new DesktopPresenceModule(new(new Host(), new EmptyFactory(), settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
         await module.ActivateAsync();
         var definitions = (await settings.Api.ListDefinitionsAsync()).Value;
-        Assert.Equal(29, definitions.Count);
+        Assert.Equal(28, definitions.Count);
+        Assert.DoesNotContain(definitions, item => item.Id == legacyStatusText);
+        var values = (await settings.Api.GetValuesAsync()).Value;
+        Assert.DoesNotContain(legacyStatusText, values.Keys);
+        Assert.Equal(16, values["desktop.popup.titleFontSize"]);
+        Assert.Equal(true, (await repository.LoadAsync()).Value[legacyStatusText]);
         Assert.Equal(6, definitions.Count(item => item.Category == SettingCategory.Normal));
         var timing = Assert.Single(definitions, item => item.Id == "desktop.edge.showTiming");
         Assert.Equal("Resident", timing.DefaultValue);
@@ -403,7 +464,7 @@ public sealed class PresenceTests
         Assert.All(definitions, item => Assert.Equal(SettingsGroup.DesktopPresence, item.Group));
         Assert.All(definitions.Where(item => item.Id is "desktop.popup.fitContent" or "desktop.popup.padding" or
             "desktop.popup.cornerRadius" or "desktop.popup.rowGap" or "desktop.popup.rowPaddingY" or
-            "desktop.popup.titleFontSize" or "desktop.popup.titleMaxLines" or "desktop.popup.showStatusText" or "desktop.popup.showHints"),
+            "desktop.popup.titleFontSize" or "desktop.popup.titleMaxLines" or "desktop.popup.showHints"),
             item => { Assert.Equal(SettingCategory.Advanced, item.Category); Assert.Equal(SettingPreviewMode.Reversible, item.PreviewMode); });
         var invalid = await settings.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["desktop.edge.visibleDepth"] = 64 });
         Assert.Contains("desktop.edge.visibleDepth", invalid.Value.Keys);
@@ -423,7 +484,7 @@ public sealed class PresenceTests
             combo.DataContext.GetType().GetProperty("Id")!.GetValue(combo.DataContext) as string == "desktop.edge.activation");
         Assert.Equal("SingleClick", activation.SelectedValue);
         model.GetType().GetProperty("ShowAdvanced")!.SetValue(model, true);
-        Assert.Equal(29, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(definitions.Count, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         await page.Controller.DisposeAsync(); await ui.DisposeAsync();
         await module.StopAsync();
         Assert.Empty((await settings.Api.ListDefinitionsAsync()).Value);
@@ -524,7 +585,7 @@ public sealed class PresenceTests
         var oldLanguage = MosaicLocalizationManager.Current;
         MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
         var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([
-            Item("整理本周计划"), Item("完成模块边界检查", true), Item("继续下一步")])) };
+            Item("整理本周计划") with { AttachmentCount = 2 }, Item("完成模块边界检查", true), Item("继续下一步")])) };
         await using var tasks = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics())); await tasks.ActivateAsync();
         await using var settings = new SettingsModule(new(new Repository()));
         await using var presence = new DesktopPresenceModule(new(new Host(), tasks.CompanionFactory, settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
@@ -604,8 +665,10 @@ public sealed class PresenceTests
         {
             await session.InitializeAsync(); var texts = Texts(session.View);
             Assert.Contains("Open title", texts); Assert.Contains("Done title", texts); Assert.DoesNotContain("More", texts);
-            Assert.Equal(2, Descendants(session.View).OfType<System.Windows.Shapes.Path>().Count(path => path.Visibility == Visibility.Visible));
-            Assert.Contains("未完成", texts); Assert.Contains("已完成", texts);
+            Assert.Equal(2, Descendants(session.View).OfType<System.Windows.Shapes.Path>()
+                .Count(path => path.Name == "CompletionMark" && path.Visibility == Visibility.Visible));
+            foreach (var card in Descendants(session.View).OfType<Button>().Where(button => button.Name == "TaskCard"))
+                Assert.DoesNotContain(Descendants(card).OfType<TextBlock>(), text => text.Text is "未完成" or "已完成");
             Assert.DoesNotContain(Descendants(session.View), element => element is CheckBox or TextBox);
             Assert.Contains(texts, text => text.Contains('3'));
         }
@@ -639,14 +702,15 @@ public sealed class PresenceTests
         await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
         await module.ActivateAsync();
         await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme",
-            RowGap: 4, RowPaddingY: 6, TitleFontSize: 20, TitleMaxLines: 1, ShowStatusText: false));
+            RowGap: 4, RowPaddingY: 6, TitleFontSize: 20, TitleMaxLines: 1));
         var layoutChanges = 0; session.LayoutInvalidated += (_, _) => layoutChanges++;
         await session.InitializeAsync(); Texts(session.View);
         var titleText = Descendants(session.View).OfType<TextBlock>().Single(text => text.Text == title);
         Assert.Equal(20, titleText.FontSize); Assert.Equal(28, titleText.MaxHeight);
         Assert.Contains("已完成", System.Windows.Automation.AutomationProperties.GetName(titleText));
         Assert.Contains(title, System.Windows.Automation.AutomationProperties.GetName(titleText));
-        Assert.Equal(Visibility.Collapsed, Descendants(session.View).OfType<TextBlock>().Single(text => text.Text == "已完成" && text.Parent is Grid).Visibility);
+        var card = Assert.Single(Descendants(session.View).OfType<Button>(), button => button.Name == "TaskCard");
+        Assert.DoesNotContain(Descendants(card).OfType<TextBlock>(), text => text.Text == "已完成");
         Assert.True(layoutChanges > 0);
         Assert.Single(Descendants(session.View).OfType<ScrollViewer>());
         Assert.DoesNotContain(Descendants(session.View), element => element is CheckBox or TextBox);

@@ -19,7 +19,7 @@ public interface ISettingsPageModule
     IReadOnlyList<SettingsPageContribution> SettingsPages { get; }
 }
 public sealed record CompanionViewOptions(string Filter, int MaxItems, string OpenColor, string CompletedColor,
-    int RowGap = 0, int RowPaddingY = 12, int TitleFontSize = 14, int TitleMaxLines = 2, bool ShowStatusText = true, bool ShowCompletionToggle = true, bool ShowFilterSwitch = true);
+    int RowGap = 0, int RowPaddingY = 12, int TitleFontSize = 14, int TitleMaxLines = 2, bool ShowCompletionToggle = true, bool ShowFilterSwitch = true);
 public interface ICompanionViewFactory
 {
     ICompanionViewSession Create(CompanionViewOptions options);

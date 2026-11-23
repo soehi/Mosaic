@@ -59,7 +59,6 @@ internal static class PresenceLocalization
             ("PopupRowPaddingY", "任务行纵向留白", "Row vertical padding", "每行上方和下方的留白（DIP）", "Space above and below each row in DIP"),
             ("PopupTitleFontSize", "速览标题字号", "Task title size", "任务标题字号（DIP）", "Task title font size in DIP"),
             ("PopupTitleMaxLines", "标题最多行数", "Maximum title lines", "超出行数省略，悬停可查看完整标题", "Truncate longer titles; hover to read the full title"),
-            ("PopupShowStatusText", "显示状态文字", "Show status text", "隐藏后仍保留矢量标记和无障碍名称", "Vector status marks and accessible names remain visible to assistive technology"),
             ("PopupShowHints", "常驻显示收起提示", "Show dismissal hint", "关闭时通过工具提示查看收起方式", "When hidden, dismissal instructions remain in a tooltip")
         })
         {
