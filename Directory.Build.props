@@ -9,7 +9,7 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <Deterministic>true</Deterministic>
     <UseSharedCompilation>false</UseSharedCompilation>
-    <Version>0.18.8</Version>
+    <Version>0.18.9</Version>
     <Authors>Mosaic</Authors>
   </PropertyGroup>
 </Project>

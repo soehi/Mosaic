@@ -103,12 +103,10 @@
         <StackPanel Margin="0,0,0,20">
             <TextBlock Text="{DynamicResource Settings.Title}" Style="{DynamicResource {x:Static theme:MosaicTheme.HeaderTextKey}}"/>
             <TextBlock x:Name="SubtitleText" Text="{DynamicResource Settings.Subtitle}" Margin="0,8,0,0" TextWrapping="Wrap"
-                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"
-                       Visibility="{Binding HasSelectedPage, Converter={StaticResource InverseBoolVisibility}}"/>
+                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
         </StackPanel>
         <Border x:Name="ModeBar" Grid.Row="1" Padding="14,8" Margin="0,0,0,20" CornerRadius="10"
-                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}"
-                Visibility="{Binding HasSelectedPage, Converter={StaticResource InverseBoolVisibility}}">
+                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}">
             <DockPanel LastChildFill="True">
                 <CheckBox DockPanel.Dock="Right" Style="{StaticResource Switch}" IsChecked="{Binding ShowAdvanced}"
                           IsEnabled="{Binding IsNotBusy}" Content="{DynamicResource Settings.Advanced}"

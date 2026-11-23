@@ -1,5 +1,11 @@
 # Mosaic：实施与验证记录
 
+## 0.18.9：设置分区切换布局（2026-11-23）
+
+- 根因：`src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml:105` 的 `SubtitleText` 和 `ModeBar` 原先把可见性绑定到 `HasSelectedPage` 的反值。`SettingsViewModel.SelectPageAsync` 在模块页初始化完成后更新该状态，WPF 随即折叠这两处控件并缩短顶部 `Auto` 行，使下方导航与内容整体上移。回归用例在 860 × 620 的布局中复现导航顶部从 155.33 移到 53.33，相差 102 个设备无关单位。
+- 改动位置：`src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml:105` 去掉两处顶部可见性绑定，分区标题和模块内容仍由原有绑定切换。`src/Modules/Settings/Mosaic.Settings.Wpf/Internal/SettingsViewModel.cs` 的 `NotifyPageContentChanged` 删除描述旧顶部绑定的注释。`tests/Mosaic.Wpf.Tests/PresentationTests.cs` 的 `Settings_header_and_sections_stay_aligned_when_switching_to_contributed_pages` 通过实际导航按钮命令依次切换外观、账户与备份、维护及外观，检查标题说明和高级设置栏持续可见，并比较导航与内容容器的顶部坐标。`Directory.Build.props`、`README.md`、`build/release-content.json`、`build/published-release-index.json`、`build/release-manifest.json` 及 `docs/releases/v0.18.9.md` 随包更新版本和发布说明。
+- 升级影响：沿用已有 MSI 升级路径，布局修复无需迁移设置、数据库或数据目录。
+
 ## 0.18.8：任务速览拖出与自动收起（2026-11-23）
 
 - 根因：`TaskPeekView.EndGesture` 和 `CaptureLost` 在调用 `FinishDrag` 前把 `_candidate` 清空，清理时拿不到捕获鼠标的任务行。松手后捕获可能残留，影响下一次拖动。成功打开小窗时 `TaskPeekViewModel.DetachAsync` 没有把结果传回速览宿主，而 `PresenceSurface.Inside` 把速览内的键盘焦点视为保留窗口的条件，成功拖出后速览仍可停留。

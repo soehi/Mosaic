@@ -668,7 +668,6 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     // HasSettingsSectionContent（恢复默认按钮、条目计数等常规分区 chrome 的可见性）依赖
     // SelectedPage。任何改变 SelectedSection 或 SelectedPageView 的路径都必须经由这里通知，
     // 否则直接给 SelectedSection 赋值（Reveal、语言切换、分区回退）时界面会沿用旧的可见性。
-    // 顶部总说明与模式说明条改绑 HasSelectedPage（0.17.8 起在模块页也保持显示），不再经过这里。
     private void NotifyPageContentChanged()
     {
         OnPropertyChanged(nameof(SelectedPage));

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.8",
+  "currentReleaseId": "mosaic-0.18.9",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -882,6 +882,18 @@
         "修复从任务速览拖出任务后鼠标捕获未释放的问题，可再次打开速览并继续拖出其他任务。开启离开自动收起时，拖出成功后速览自动收起；关闭该设置时保留速览。松手仍在面板内或打开小窗失败时，不触发这次自动收起。"
       ],
       "contentSha256": "3195C13F6696E06D6934688B130F9441CCD85DA661B01B918C6C5DD00E06361C"
+    },
+    {
+      "releaseId": "mosaic-0.18.9",
+      "version": "0.18.9",
+      "releasedOn": "2026-11-23",
+      "previousReleaseId": "mosaic-0.18.8",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "切换到「账户与备份」或「维护」时，保留顶部说明与高级设置栏，左侧导航和右侧内容保持原位。"
+      ],
+      "contentSha256": "9EA5F9BCEE4450E3B9CA2EAE07E968E7856E088E7C25502AE2A912FD3FA67A29"
     }
   ]
 }

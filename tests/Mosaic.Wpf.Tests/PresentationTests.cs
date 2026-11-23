@@ -1301,72 +1301,65 @@ public sealed class PresentationTests
         await ((IPageController)model).DisposeAsync();
     });
 
-    // 顶部总说明与模式说明条绑定的是 HasSelectedPage（模块页未激活时也要显示），而不是
-    // HasSettingsSectionContent（选中模块页分区即为 false）。回归 0.17.2 起的误绑：切到
-    // 「账户与备份」「维护」时标题栏下方的说明与「高级设置」开关整体消失。
     [Fact]
-    public Task Header_banner_stays_visible_on_page_sections_until_the_page_is_active() => Sta.Run(async () =>
+    public Task Settings_header_and_sections_stay_aligned_when_switching_to_contributed_pages() => Sta.Run(async () =>
     {
         var registry = new SettingsPageRegistry();
-        var stub = new StubPageController();
-        registry.Register(new SettingsPageContribution("AccountsAndBackup", "accounts.page",
-            new InlinePageFactory(() => new ViewPage(new UserControl(), stub))));
-        var module = new SettingsUiModule(new(
+        foreach (var section in new[] { "AccountsAndBackup", "Maintenance" })
+        {
+            registry.Register(new SettingsPageContribution(section, section + ".page",
+                new InlinePageFactory(() => new ViewPage(new UserControl(), new StubPageController()))));
+        }
+        await using var module = new SettingsUiModule(new(
             new SettingsApi { Definitions = new ShellSettingSource().Definitions.ToArray() },
             new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics(), registry));
         await module.ActivateAsync();
         var page = Assert.Single(module.Views).Factory.Create();
-        // 模块工厂只创建视图，InitializeAsync 由宿主在加载时调用；这里手动补上，
-        // 否则 Sections 为空，SelectSectionAsync 的守卫会让后续命令调用全部静默 no-op。
-        await Initialize(page.View.DataContext);
+        var view = page.View;
+        view.Resources.MergedDictionaries.Add(LoadTheme());
         try
         {
-            var view = (FrameworkElement)page.View;
-            view.Resources.MergedDictionaries.Add(LoadTheme());
+            await page.Controller.InitializeAsync();
+            var model = view.DataContext;
+            var command = Get<IAsyncRelayCommand>(model, "SelectSectionCommand");
             var subtitle = Assert.IsType<TextBlock>(view.FindName("SubtitleText"));
             var modeBar = Assert.IsType<Border>(view.FindName("ModeBar"));
+            var root = Assert.IsType<Grid>(modeBar.Parent);
+            var sections = Assert.Single(root.Children.OfType<Grid>());
+            var navigation = Assert.Single(sections.Children.OfType<DockPanel>());
+            var content = Assert.Single(sections.Children.OfType<Border>());
 
-            // 常规分区：副标题与模式说明条可见。
-            Assert.Equal(Visibility.Visible, subtitle.Visibility);
-            Assert.Equal(Visibility.Visible, modeBar.Visibility);
+            async Task Select(string section, bool hasPage)
+            {
+                var button = Assert.Single(FindVisualChildren<Button>(navigation),
+                    candidate => candidate.CommandParameter?.ToString() == section);
+                Assert.Same(command, button.Command);
+                Assert.True(command.CanExecute(button.CommandParameter));
+                await command.ExecuteAsync(button.CommandParameter);
+                await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                view.UpdateLayout();
+                Assert.Equal(section, Get<object>(model, "SelectedSection").ToString());
+                Assert.Equal(hasPage, Get<bool>(model, "HasSelectedPage"));
+            }
 
-            // 选中模块页分区但页面尚未激活（模块页仍走「请先离开当前编辑」的守卫时就会停在这一步）：
-            // HasSettingsSectionContent 已为 false，顶部 chrome 仍必须保持可见——0.17.2~0.17.7 误把它绑到
-            // HasSettingsSectionContent，切到「账户与备份」「维护」时整块消失。
-            var sectionType = typeof(SettingsUiModule).Assembly.GetType("Mosaic.Settings.Wpf.Internal.SettingsSection")!;
-            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(sectionType, "AccountsAndBackup"));
-            await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            Assert.False(Get<bool>(page.View.DataContext, "HasSettingsSectionContent"));
-            Assert.False(Get<bool>(page.View.DataContext, "HasSelectedPage"));
-            Assert.Equal(Visibility.Visible, subtitle.Visibility);
-            Assert.Equal(Visibility.Visible, modeBar.Visibility);
+            view.Measure(new Size(860, 620));
+            view.Arrange(new Rect(0, 0, 860, 620));
+            view.UpdateLayout();
+            await Select("Appearance", false);
+            var navigationTop = navigation.TranslatePoint(new Point(), view).Y;
+            var contentTop = content.TranslatePoint(new Point(), view).Y;
+            Assert.True(contentTop > modeBar.TranslatePoint(new Point(), view).Y);
 
-            // 页面真正激活后，顶部 chrome 才隐藏，把空间留给模块页。
-            // 页面真正激活后，顶部 chrome 才隐藏，把空间留给模块页。
-            // 两次直接赋值模拟「守卫拦截后再次点击」：ViewModel 从导航命令看到 SelectedSection 已变，
-            // 于是经 SelectedPageView 加载贡献页。
-            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(sectionType, "Appearance"));
-            SetProperty(page.View.DataContext, "SelectedSection", Enum.Parse(sectionType, "AccountsAndBackup"));
-            await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            // SelectedSection 变更只影响分区筛选；贡献页加载由导航命令驱动，这里直接驱动命令。
-            // AsyncRelayCommand 默认禁止并发，必须等 ExecutionTask 完成后再触发下一次。
-            var cmd = Get<IAsyncRelayCommand>(page.View.DataContext, "SelectSectionCommand");
-            var typed = typeof(IAsyncRelayCommand<>).MakeGenericType(sectionType);
-            var execute = typed.GetMethod("ExecuteAsync")!;
-            await (Task)execute.Invoke(cmd, [Enum.Parse(sectionType, "Appearance")])!;
-            await cmd.ExecutionTask!;
-            await (Task)execute.Invoke(cmd, [Enum.Parse(sectionType, "AccountsAndBackup")])!;
-            await cmd.ExecutionTask!;
-            await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            Assert.True(Get<bool>(page.View.DataContext, "HasSelectedPage"), $"Section={Get<object>(page.View.DataContext, "SelectedSection")} StubInit={stub.Initialized} CanExec={((System.Windows.Input.ICommand)cmd).CanExecute(Enum.Parse(sectionType, "AccountsAndBackup"))}");
-            Assert.Equal(Visibility.Collapsed, subtitle.Visibility);
-            Assert.Equal(Visibility.Collapsed, modeBar.Visibility);
+            foreach (var (section, hasPage) in new[] { ("AccountsAndBackup", true), ("Maintenance", true), ("Appearance", false) })
+            {
+                await Select(section, hasPage);
+                Assert.Equal(navigationTop, navigation.TranslatePoint(new Point(), view).Y);
+                Assert.Equal(contentTop, content.TranslatePoint(new Point(), view).Y);
+                Assert.Equal(Visibility.Visible, subtitle.Visibility);
+                Assert.Equal(Visibility.Visible, modeBar.Visibility);
+            }
         }
-        finally
-        {
-            await page.Controller.DisposeAsync();
-            await module.DisposeAsync();
-        }
+        finally { await page.Controller.DisposeAsync(); }
     });
 
     [Fact]
