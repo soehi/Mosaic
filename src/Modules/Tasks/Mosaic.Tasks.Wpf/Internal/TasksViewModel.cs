@@ -62,7 +62,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         IDiagnosticSink diagnostics,
         Mosaic.Settings.Contracts.ISettingsApi? settings = null,
         TaskUiSettingsTarget? settingsTarget = null, ITaskChangeSource? changes = null, bool archivedOnly = false,
-        ITaskAttachmentApi? attachments = null, ITaskAttachmentTransferRegistry? attachmentTransfers = null)
+        ITaskAttachmentApi? attachments = null)
     {
         _archivedOnly = archivedOnly;
         if (archivedOnly) _filter = 3;
@@ -78,7 +78,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         _settings = settings;
         _settingsTarget = settingsTarget;
         Editor = new(attachments, dispatcher);
-        AttachmentTransfers = attachmentTransfers ?? new TaskAttachmentDragRegistry();
         LoadCommand = new AsyncRelayCommand(LoadAsync, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         NewCommand = new AsyncRelayCommand(NewAsync, () => !IsBusy && !_archivedOnly);
         SelectCommand = new AsyncRelayCommand<TaskItemDto>(SelectFromCommandAsync, _ => !IsBusy);
@@ -100,7 +99,6 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
     public ObservableCollection<TaskListItemViewModel> Items { get; } = [];
     public ObservableCollection<TaskListItemViewModel> SelectedTasks { get; } = [];
     public TaskEditorViewModel Editor { get; }
-    internal ITaskAttachmentTransferRegistry AttachmentTransfers { get; }
     public IAsyncRelayCommand LoadCommand { get; }
     public IAsyncRelayCommand NewCommand { get; }
     public IAsyncRelayCommand<TaskItemDto> SelectCommand { get; }

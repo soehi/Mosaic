@@ -12,11 +12,7 @@ public sealed record TasksUiDependencies(
     IDiagnosticSink Diagnostics,
     Mosaic.Settings.Contracts.ISettingsCore? Settings = null,
     ITaskChangeSource? Changes = null, IFloatingDetachSource? Detach = null,
-    ITaskAttachmentApi? Attachments = null)
-{
-    // 应用内拖出暂存登记表：编辑器与速览/浮窗共享同一实例，目标端可据此结算源端暂存。
-    internal ITaskAttachmentTransferRegistry AttachmentTransfers { get; } = new TaskAttachmentDragRegistry();
-}
+    ITaskAttachmentApi? Attachments = null);
 
 public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleActivation, IUiModule
 {

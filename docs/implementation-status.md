@@ -1,5 +1,25 @@
 # Mosaic：实施与验证记录
 
+## 0.18.4：附件拖出改纯复制、矢量回形针、附件类型徽标（2026-11-23）
+
+- 根因位置：
+  1. 拖出带「移动」语义：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TaskEditorView.xaml.cs:123` `AttachmentItem_MouseMove` 以 `Copy|Move` 发起拖拽，并把内部格式 `Mosaic.TaskAttachmentTransfer` 放进 `DataObject`；应用内目标（`AttachmentDropZone_Drop` 与速览/浮窗的 `MoveCompleted`）收到内部格式后调用 `RemoveAttachmentAsync(TaskAttachmentDragTransfer)` 删除附件记录与文件。触发条件：按住 Shift 拖出、外部接收方声明 Move、或在速览/浮窗/编辑器之间放置——用户本意是导出副本，结果任务里的附件被移除。`Internal/TaskAttachmentDragRegistry.cs` 为这条 Move 结算链维护暂存登记，Move/Delete 路径因此跨视图耦合。
+  2. 回形针是彩色 emoji：`Views/TasksView.xaml` 的数量徽标直接写 `📎`，`Internal/TaskListItemViewModel.cs` 提供 `AttachmentCountLabel`。触发条件：任何含附件任务在主列表显示徽标；emoji 字形随系统字体渲染，与左侧导航等处的 Segoe MDL2 矢量图标风格不一致，且数量文字在窄列表里挤压标题。
+  3. 附件行没有类型标识：`Internal/TaskAttachmentPanel.cs` 与 `Views/TaskEditorView.xaml` 的附件行只渲染文件名与大小，同扩展名文件无法在列表里快速区分（PDF、表格、图片、压缩包外观完全相同）。
+- 改动位置：
+  - 拖出改纯复制：
+    - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskAttachmentDrag.cs`（新增）：`StageAsync`（经 `ITaskAttachmentApi.OpenReadAsync` 流式复制到 `%TEMP%\MosaicAttachments\{attachmentId}\{fileName}`）、`CreateData`（仅 `FileDrop` + 内部标记，供应用内目标拒绝重复添加）、`Run`（`DoDragDrop` 只声明 `DragDropEffects.Copy`）、`Release`（拖拽结束后删除暂存副本，失败不影响结果）。`Effects` 常量固定为 Copy，不再提供 Move。
+    - `Views/TaskEditorView.xaml.cs:72-85`：`DragOver` 只接受外部 `FileDrop` 并给 Copy，内部标记一律 None；`Drop` 遇内部标记直接返回，应用内放置不再产生第二份附件；`AttachmentItem_MouseMove:123` 改为异步暂存后 UI 线程同步 `TaskAttachmentDrag.Run`，`finally` 中 `Release`。
+    - `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskAttachmentPanel.cs:18`：构造函数改为 `TaskAttachmentPanel(ITaskAttachmentApi? api)`，鼠标拖出走同一 `TaskAttachmentDrag` 路径；不再有 `MoveCompleted` 回调。
+    - `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskAttachments.cs`：删除公开类型 `TaskAttachmentDragTransfer`（含 TaskId/AttachmentId/StagingDirectory/ExpectedRevision）；`build/public-api.txt` 同步移除该行。
+    - 删除 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskAttachmentDragRegistry.cs`；`TasksUiModule.cs` 的 `TasksUiDependencies` 去掉注册表属性；`TasksViewModel`、`TaskViewFactory`、`TaskEditorViewModel.RemoveAttachmentAsync(TaskAttachmentDragTransfer, …)`、`TaskPeekDetailsView`、`TaskPeekViewFactory.RemoveAttachmentFromPeekAsync`、`TaskFloatingDetailsView`、`TaskFloatingNotesViewModel.RemoveAttachmentAsync(TaskAttachmentDragTransfer)`、`TaskFloatingContentFactory` 的 Move 接线一并移除。速览与浮窗现在只接收 `dependencies.Attachments` 用于展示与拖出。
+  - 矢量回形针：`Views/TasksView.xaml:212-220` 用 `Segoe MDL2 Assets` 的 `&#xE723;` 图标替换 emoji，右对齐、`TextMutedBrush` 着色，可见性仍绑 `HasAttachments`，不再绑定数量；`Internal/TaskListItemViewModel.cs` 删除 `AttachmentCountLabel`，保留 `HasAttachments` 与仅读屏使用的 `AccessibilityLabel`（`Tasks.Attachments.Accessibility` 仍含数量）；`Localization/zh.xaml:141`/`en.xaml:141` 新增 `Tasks.Attachments.Indicator`（含附件 / Has attachments），删除 `Tasks.Attachments.Count`。
+  - 类型徽标：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskAttachmentVisuals.cs`（新增）：`TaskAttachmentKind` 枚举与扩展名映射（PDF、文档、表格、演示、图片、压缩包、音频、视频、代码、文本、其他），`Classify`/`Label`（扩展名 ≤4 字符，大写，无扩展名退化为 FILE）/`SizeLabel`/`CreateIcon`（18px 高圆角徽标，类型色前景 + 同色 0x26 透明度底色，冻结画笔，读屏名称为扩展名），`AttachmentTypeConverter` 供 XAML 取 `label`/`background`/`foreground`。`Views/TaskEditorView.xaml` 引入 `xmlns:internal` 与转换器资源，已保存与草稿两类附件行都改为「类型徽标 + 文件名（`CharacterEllipsis`）+ 大小/提示」三列网格；`Internal/TaskAttachmentPanel.cs`（速览/浮窗）使用 `TaskAttachmentVisuals.CreateIcon` 渲染同一套徽标；`Localization` 拖出提示改为 `Tasks.Attachments.DragHint`「拖出以复制导出 / Drag out to export a copy」。
+  - 测试：`tests/Mosaic.Wpf.Tests/TaskAttachmentVisualsTests.cs`（新增，19 例）：扩展名分类与 ASCII 徽标标签（12 组）、大小格式化（4 组）、图标配色与无 📎、面板行三列布局与空列表折叠、拖出数据只含 FileDrop + 内部标记且效果为 Copy。
+- 迁移逻辑与验收项：无数据库结构变化（沿用 0.18.0 的 `task_attachments` 表），无新增或删除设置项，`TaskItemDto.AttachmentCount` 保持原字段（仅用于 `HasAttachments` 与读屏标签），旧数据无需迁移。已有安装升级后：①任意方向拖出附件（含 Shift）都只复制，任务速览/浮窗/编辑器中的附件记录与文件不变；②主列表含附件任务显示矢量回形针、无数字；③旧附件按扩展名显示对应颜色徽标。验收项：从编辑器、速览、浮窗分别拖出到资源管理器 → 目标出现副本、源任务附件仍在；应用内跨视图放置 → 不新增重复附件；主列表缩放窗口 → 回形针不挤压标题；无扩展名文件显示 FILE 徽标。
+- 验证：`dotnet build` WPF 模块与测试项目 0 警告 0 错误；`TaskAttachmentVisualsTests` 19/19 通过；受影响测试集合（Wpf/Tasks.Core/Sqlite/Contracts/Architecture/FloatingWindows）252/252 通过；`python -I scripts/release_content_verify.py` 通过（50 个已索引发布）。
+- 未验证项：真实鼠标拖拽到 Outlook 等 OLE 目标未做实机回放；图标配色在系统高对比度主题下未单独截图验收。
+
 ## 0.18.3：附件体验修复（新建附件区、拖出崩溃、速览/浮窗附件、列表徽标）（2026-11-22）
 
 - 根因位置（按用户报告的四个问题逐一对应）：

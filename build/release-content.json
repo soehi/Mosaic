@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.3",
+  "currentReleaseId": "mosaic-0.18.4",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -804,6 +804,20 @@
         "任务主列表为含附件的任务显示 📎 数量徽标；任务 DTO 附带附件计数，列表批量一次查询，不逐条增加数据库往返。"
       ],
       "contentSha256": "C4BCC87BF886887BFB05164FFE8E70CBEC76325F7FE5A900C4B468C2A4CFA31D"
+    },
+    {
+      "releaseId": "mosaic-0.18.4",
+      "version": "0.18.4",
+      "releasedOn": "2026-11-23",
+      "previousReleaseId": "mosaic-0.18.3",
+      "added": [],
+      "improved": [],
+      "fixed": [
+        "拖出附件改为纯复制导出：不再提供 Shift 移动，附件记录与文件始终保留在任务中（编辑器、任务速览、浮窗一致），拖拽结束后只清理临时副本。",
+        "任务主列表的附件提示改用 Segoe MDL2 矢量回形针图标，只表示该任务含附件，不再显示附件数量文字。",
+        "编辑器、任务速览与浮窗的附件行新增按文件类型着色的扩展名徽标（PDF、文档、表格、演示、图片、压缩包、音视频、代码、文本等），文件名过长时省略、大小保持可读。"
+      ],
+      "contentSha256": "7BB2D5035815E90BE6B7367399A4C62C3583BC321E68F234AE0BE95D0FEBB20D"
     }
   ]
 }

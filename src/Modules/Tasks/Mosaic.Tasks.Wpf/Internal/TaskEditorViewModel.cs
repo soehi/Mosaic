@@ -270,13 +270,6 @@ internal sealed class TaskEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(HasAttachments));
     }
 
-    internal async Task<bool> RemoveAttachmentAsync(TaskAttachmentDragTransfer transfer, CancellationToken ct = default)
-    {
-        // 拖出返回 Move 时传入拖拽开始时的 Revision，防止移动期间的外部修改被静默覆盖。
-        if (_current is null || _current.Revision != transfer.ExpectedRevision || _current.Id != transfer.TaskId) return false;
-        return await RemoveAttachmentAsync(transfer.AttachmentId, ct);
-    }
-
     private void ReportAddFailure(int failed, bool partiallySucceeded, OperationError lastError)
     {
         var detail = TaskErrorLocalizer.Localize(lastError, _constraints);

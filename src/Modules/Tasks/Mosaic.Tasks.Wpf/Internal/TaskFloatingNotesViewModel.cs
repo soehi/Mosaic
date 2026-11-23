@@ -83,17 +83,6 @@ internal sealed class TaskFloatingNotesViewModel(TasksUiDependencies dependencie
         catch (Exception ex) { dependencies.Diagnostics.Report(Guid.NewGuid().ToString("N"), ex); }
     }
 
-    // 拖出返回 Move 后删除原件与记录，成功后刷新当前任务与附件列表。
-    internal async Task RemoveAttachmentAsync(TaskAttachmentDragTransfer transfer)
-    {
-        if (Current is not { } current || dependencies.Attachments is null || IsArchived || IsMissing) return;
-        var result = await dependencies.Attachments.RemoveAsync(new(current.Id, transfer.AttachmentId, current.Revision), lifetime);
-        if (!result.IsSuccess) return;
-        Current = result.Value;
-        await RefreshAttachmentsAsync();
-        Changed?.Invoke();
-    }
-
     internal async Task<OperationResult> SaveAsync(bool closing = false)
     {
         if (_baseline is not { } baseline || !Allowed || IsArchived || IsMissing || IsSaving || (Reserved && !closing))

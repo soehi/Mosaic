@@ -45,10 +45,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
     {
         _dependencies=dependencies;_id=id;
         _notes = new(dependencies, _lifetime.Token);
-        _details = new(_notes, () => Track(SaveNotesAsync()), () => Track(CancelNotesAsync()), dependencies.AttachmentTransfers, dependencies.Attachments);
-        if (_details.Attachments is { } attachmentPanel)
-            attachmentPanel.MoveCompleted = async transfer =>
-                await dependencies.Dispatcher.InvokeAsync(() => Track(_notes.RemoveAttachmentAsync(transfer)));
+        _details = new(_notes, () => Track(SaveNotesAsync()), () => Track(CancelNotesAsync()), dependencies.Attachments);
         _notes.Changed += RenderNotes;
         _view.Resources.MergedDictionaries.Add(new ResourceDictionary {Source=new Uri("/Mosaic.Tasks.Wpf;component/Themes/Floating.xaml",UriKind.Relative)});
         _state.SetResourceReference(FrameworkElement.StyleProperty,"TaskFloatingStateStyle");

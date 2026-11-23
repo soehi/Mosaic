@@ -199,15 +199,25 @@
                                             </TextBlock.Style>
                                         </TextBlock>
                                         <Grid Margin="0,7,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding CreatedLabel}"
                                                        FontSize="12"
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                                            <TextBlock HorizontalAlignment="Right"
-                                                       Text="{Binding AttachmentCountLabel}"
-                                                       FontSize="12"
+                                            <!-- 回形针只做存在性提示，不显示附件数量 -->
+                                            <TextBlock Grid.Column="1"
+                                                       Text="&#xE723;"
+                                                       FontFamily="Segoe MDL2 Assets"
+                                                       FontSize="13"
+                                                       Margin="8,0,0,0"
+                                                       VerticalAlignment="Center"
                                                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"
-                                                       AutomationProperties.Name="{Binding AttachmentCountLabel}"/>
+                                                       ToolTip="{DynamicResource Tasks.Attachments.Indicator}"
+                                                       AutomationProperties.Name="{Binding AccessibilityLabel}"
+                                                       Visibility="{Binding HasAttachments, Converter={StaticResource BoolVisibility}}"/>
                                         </Grid>
                                     </StackPanel>
                                 </Grid>

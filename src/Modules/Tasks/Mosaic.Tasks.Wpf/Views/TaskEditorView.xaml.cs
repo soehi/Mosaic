@@ -1,9 +1,7 @@
-using System.IO;
 using System.Windows.Controls;
 using System.Windows;
 using System.Windows.Input;
 using System.ComponentModel;
-using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Wpf.Internal;
 
@@ -70,11 +68,10 @@ public partial class TaskEditorView : UserControl
 
     private void AttachmentDropZone_DragOver(object sender, DragEventArgs e)
     {
-        var internalDrag = e.Data.GetDataPresent(TaskAttachmentDragTransfer.FormatName);
-        var move = internalDrag && (e.KeyStates & DragDropKeyStates.ShiftKey) == DragDropKeyStates.ShiftKey;
-        e.Effects = (internalDrag || e.Data.GetDataPresent(DataFormats.FileDrop)) && CanManageAttachments()
-            ? move ? DragDropEffects.Move : DragDropEffects.Copy
-            : DragDropEffects.None;
+        // 应用内附件拖拽只用于导出复制；只有外部文件才允许落进附件区，避免把自家附件再添加一份。
+        var external = !e.Data.GetDataPresent(TaskAttachmentDrag.InternalFormatName)
+            && e.Data.GetDataPresent(DataFormats.FileDrop);
+        e.Effects = external && CanManageAttachments() ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
@@ -85,7 +82,7 @@ public partial class TaskEditorView : UserControl
 
     private async void AttachmentDropZone_Drop(object sender, DragEventArgs e)
     {
-        if (await TryHandleInternalAttachmentDropAsync(e)) return;
+        if (e.Data.GetDataPresent(TaskAttachmentDrag.InternalFormatName)) return;
         if (!CanManageAttachments() || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
         var vm = EditorViewModel;
@@ -113,9 +110,6 @@ public partial class TaskEditorView : UserControl
 
     private Point _attachmentDragStart;
     private TaskAttachmentDto? _dragAttachment;
-    private ITaskAttachmentTransferRegistry Registry =>
-        (DataContext as TasksViewModel)?.AttachmentTransfers ?? FallbackRegistry;
-    private static readonly TaskAttachmentDragRegistry FallbackRegistry = new();
 
     private void AttachmentItem_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -144,72 +138,25 @@ public partial class TaskEditorView : UserControl
         var vm = EditorViewModel;
         if (vm is null) return;
 
-        // 资源管理器从临时文件接收导出内容；每个附件用独立子目录避免同名互相覆盖。
-        var tempDir = Path.Combine(Path.GetTempPath(), "MosaicAttachments", dto.Id.ToString("D"));
-        var copied = Path.Combine(tempDir, dto.FileName);
-        var staged = await StageAttachmentCopyAsync(vm, dto, tempDir, copied).ConfigureAwait(true);
-        if (!staged) return;
-
-        var revision = vm.Current?.Revision ?? 0;
-        var transfer = new TaskAttachmentDragTransfer(dto.TaskId, dto.Id, tempDir, revision);
-        Registry.Put(transfer);
-        var data = new DataObject();
-        data.SetData(DataFormats.FileDrop, new[] { copied });
-        data.SetData(TaskAttachmentDragTransfer.FormatName, transfer);
-        // Copy|Move 一起提供，实际效果由接收方与 Shift 键共同决定（与资源管理器语义一致）。
-        var result = DragDrop.DoDragDrop(source, data, DragDropEffects.Copy | DragDropEffects.Move);
-
-        if (result == DragDropEffects.Move)
+        var staged = await TaskAttachmentDrag
+            .StageAsync(ct => vm.OpenAttachmentAsync(dto.Id, ct), dto.Id, dto.FileName)
+            .ConfigureAwait(true);
+        if (!staged.IsSuccess)
         {
-            // 外部已接收并移走暂存副本：删除应用内原件与数据库记录，不再 Export（避免重复副本）。
-            Registry.CommitMove(dto.Id);
-            _ = vm.RemoveAttachmentAsync(transfer);
-        }
-        else
-        {
-            // Copy 与 None（含应用内放置，目标端已自行结算）都删除暂存副本，原件保留。
-            Registry.Discard(dto.Id);
-        }
-    }
-
-    // 后台线程读取 blob 流并写入暂存目录；失败时清理暂存并报错，返回 false。
-    private static async Task<bool> StageAttachmentCopyAsync(TaskEditorViewModel vm, TaskAttachmentDto dto, string tempDir, string copied)
-    {
-        var opened = await vm.OpenAttachmentAsync(dto.Id).ConfigureAwait(false);
-        if (!opened.IsSuccess)
-        {
-            var error = opened.Error!;
+            var error = staged.Error!;
             await vm.DispatcherInvoke(() => vm.ReportAttachmentFailure(error));
-            return false;
+            return;
         }
-        await using (opened.Value.ConfigureAwait(false))
-        {
-            try
-            {
-                Directory.CreateDirectory(tempDir);
-                await using var target = new FileStream(copied, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-                await opened.Value.CopyToAsync(target).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-                return false;
-            }
-        }
-        return true;
-    }
 
-    // 应用内拖放：OLE 不会回调源端，放置目标按 Shift 决定复制或移动，并清理源端暂存。
-    private async Task<bool> TryHandleInternalAttachmentDropAsync(DragEventArgs e)
-    {
-        if (e.Data.GetData(TaskAttachmentDragTransfer.FormatName) is not TaskAttachmentDragTransfer transfer) return false;
-        if (!Registry.TryGet(transfer.AttachmentId, out var registered)) return true;
-        var vm = EditorViewModel;
-        if (vm is null || !CanManageAttachments()) { Registry.Discard(registered.AttachmentId); return true; }
-        if ((e.KeyStates & DragDropKeyStates.ShiftKey) == DragDropKeyStates.ShiftKey)
-            await vm.RemoveAttachmentAsync(registered);
-        Registry.Discard(registered.AttachmentId);
-        return true;
+        try
+        {
+            // 只提供 Copy：拖出等价于导出副本，任务内附件与其记录保持不变。
+            TaskAttachmentDrag.Run(source, TaskAttachmentDrag.CreateData(dto, staged.Value));
+        }
+        finally
+        {
+            TaskAttachmentDrag.Release(staged.Value.Directory);
+        }
     }
 
     private void UpdateResponsiveActions(double width, double height)
