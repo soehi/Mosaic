@@ -29,7 +29,10 @@ public sealed class SettingsSqliteModule : IModuleActivation, ICapabilityProvide
         if (_repository is not null) throw new InvalidOperationException("Settings storage already started.");
         _repository = new(_session);
         var migration = await _session.MigrateAsync(Definition.Id,
-            [new(1, Embedded.Get("Mosaic.Settings.Sqlite.Migrations.001_CreateSettings.sql"))], cancellationToken).ConfigureAwait(false);
+            [
+                new(1, Embedded.Get("Mosaic.Settings.Sqlite.Migrations.001_CreateSettings.sql")),
+                new(2, Embedded.Get("Mosaic.Settings.Sqlite.Migrations.002_RemoveAccountChoice.sql"))
+            ], cancellationToken).ConfigureAwait(false);
         if (!migration.IsSuccess) throw new InvalidOperationException("Settings migration failed.", new Exception(migration.Error?.Message));
     }
 

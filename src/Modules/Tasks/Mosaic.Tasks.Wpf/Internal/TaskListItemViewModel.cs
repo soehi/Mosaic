@@ -17,6 +17,8 @@ internal sealed class TaskListItemViewModel(TaskItemDto item, string untitledTit
     public string CompletionLabel => TaskLocalization.Localize(
         IsCompleted ? "Tasks.FilterCompleted" : "Tasks.FilterOpen",
         IsCompleted ? "已完成" : "未完成");
+    public string AttachmentLabel => TaskLocalization.Format(
+        "Tasks.Attachments.Accessibility", "{0} 个附件", Item.AttachmentCount);
     public string AccessibilityLabel => TaskLocalization.Format(
         "Tasks.List.Accessibility",
         "{0}，{1}，{2}",

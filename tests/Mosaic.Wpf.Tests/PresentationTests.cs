@@ -975,7 +975,15 @@ public sealed class PresentationTests
     private static ResourceDictionary LoadTheme()
     {
         var uri = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative);
-        return Assert.IsType<ResourceDictionary>(Application.LoadComponent(uri));
+        var theme = Assert.IsType<ResourceDictionary>(Application.LoadComponent(uri));
+        // 运行时由 MosaicThemeManager 把调色板合并进应用资源；Theme.xaml 本身只放样式，
+        // 不再内嵌一份浅色画刷副本。测试单独加载主题时必须按同样的组合方式补上浅色调色板，
+        // 否则 DynamicResource 会解析到其他用例残留在应用资源里的深色画刷。
+        theme.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Palettes/Light.xaml", UriKind.Relative)
+        });
+        return theme;
     }
     private static void Arrange(FrameworkElement element, double width, double height)
     {

@@ -46,6 +46,12 @@ public sealed partial class DesktopTests
         {
             Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative)
         });
+        // 运行时 MosaicThemeManager 会把调色板合并进资源；只加载 Theme.xaml 会让
+        // DisabledSurfaceBrushKey 之类的画刷解析为 null，禁用态背景就无法校验。
+        window.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Palettes/Light.xaml", UriKind.Relative)
+        });
         var normal = new Button { Content = "Normal" };
         var primary = new Button { Content = "Primary", IsDefault = true };
         primary.SetResourceReference(FrameworkElement.StyleProperty, MosaicTheme.AccentButtonKey);
@@ -103,6 +109,10 @@ public sealed partial class DesktopTests
                 Assert.False(button.IsMouseCaptured);
                 Assert.True(button.IsKeyboardFocused);
                 Assert.False(HasFocusMark(button));
+                // 真实指针可能被外部输入移走（本机使用中跑 smoke），释放后重新定位到按钮中心，
+                // 确认仍处于悬停态再校验反馈亮度。
+                MoveTo(button, button.ActualWidth / 2, button.ActualHeight / 2);
+                await UntilCondition(() => button.IsMouseOver, "Button did not regain pointer hover");
                 Assert.Equal(0.88, face.Opacity);
                 MoveTo(panel, 0, panel.ActualHeight - 1);
                 await UntilCondition(() => !button.IsMouseOver, "Pointer did not leave the button");

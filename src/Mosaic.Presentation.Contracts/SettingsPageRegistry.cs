@@ -6,11 +6,6 @@ public sealed class SettingsPageRegistry
     private readonly Dictionary<string, SettingsPageContribution> _pages = new(StringComparer.Ordinal);
 
     public string? InitialGroupId { get; set; }
-    public bool IsInitialChoiceActive { get; set; }
-    public event EventHandler? InitialChoiceCompleted;
-    public event EventHandler? StartPageRequested;
-    public void RequestStartPage() { IsInitialChoiceActive = true; StartPageRequested?.Invoke(this, EventArgs.Empty); }
-    public void CompleteInitialChoice() => InitialChoiceCompleted?.Invoke(this, EventArgs.Empty);
     public IReadOnlyList<SettingsPageContribution> Pages
     {
         get { lock (_gate) return _pages.Values.OrderBy(page => page.GroupId, StringComparer.Ordinal).ThenBy(page => page.Id, StringComparer.Ordinal).ToArray(); }

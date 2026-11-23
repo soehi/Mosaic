@@ -372,21 +372,53 @@
                                 HorizontalAlignment="Left"
                                 Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
                                 CornerRadius="12">
-                            <TextBlock Text="✓"
-                                       HorizontalAlignment="Center"
+                            <TextBlock HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        FontSize="24"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
+                                       FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="✓"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.AccentBrushKey}}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasPageError}" Value="True">
+                                                <Setter Property="Text" Value="&#xE7BA;"/>
+                                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.DangerBrushKey}}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </Border>
-                        <TextBlock Text="{DynamicResource Shell.EmptyTitle}"
-                                   Margin="0,20,0,0"
+                        <TextBlock Margin="0,20,0,0"
                                    FontSize="24"
-                                   FontWeight="SemiBold"/>
-                        <TextBlock Text="{DynamicResource Shell.EmptyDescription}"
-                                   Margin="0,10,0,0"
+                                   FontWeight="SemiBold">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="{DynamicResource Shell.EmptyTitle}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasPageError}" Value="True">
+                                            <Setter Property="Text" Value="{DynamicResource Shell.Error.PageLoad}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Margin="0,10,0,0"
                                    TextWrapping="Wrap"
-                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                                   Text="{DynamicResource Shell.EmptyDescription}"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasPageError}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
                 </Border>
 

@@ -1,5 +1,61 @@
 # Mosaic：实施与验证记录
 
+## 0.18.7：评审问题收口——启动页契约、账户/同步状态、主题与窗口、配置键名迁移（2026-11-23）
+
+- 根因位置：
+  1. 启动路由由隐藏设置项与跨模块事件驱动：0.18.7 前 `src/Mosaic.Desktop/Bootstrapper.cs` 的 `StartAsync` 在 Auth 模块激活钩子里调用 `AuthModule.InitialAccountChoice` 并 `ISettingRepository.InitializeAsync`；`src/Mosaic.Shell.Wpf/ShellViewModel.cs` 订阅 `SettingsPageRegistry.StartPageRequested` / `InitialChoiceCompleted`，只有该设置提交成功并回调后才导航；`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs` 的 `MarkAccountChoiceMadeAsync` 在离线/设备码登录路径上写设置。触发条件：全新安装、设置库不可写或事件时序变化时，启动页依赖一次设置写入，失败后工作区为空且没有错误提示；`auth.accountChoiceMade` 还永久占用了一个用户设置键。
+  2. 已登录账户内容被写死隐藏：0.18.7 前 `src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml` 的账户卡片、同步开关与会话列表外层是 `Visibility="Collapsed"`，`ShowAccountSettings` 未参与可见性；页头另有一个只显示图标的 Logout 按钮，与账户卡片里的按钮重复。触发条件：已登录用户进入账户设置，看不到账户信息、同步与设备会话，只能看到无文字说明的登出图标。
+  3. 登出/删除后残留上一账户状态：`AccountViewModel.NotifyAuth` 只在登录分支刷新，未清空 `Sessions`、`SnapshotSummary`、`RestoreSummary`；`src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncService.cs` 的 `RaiseForAuthChange` 只触发事件，`State` 在未登录时仍返回 `_latest` / `_lastRestore` / `_messageCode`。触发条件：登出或删除账户后再次进入账户页或登录页，仍显示上一个账户的最近备份与上次恢复。
+  4. 设备码倒计时跨线程读改写：0.18.7 前 `AccountViewModel.PollDeviceAsync` 每秒在后台线程对 UI 属性 `DeviceSecondsLeft` 做自减，再以它为时钟判断过期与下次轮询；`Task.Delay(1s)` 与真实经过时间不等，UI 卡顿或服务端 `slow_down` 会让倒计时漂移甚至提前过期。
+  5. 同步选项提交未串行化：`AccountViewModel.CommitSyncOptionsAsync` 每次切换都独立走 `BeginEditSessionAsync` / `PreviewAsync` / `CommitAsync`；快速连续切换时两个编辑会话基于同一快照提交，后一次可能覆盖前一次。
+  6. 语言切换与页面重建丢状态：语言变更处理器重建服务器地址输入而没有保留用户正在输入的值；`AuthViewFactory.Create` 每次访问都新建页面 VM，`_offlineChosen` 只存在 VM 实例里，离开再回来即丢失。
+  7. 未配置服务器时设备码登录静默走官方服务器：`AccountViewModel.StartDeviceSignIn` 在 `ServerUrl` 为空时直接开始设备码流程，用户无法判断登录目标。
+  8. 跨模块错误码映射：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AuthLocalization.cs` 的 `AuthLocalization.Error` 映射 `SyncErrorCodes`。依赖面只有 `Mosaic.Sync.Contracts`（错误码枚举），账户页同时承载账户与同步设置，属于有意的组合；0.18.7 在代码中写明该理由，未拆成新模块。
+  9. 任务列表无障碍信息绑错：0.18.7 前 `src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml` 的列表项 `AutomationProperties.Name` 绑 `Title`、`HelpText` 绑 `AccessibilityLabel`，读屏只报标题；附件指示器的 `ToolTip` 与辅助名使用静态资源键 `Tasks.Attachments.Indicator`，不含附件数量。
+  10. 主题词典自带浅色副本且模板部件缺失：0.18.7 前 `src/Mosaic.Presentation.Wpf/Themes/Theme.xaml` 顶部定义 23 个浅色画刷，运行时 `MosaicThemeManager` 又会合并 `Palettes/Light|Dark|HighContrast`，单独加载该词典的宿主（测试、预览）与运行时不等于同一组合；ComboBox 没有 `PART_EditableTextBox`，可编辑态仍显示只读内容；ProgressBar 的轨道没有 `PART_Track`；菜单项没有勾选列与快捷键列；ToolTip 不换行且下拉高度写死 300；禁用态复选框/单选按钮的字形与圆点不随禁用色变化。
+  11. 顶层窗口 chrome 放在表现层程序集：0.18.7 前 `src/Mosaic.Presentation.Wpf/MosaicWindowChrome.cs` 位于可复用表现层，却直接 P/Invoke 顶层 HWND；`ThemeChanged` 在非窗口线程触发时直接取句柄抛 `InvalidOperationException`；`ObjectDisposedException` 与 `InvalidOperationException` 的捕获顺序、窗口关闭后的清理与高对比度跳过都不完整。触发条件：主题切换、窗口关闭瞬间、测试宿主或多 UI 线程。
+  12. 窗口位置只按主显示器工作区钳制：0.18.7 前 `src/Mosaic.Shell.Wpf/ShellWindow.xaml.cs` 的 `OnLoaded` 用 `SystemParameters.WorkArea` 缩小窗口并居中。触发条件：上次位置保存在副显示器或已拔掉的显示器，合法位置被移回主屏并缩小。
+  13. 配置写回键名大小写不一致：0.18.7 前 `src/Mosaic.Desktop/AppConfiguration.cs` 的 `WriteConfiguration` 用 `["storage"] = configuration.Storage` 直接序列化 `StorageConfiguration` 记录，产出 `Engine` / `Location` / `Filename`；读取端与外部工具按小写 `engine` / `location` / `filename` 读取会得到 null。触发条件：任何写回配置的启动（首次修复、迁移、设置变更）。
+  14. 默认配置缺少能力绑定：0.18.7 前 `src/Mosaic.Desktop/appsettings.json` 没有 `tasks.attachments@1` 的 provider 映射，而 `TasksModule` 声明需要该能力；启动修复把健康配置判为不完整并重写，与 13 叠加后暴露键名问题。触发条件：每次启动。
+  15. 测试基线漂移：`tests/Mosaic.Wpf.Tests/PresentationTests.cs` 的 `LoadTheme` 与 `tests/Mosaic.Desktop.SmokeTests/ButtonFeedbackTests.cs` 只加载 `Theme.xaml` 不合并调色板；`tests/Mosaic.Wpf.Tests/AccountViewModelTests.cs` 的 `FakeAuth.PollDeviceAuthorizationAsync` 在 approved 时不更新登录态；登出用例在 `StartAsync` 之前设置替身状态会被重置；smoke 测试并行时抢前台窗口与鼠标；拖动断言未给系统拖动阈值留量。
+
+- 改动位置：
+  1. 启动页契约：`src/Mosaic.Presentation.Contracts/PresentationContracts.cs` 的 `NavigationItem` 新增 `IsDefault`；`src/Modules/Tasks/Mosaic.Tasks.Wpf/TasksUiModule.cs` 为任务导航声明 `IsDefault: true`；`src/Mosaic.Shell.Wpf/ShellViewModel.cs` 的 `InitializeAsync`、`OnContributionsChanged` 改为按 `IsDefault` 选择启动页，新增 `PageError` / `HasPageError`，加载失败时不再只弹对话框；`src/Mosaic.Shell.Wpf/ShellWindow.xaml` 的空工作区按 `HasPageError` 切换图标、标题并隐藏描述；`src/Mosaic.Presentation.Contracts/SettingsPageRegistry.cs` 删除 `IsInitialChoiceActive`、`InitialChoiceCompleted`、`StartPageRequested`、`RequestStartPage`、`CompleteInitialChoice`；`src/Mosaic.Desktop/Bootstrapper.cs` 删除 Auth 激活钩子；`src/Modules/Auth/Mosaic.Auth.Core/AuthModule.cs` 删除 `InitialAccountChoice`；`src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthSettingsSource.cs` 删除 `AccountChoiceMade` 定义；`src/Mosaic.Shell.Wpf/ShellWindow.xaml.cs` 构造 `ShellViewModel` 时去掉 `settingsPages` 参数。
+  2. 账户页可见性：`src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml` 的登录态容器改为绑定 `ShowAccountSettings`，删除页头重复 Logout，账户卡片 Logout 增加 `AutomationProperties.AutomationId="AccountLogoutButton"`。
+  3. 账户与同步状态：`AccountViewModel.NotifyAuth` 在未登录分支清空 `Sessions`、`SnapshotSummary`、`RestoreSummary` 并通知相关属性/命令；新增 `RefreshAccountContextAsync`，登录状态由外部事件触发时刷新备份摘要与会话；`SyncService.RaiseForAuthChange` 在未登录时清空 `_latest` / `_lastRestore` / `_messageCode`，`SyncService.State` 在未登录时屏蔽这三项。
+  4. 设备码时钟：`AccountViewModel.StartDevicePolling` 与 `PollDeviceAsync` 改用 `Stopwatch.GetTimestamp()` 的单调截止时间，新增 `RemainingSeconds`，UI 属性只作为展示副本。
+  5. 同步选项串行化：`AccountViewModel.CommitSyncOptionsAsync` 用 `SemaphoreSlim _syncPersistGate` 包裹整个编辑会话，`finally` 释放。
+  6. 页面状态保持：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AuthViewFactory.cs` 持有 `_offlineChosen`，通过 `offlineChosen` / `offlineChosenChanged` 构造参数交给页面 VM；`AccountViewModel` 新增 `SetOfflineChosen`，`UseOffline` / `Connect` / `NotifyAuth` 统一走它；语言变更不再重置服务器输入。
+  7. 无服务器拒登：`AccountViewModel.StartDeviceSignIn` 在服务器地址为空时打开服务器面板并返回 `Auth.Error.ServerRequired`，不再静默使用官方服务器。
+  8. 跨模块映射：`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AuthLocalization.cs` 在 `SyncErrorCodes` 映射前写明依赖只到 `Mosaic.Sync.Contracts` 的理由。
+  9. 任务列表无障碍：`src/Modules/Tasks/Mosaic.Tasks.Wpf/Views/TasksView.xaml` 的列表项 `AutomationProperties.Name` 改绑 `AccessibilityLabel`，移除重复的 `HelpText`；附件指示器 `ToolTip` 与 `AutomationProperties.Name` 改绑新属性 `AttachmentLabel`；`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskListItemViewModel.cs` 新增 `AttachmentLabel`（`Tasks.Attachments.Accessibility`，`{0} 个附件`）。
+  10. 主题词典与模板：`src/Mosaic.Presentation.Wpf/Themes/Theme.xaml` 删除内嵌浅色画刷副本，只由 `Palettes/*` 提供颜色；补齐 ComboBox `PART_EditableTextBox` 与 `IsEditable` 触发器、ProgressBar `PART_Track`、禁用态复选框字形/单选圆点颜色、ToolTip 文本换行、菜单项勾选列与快捷键列、下拉 `MaxHeight` 绑定 `MaxDropDownHeight`。
+  11. 窗口 chrome 归位：删除 `src/Mosaic.Presentation.Wpf/MosaicWindowChrome.cs`，新增 `src/Mosaic.Shell.Wpf/MosaicWindowChrome.cs`（`Mosaic.Shell.Wpf` 命名空间）：`Attach` / `Detach` 用弱引用登记窗口，主题变化时切回窗口调度器再应用，关闭/已销毁句柄直接返回，高对比度跳过 DWM 着色，先试属性 20 再回退 19；`src/Mosaic.Shell.Wpf/ShellWindow.xaml.cs` 调用同名类型；`build/public-api.txt` 基线从 `Mosaic.Presentation.Wpf.MosaicWindowChrome` 改为 `Mosaic.Shell.Wpf.MosaicWindowChrome`。
+  12. 多显示器钳制：`src/Mosaic.Shell.Wpf/ShellWindow.xaml.cs` 新增 `ClampToVirtualScreen`，按 `VirtualScreenLeft/Top/Width/Height` 组成的虚拟屏幕判断窗口与标题栏是否可见，只在越界时移动，不再按主屏工作区缩小。
+  13. 配置键名：`src/Mosaic.Desktop/AppConfiguration.cs` 的 `WriteConfiguration` 显式写出小写 `engine` / `location` / `filename`。
+  14. 能力绑定：`src/Mosaic.Desktop/appsettings.json` 新增 `"tasks.attachments@1": "tasks-core"`。
+  15. 迁移与测试：新增 `src/Modules/Settings/Mosaic.Settings.Sqlite/Migrations/002_RemoveAccountChoice.sql`，`SettingsSqliteModule.ActivateAsync` 注册版本 2；`tests/Mosaic.Settings.Sqlite.Tests/SettingsRepositoryTests.cs` 新增 `Removed_account_choice_setting_is_deleted_and_other_settings_survive`，通用初始化用例改用中性键；`tests/Mosaic.Wpf.Tests/PresentationTests.cs` 的 `LoadTheme`、`tests/Mosaic.Desktop.SmokeTests/ButtonFeedbackTests.cs` 的测试窗口合并 `Palettes/Light.xaml`；`tests/Mosaic.Desktop.SmokeTests/GlobalUsings.cs` 关闭 smoke 并行；`tests/Mosaic.Desktop.SmokeTests/FloatingDragTests.cs` 拖动位移改为方向与量级区间、右边框缩放失败时最多重试 3 次，60×40 指针位移在非 100% DPI 上按设备无关像素取整，断言留 ±4 像素容差（实测 63px）；`tests/Mosaic.Desktop.SmokeTests/ButtonFeedbackTests.cs` 在指针释放后重新定位到按钮并等待悬停态再校验 0.88 亮度；`tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs` 新增 `TaskRow`，按 `TaskList` 下的 `ListItem` 控件类型与完整无障碍名称定位任务行（原按名称搜索会命中行内 TextBlock，没有 `SelectionItemPattern`），并把 `Until`/`UntilCondition` 的等待上限由 15 秒放宽到 30 秒（冷启动叠加本机同时运行其他实例时，任务行出现可能晚于 15 秒）；`tests/Mosaic.Wpf.Tests/AccountViewModelTests.cs` 修正 FakeAuth approved 登录态、登出用例顺序与摘要断言，删除已失效的「无服务器静默登录」用例；`tests/Mosaic.Wpf.Tests/ResponsiveLayoutTests.cs` 删除对已移除 `IsInitialChoiceActive` 的断言。
+
+- 迁移逻辑与验收项：
+  - 迁移：`settings` 表删除 `auth.accountChoiceMade` 行。该键在 0.18.7 起没有任何定义与读取方；旧安装升级后第一次启动即执行版本 2 迁移，其他设置行原样保留。
+  - 配置：`appsettings.json` 新增 `tasks.attachments@1` → `tasks-core`，并对已存在的安装配置生效（配置由程序目录读取，升级替换程序文件后立即使用）。
+  - 验收项：
+    1. 用含 `auth.accountChoiceMade` 的旧 `mosaic.sqlite` 启动 0.18.7：启动进入任务页；设置页正常打开；`SELECT setting_id FROM settings WHERE setting_id='auth.accountChoiceMade'` 返回空；`auth.serverUrl` 等其余设置值不变。
+    2. 全新安装启动：直接进入任务页，不再出现首次账户选择页；工作区无空白页。
+    3. 已登录进入账户设置：账户卡片、同步开关、会话列表可见，只有一个 Logout 按钮。
+    4. 登出/删除账户后再进入账户页：会话列表为空，最近备份与上次恢复不显示上一账户内容。
+    5. 未填服务器时点「使用浏览器登录」：停在服务器面板并提示需要服务器地址。
+    6. 双显示器保存窗口位置后拔掉副屏再启动：窗口出现在虚拟屏幕内且标题栏可抓取；副屏仍在时位置不被重置。
+    7. 修改任一设置触发配置写回后，`appsettings.json` 的 `storage` 下仍是 `engine` / `location` / `filename` 小写键。
+  - 对已有安装的影响：程序文件替换；SQLite `settings` 表执行一次删除行的迁移（有 `.pre-migration` 备份机制）；用户数据、账户、任务、附件、日志与备份目录不变。
+
+- 验证：
+  - `dotnet build Mosaic.sln -v:minimal -m:1`：0 警告 0 错误。
+  - `build/test.ps1 -Configuration Release`：Release 构建 0 警告 0 错误，16 个测试工程 475 项全部通过（exit 0）——Architecture 4、Auth.Core 26、Auth.Http 36、Desktop.SmokeTests 54/54、DesktopPresence 17、FloatingWindows 12、Kernel 7、Maintenance 16、ReleaseSummary 17、Settings.Core 25、Settings.Sqlite 6、Storage.Sqlite 29、Sync.Core 14、Tasks.Contract 8、Tasks.Core 39、Wpf 165。smoke 在 30 秒等待上限与串行模式下 54 项全绿（71s）。
+  - 主题用例同时校验浅色与深色解析，smoke 按钮禁用态取色通过；浮动窗口真实鼠标拖动/缩放/点击用例在串行模式下通过。
+
+- 未验证项：未在真实双显示器热插拔过程中重复验证窗口钳制；未在 Windows 10 1809–1903 实机上验证 DWM 属性 19 回退；未对 0.18.6 之前更老版本的 `settings` 表结构做额外迁移矩阵（表结构自 001 起未变）。
+
 ## 0.18.6：附件徽标矢量化、深色模式补全、启动固定任务页、安装完成自动启动、升级保留设置（2026-11-23）
 
 - 根因位置：

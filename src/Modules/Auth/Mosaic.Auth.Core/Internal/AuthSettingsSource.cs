@@ -7,9 +7,6 @@ namespace Mosaic.Auth.Core.Internal;
 internal sealed class AuthSettingsSource(AuthService service) : ISettingSource
 {
     internal const string ServerUrl = "auth.serverUrl";
-    // True once the user has made a first-run account choice (sign in or go offline); fresh
-    // installs start with no value and are asked once, existing installs migrate to true.
-    internal const string AccountChoiceMade = "auth.accountChoiceMade";
 
     public string ModuleId => "auth-core";
 
@@ -21,10 +18,7 @@ internal sealed class AuthSettingsSource(AuthService service) : ISettingSource
             // The start page owns the server choice; the generic editor must not offer a second input.
             // The definition stays registered so AuthService can still read and save the address.
             DisplayNameKey: "Settings.Setting.AuthServer", DescriptionKey: "Settings.Setting.AuthServer.Description",
-            ShowInSettings: false),
-        new(AccountChoiceMade, "auth-core", "账户选择已完成", "记录首次启动时的账户选择。",
-            SettingValueKind.Boolean, false, null, null, null, SettingsGroup.AccountsAndBackup, SettingCategory.Advanced,
-            SettingApplyMode.Immediate, SettingPersistence.UserSettings)
+            ShowInSettings: false)
     ];
 
     public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default) =>

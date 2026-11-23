@@ -50,10 +50,19 @@ public sealed class AccountViewModelTests
         public Task<OperationResult<DeviceAuthorizationDto>> StartDeviceAuthorizationAsync(CancellationToken cancellationToken = default)
         { StartDeviceCalls++; return Task.FromResult(OperationResult<DeviceAuthorizationDto>.Success(DeviceAuthorization)); }
         public DeviceAuthorizationStatus PollStatus { get; set; } = DeviceAuthorizationStatus.Pending;
-        public Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<DevicePollDto>.Success(new(
+        public Task<OperationResult<DevicePollDto>> PollDeviceAuthorizationAsync(CancellationToken cancellationToken = default)
+        {
+            // 真实 AuthCore 在轮询到 approved 时写入登录态并通知订阅者；替身必须做同样的事，
+            // 否则账户页只能看到“轮询结束”而永远等不到 IsSignedIn。
+            if (PollStatus == DeviceAuthorizationStatus.Approved)
+            {
+                State = new AuthState(AuthStatus.SignedIn, Account, State.Server);
+                RaiseStateChanged();
+            }
+            return Task.FromResult(OperationResult<DevicePollDto>.Success(new(
                 PollStatus,
                 PollStatus == DeviceAuthorizationStatus.Approved ? new AuthSessionDto("access", "refresh", 3600, Account) : null)));
+        }
         public Task<OperationResult> CancelDeviceAuthorizationAsync() { CancelDeviceCalls++; return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult> LogoutAsync(CancellationToken cancellationToken = default)
         { LogoutCalls++; State = AuthState.SignedOut(State.Server); return Task.FromResult(OperationResult.Success()); }
@@ -144,7 +153,6 @@ public sealed class AccountViewModelTests
         public FakeSettings Settings { get; } = new();
         public Dialogs Dialogs { get; } = new();
         public Diagnostics Diagnostics { get; } = new();
-        public SettingsPageRegistry Pages { get; } = new();
         public List<Uri> Opened { get; } = [];
         public List<string> Copied { get; } = [];
         public AccountViewModel ViewModel { get; private set; } = null!;
@@ -154,7 +162,7 @@ public sealed class AccountViewModelTests
             Auth.State = signedIn ? new AuthState(AuthStatus.SignedIn, Account, Server) : AuthState.SignedOut(Server);
             Sync.State = new(signedIn, false, null, null, null);
             ViewModel = new AccountViewModel(Auth, Sync, Settings, Dialogs, new Dispatcher(), Diagnostics,
-                Opened.Add, Copied.Add, Pages);
+                Opened.Add, Copied.Add);
             return Task.FromResult(this);
         }
 
@@ -251,7 +259,7 @@ public sealed class AccountViewModelTests
 
         Assert.False(fixture.ViewModel.ShowServerPanel);
         Assert.True(fixture.ViewModel.IsLoginMode);
-        Assert.True(fixture.ViewModel.ShowAccountChoice); // saving an address is not an account choice
+        Assert.True(fixture.ViewModel.ShowLoginCard); // saving an address is not an account choice
         Assert.False(fixture.ViewModel.IsError);
     });
 
@@ -285,25 +293,6 @@ public sealed class AccountViewModelTests
         Assert.Null(fixture.Auth.LastServerInput);
         Assert.True(fixture.ViewModel.IsDeviceRunning);
         Assert.True(fixture.ViewModel.OpenDeviceUriCommand.CanExecute(null));
-    });
-
-    [Fact]
-    public Task Starting_device_sign_in_without_a_server_uses_the_official_server() => RunFixture(async fixture =>
-    {
-        fixture.Auth.State = AuthState.SignedOut();
-        fixture.Auth.DeviceAuthorization = new("device-code", "BAADC832",
-            new Uri("https://mosaic.bansonic.top/device"),
-            new Uri("https://mosaic.bansonic.top/device?code=BAADC832"), 600, 5);
-        await fixture.ViewModel.InitializeAsync();
-
-        await fixture.ViewModel.StartDeviceCommand.ExecuteAsync(null);
-
-        Assert.False(fixture.ViewModel.IsError);
-        Assert.False(fixture.ViewModel.ShowServerPanel);
-        Assert.Equal(AuthValidation.DefaultServerUrl, fixture.Auth.LastServerInput);
-        Assert.Equal(1, fixture.Auth.StartDeviceCalls);
-        Assert.Equal("https://mosaic.bansonic.top/device?code=BAADC832", Assert.Single(fixture.Opened).ToString());
-        Assert.True(fixture.ViewModel.IsDeviceRunning);
     });
 
     [Fact]
@@ -518,7 +507,6 @@ public sealed class AccountViewModelTests
         await fixture.ViewModel.InitializeAsync();
 
         Assert.True(fixture.ViewModel.IsSignedOut);
-        Assert.True(fixture.ViewModel.ShowAccountChoice);
         Assert.True(fixture.ViewModel.IsLoginMode);
         Assert.True(fixture.ViewModel.ShowLoginCard);
         Assert.Equal(0, fixture.Auth.LoginCalls);
@@ -526,41 +514,56 @@ public sealed class AccountViewModelTests
     });
 
     [Fact]
-    public Task Choosing_offline_records_the_choice_and_shows_the_offline_note() => RunFixture(async fixture =>
+    public Task Choosing_offline_shows_the_note_without_writing_state() => RunFixture(async fixture =>
     {
         await fixture.ViewModel.InitializeAsync();
-        Assert.True(fixture.ViewModel.ShowAccountChoice);
 
         fixture.ViewModel.UseOfflineCommand.Execute(null);
-        await Task.Delay(50);
 
-        Assert.False(fixture.ViewModel.ShowAccountChoice);
         Assert.True(fixture.ViewModel.ShowOfflineNote);
         Assert.False(fixture.ViewModel.ShowLoginCard);
-        Assert.Contains(fixture.Settings.Commits, draft => draft.TryGetValue("auth.accountChoiceMade", out var v) && v is true);
-        Assert.True(fixture.Settings.Values.TryGetValue("auth.accountChoiceMade", out var saved) && saved is true);
+        Assert.Empty(fixture.Settings.Commits);
     });
 
     [Fact]
-    public Task A_signed_in_install_never_shows_the_account_choice() => RunFixture(async _ =>
+    public Task The_factory_restores_the_offline_choice_on_the_next_visit() => Run(async () =>
+    {
+        await using var fixture = new Fixture();
+        await fixture.StartAsync();
+        var saved = false;
+        await using var model = new AccountViewModel(
+            fixture.Auth, fixture.Sync, fixture.Settings, fixture.Dialogs, new Dispatcher(), fixture.Diagnostics,
+            fixture.Opened.Add, fixture.Copied.Add, offlineChosenChanged: value => saved = value);
+
+        await model.InitializeAsync();
+        model.UseOfflineCommand.Execute(null);
+        Assert.True(saved);
+
+        await using var restored = new AccountViewModel(
+            fixture.Auth, fixture.Sync, fixture.Settings, fixture.Dialogs, new Dispatcher(), fixture.Diagnostics,
+            fixture.Opened.Add, fixture.Copied.Add, offlineChosen: saved);
+        await restored.InitializeAsync();
+        Assert.True(restored.ShowOfflineNote);
+        Assert.False(restored.ShowLoginCard);
+    });
+
+    [Fact]
+    public Task A_signed_in_install_never_shows_the_login_card() => RunFixture(async _ =>
     {
         await using var signedIn = await new Fixture().StartAsync(signedIn: true);
         await signedIn.ViewModel.InitializeAsync();
 
         Assert.True(signedIn.ViewModel.IsSignedIn);
-        Assert.False(signedIn.ViewModel.ShowAccountChoice);
+        Assert.False(signedIn.ViewModel.ShowLoginCard);
+        Assert.True(signedIn.ViewModel.ShowAccountSettings);
     });
 
     [Fact]
-    public Task Configuring_a_server_alone_records_no_first_run_choice() => RunFixture(async fixture =>
+    public Task Configuring_a_server_alone_writes_no_first_run_choice() => RunFixture(async fixture =>
     {
-        await fixture.ViewModel.SaveServerCommand.ExecuteAsync(null); // configures server, no choice flag yet
+        await fixture.ViewModel.SaveServerCommand.ExecuteAsync(null);
         Assert.True(fixture.ViewModel.IsServerConfigured);
-
-        await Task.Delay(50);
-
-        // Configuring a server is not a first-run choice by itself.
-        Assert.True(fixture.ViewModel.ShowAccountChoice);
+        Assert.True(fixture.ViewModel.ShowLoginCard);
         Assert.DoesNotContain(fixture.Settings.Commits, draft => draft.ContainsKey("auth.accountChoiceMade"));
     });
 
@@ -568,58 +571,45 @@ public sealed class AccountViewModelTests
     public Task Offline_exit_opens_start_without_calling_logout() => RunFixture(async fixture =>
     {
         await fixture.ViewModel.InitializeAsync();
-        var startRequests = 0;
-        fixture.Pages.StartPageRequested += (_, _) => startRequests++;
 
         await fixture.ViewModel.LogoutCommand.ExecuteAsync(null);
 
         Assert.Equal(0, fixture.Auth.LogoutCalls);
         Assert.Equal(0, fixture.Dialogs.Confirms);
         Assert.True(fixture.ViewModel.ShowStartPage);
-        Assert.Equal(1, startRequests);
     });
 
     [Fact]
-    public Task Signing_out_preserves_the_first_run_choice() => Run(async () =>
+    public Task Signing_out_clears_sessions_restore_summary_and_snapshot() => Run(async () =>
     {
         await using var fixture = new Fixture();
+        var now = DateTimeOffset.UtcNow;
         await fixture.StartAsync(signedIn: true);
-        fixture.Settings.Values["auth.accountChoiceMade"] = true;
-        var startRequests = 0;
-        fixture.Pages.StartPageRequested += (_, _) => startRequests++;
+        // StartAsync 会重置服务替身的初始状态，备份/恢复摘要必须在启动之后再布置。
+        fixture.Auth.SessionsResult =
+        [
+            new AuthSessionInfoDto("session-1", "Windows", "Windows 11", now.AddDays(-1), now, now.AddDays(30), true)
+        ];
+        fixture.Sync.State = new(true, false,
+            new BackupSnapshotDto("snap-1", now, 3, "sha256", 100), new RestoreSummary(3, 2), null);
         await fixture.ViewModel.InitializeAsync();
+        Assert.True(fixture.ViewModel.HasRestore);
 
         await fixture.ViewModel.LogoutCommand.ExecuteAsync(null);
 
-        Assert.Equal(1, fixture.Dialogs.Confirms);
         Assert.Equal(1, fixture.Auth.LogoutCalls);
         Assert.True(fixture.ViewModel.IsSignedOut);
-        Assert.True(fixture.ViewModel.ShowStartPage); // the settings page turns into the start page
-        Assert.Equal(1, startRequests);
-        Assert.True(fixture.Pages.IsInitialChoiceActive);
-        Assert.DoesNotContain(fixture.Settings.Commits, draft => draft.ContainsKey("auth.accountChoiceMade"));
-        Assert.Equal(true, fixture.Settings.Values["auth.accountChoiceMade"]);
-    });
-
-    [Fact]
-    public Task The_account_settings_page_shows_the_start_page_while_the_choice_is_open() => Run(async () =>
-    {
-        await using var fixture = new Fixture();
-        fixture.Pages.IsInitialChoiceActive = true;
-        await fixture.StartAsync();
-
-        await fixture.ViewModel.InitializeAsync();
-
         Assert.True(fixture.ViewModel.ShowStartPage);
-        Assert.False(fixture.ViewModel.ShowAccountSettings);
-        Assert.True(fixture.ViewModel.ShowAccountChoice);
+        Assert.Empty(fixture.ViewModel.Sessions);
+        // SnapshotSummary 在无备份时回退为本地化提示文本，摘要是否清空由 RestoreSummary 判定。
+        Assert.Null(fixture.ViewModel.RestoreSummary);
+        Assert.False(fixture.ViewModel.HasRestore);
     });
 
     [Fact]
-    public Task A_signed_out_account_page_shows_the_choice_without_an_open_first_run_flow() => Run(async () =>
+    public Task A_signed_out_account_page_shows_the_login_card() => Run(async () =>
     {
         await using var fixture = new Fixture();
-        Assert.False(fixture.Pages.IsInitialChoiceActive);
         await fixture.StartAsync();
         await fixture.ViewModel.InitializeAsync();
 
@@ -640,61 +630,35 @@ public sealed class AccountViewModelTests
     });
 
     [Fact]
-    public Task Choosing_offline_completes_the_first_run_choice_for_the_settings_shell() => Run(async () =>
+    public Task Device_sign_in_without_a_server_is_refused_instead_of_using_the_default() => Run(async () =>
     {
         await using var fixture = new Fixture();
-        fixture.Pages.IsInitialChoiceActive = true;
         await fixture.StartAsync();
-        var completed = 0;
-        fixture.Pages.InitialChoiceCompleted += (_, _) => completed++;
+        fixture.Auth.State = AuthState.SignedOut();
         await fixture.ViewModel.InitializeAsync();
 
-        fixture.ViewModel.UseOfflineCommand.Execute(null);
-        for (var attempt = 0; attempt < 100 && completed == 0; attempt++) await Task.Delay(20);
+        await fixture.ViewModel.StartDeviceCommand.ExecuteAsync(null);
 
-        Assert.Equal(1, completed);
-        Assert.True(fixture.ViewModel.ShowOfflineNote);
-        Assert.True(fixture.Settings.Values.TryGetValue("auth.accountChoiceMade", out var value) && value is true);
+        Assert.Equal(0, fixture.Auth.StartDeviceCalls);
+        Assert.True(fixture.ViewModel.ShowServerPanel);
+        Assert.True(fixture.ViewModel.IsError);
     });
 
     [Fact]
-    public Task Saving_a_server_on_the_start_page_completes_the_first_run_choice() => Run(async () =>
+    public Task Browser_approval_of_the_device_code_signs_in_and_stops_polling() => Run(async () =>
     {
         await using var fixture = new Fixture();
-        fixture.Pages.IsInitialChoiceActive = true;
-        await fixture.StartAsync();
-        var completed = 0;
-        fixture.Pages.InitialChoiceCompleted += (_, _) => completed++;
-        await fixture.ViewModel.InitializeAsync();
-
-        fixture.ViewModel.ToggleServerPanelCommand.Execute(null);
-        fixture.ViewModel.ServerInput = "https://self.example.com";
-        await fixture.ViewModel.SaveServerCommand.ExecuteAsync(null);
-
-        Assert.Equal(1, completed);
-        Assert.True(fixture.ViewModel.IsServerConfigured);
-        Assert.True(fixture.Settings.Values.TryGetValue("auth.accountChoiceMade", out var value) && value is true);
-    });
-
-    [Fact]
-    public Task Browser_approval_of_the_device_code_completes_the_first_run_choice() => Run(async () =>
-    {
-        await using var fixture = new Fixture();
-        fixture.Pages.IsInitialChoiceActive = true;
         await fixture.StartAsync();
         fixture.Auth.PollStatus = DeviceAuthorizationStatus.Approved;
         fixture.Auth.DeviceAuthorization = new("device-code", "BAADC832", new Uri("https://sync.example.com/device"),
             new Uri("https://sync.example.com/device?code=BAADC832"), 60, 2);
-        var completed = 0;
-        fixture.Pages.InitialChoiceCompleted += (_, _) => completed++;
         await fixture.ViewModel.InitializeAsync();
 
         await fixture.ViewModel.StartDeviceCommand.ExecuteAsync(null);
-        for (var attempt = 0; attempt < 200 && completed == 0; attempt++) await Task.Delay(25);
+        for (var attempt = 0; attempt < 200 && fixture.ViewModel.IsDeviceRunning; attempt++) await Task.Delay(25);
 
         Assert.Equal(1, fixture.Auth.StartDeviceCalls);
         Assert.False(fixture.ViewModel.IsDeviceRunning);
-        Assert.Equal(1, completed);
-        Assert.True(fixture.Settings.Values.TryGetValue("auth.accountChoiceMade", out var value) && value is true);
+        Assert.True(fixture.ViewModel.IsSignedIn);
     });
 }

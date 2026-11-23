@@ -393,7 +393,6 @@ public sealed class ResponsiveLayoutTests
         await shell.InitializeAsync();
 
         Assert.Equal("tasks.navigation", Get<string>(shell.DataContext!, "CurrentNavigationId"));
-        Assert.False(settingsPages.IsInitialChoiceActive);
         await shell.DisposeAsync();
     });
 

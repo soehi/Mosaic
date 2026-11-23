@@ -76,17 +76,7 @@ internal sealed class Bootstrapper : IAsyncDisposable
         };
         try
         {
-            await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest), CancellationToken.None, async (module, token) =>
-            {
-                if (module is not Mosaic.Auth.Core.AuthModule) return;
-                var installationState = _runtime.Resolve<Mosaic.Storage.Contracts.IInstallationState>(new("startup.installation-state", 1), configuredProviders);
-                var classification = await installationState.GetInstallationKindAsync(token);
-                if (!classification.IsSuccess) throw new InvalidOperationException("Cannot determine installation state: " + classification.Error?.Message);
-                var repository = _runtime.Resolve<ISettingRepository>(new("settings.repository", 1), configuredProviders);
-                var initialization = Mosaic.Auth.Core.AuthModule.InitialAccountChoice(classification.Value == Mosaic.Storage.Contracts.InstallationKind.Legacy);
-                var initialized = await repository.InitializeAsync(initialization, token);
-                if (!initialized.IsSuccess) throw new InvalidOperationException("Settings initialization failed: " + initialized.Error?.Message);
-            });
+            await _runtime.StartAsync(ordered, manifest => BuiltInModuleCatalog.Create(context, manifest), CancellationToken.None);
             Presence = context.Presence;
             Floating=context.Floating;
             if (context.ReleaseSummary is { } summary) await summary.RequestStartupReadyAsync();

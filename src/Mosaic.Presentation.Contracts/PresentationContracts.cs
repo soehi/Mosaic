@@ -8,7 +8,8 @@ public sealed record NavigationItem(
     string IconKey,
     string ViewId,
     int Order,
-    string? LabelKey = null);
+    string? LabelKey = null,
+    bool IsDefault = false);
 public sealed record ViewContribution(string Id, IViewFactory Factory);
 public sealed record ViewPage(FrameworkElement View, IPageController Controller);
 public sealed record SettingsPageContribution(string GroupId, string Id, IViewFactory Factory);

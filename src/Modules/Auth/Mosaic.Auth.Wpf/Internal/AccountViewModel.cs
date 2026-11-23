@@ -29,7 +29,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 {
     private const string SyncEnabledId = "sync.enabled";
     private const string SyncIncludeSettingsId = "sync.includeSettings";
-    private const string AccountChoiceMadeId = "auth.accountChoiceMade";
 
     private readonly IAuthApi _auth;
     private readonly ISyncApi _sync;
@@ -39,7 +38,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private readonly IDiagnosticSink _diagnostics;
     private readonly Action<Uri> _openUri;
     private readonly Action<string> _copyText;
-    private readonly SettingsPageRegistry? _settingsPages;
 
     // 未登录时账户页永远是选择/登录界面：启动页不再被首次运行流程占用，
     // 用户从设置进入账户页时也必须能看到登录、设备码或离线三种入口，而不是空白页。
@@ -54,6 +52,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private bool _isError;
     private bool _showServerPanel;
     private bool _offlineChosen;
+    private readonly Action<bool>? _offlineChosenChanged;
     private bool _disposed;
     private string? _message;
     private string _serverInput = "";
@@ -68,6 +67,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private bool _includeSettings = true;
     private bool _includeOnUpload = true;
     private bool _loadingSync;
+    private readonly SemaphoreSlim _syncPersistGate = new(1, 1);
     private string? _snapshotSummary;
     private string? _restoreSummary;
     private readonly ObservableCollection<AuthSessionInfoDto> _sessions = [];
@@ -85,8 +85,11 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         IDiagnosticSink diagnostics,
         Action<Uri>? openUri = null,
         Action<string>? copyText = null,
-        SettingsPageRegistry? settingsPages = null)
+        bool offlineChosen = false,
+        Action<bool>? offlineChosenChanged = null)
     {
+        _offlineChosen = offlineChosen;
+        _offlineChosenChanged = offlineChosenChanged;
         _auth = auth ?? throw new ArgumentNullException(nameof(auth));
         _sync = sync ?? throw new ArgumentNullException(nameof(sync));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -95,7 +98,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         _openUri = openUri ?? DefaultOpenUri;
         _copyText = copyText ?? DefaultCopy;
-        _settingsPages = settingsPages;
         Sessions = new(_sessions);
 
         StartDeviceCommand = Async(StartDeviceAsync);
@@ -162,10 +164,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     public bool IsLoginMode => Mode == AccountMode.Login;
     public bool IsDeviceMode => Mode == AccountMode.Device;
-
-    /// <summary>The signed-out login mode is the account-choice screen: browser sign-in,
-    /// a self-hosted server, offline use or browser-based password recovery.</summary>
-    public bool ShowAccountChoice => IsSignedOut && !_offlineChosen && Mode == AccountMode.Login;
 
     /// <summary>Form fields stay disabled while another account op runs.</summary>
     public bool CanUseAccount => !IsBusy && IsSignedOut;
@@ -312,7 +310,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         set
         {
             if (!SetProperty(ref _syncEnabled, value) || _loadingSync) return;
-            _ = PersistSyncOptionAsync(SyncEnabledId, value);
+            QueueSyncOptionsPersist();
         }
     }
 
@@ -322,7 +320,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         set
         {
             if (!SetProperty(ref _includeSettings, value) || _loadingSync) return;
-            _ = PersistSyncOptionAsync(SyncIncludeSettingsId, value);
+            QueueSyncOptionsPersist();
         }
     }
 
@@ -453,12 +451,11 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     {
         if (!IsServerConfigured)
         {
-            var configured = await _auth.SetServerAsync(AuthValidation.DefaultServerUrl, _lifetime.Token).ConfigureAwait(true);
-            if (!configured.IsSuccess)
-            {
-                Fail(AuthLocalization.Error(configured.Error));
-                return;
-            }
+            // Never invent a server on the user's behalf: the shipped default is only a
+            // suggestion for the server field, not a destination to sign in against silently.
+            ShowServerPanel = true;
+            Fail(L("Auth.Error.ServerRequired", "请先填写服务器地址。"));
+            return;
         }
         var started = await _auth.StartDeviceAuthorizationAsync(_lifetime.Token).ConfigureAwait(true);
         if (!started.IsSuccess)
@@ -499,14 +496,12 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             return;
         }
         ShowServerPanel = false;
-        _offlineChosen = false;
+        SetOfflineChosen(false);
         // Saving an address is configuration, not an account choice: return to the four entries.
         SetMode(AccountMode.Login);
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
-        OnPropertyChanged(nameof(ShowAccountChoice));
         SetMessage(L("Auth.Server.Saved", "服务器地址已保存。"), isError: false);
-        if (_settingsPages?.IsInitialChoiceActive == true) await MarkAccountChoiceMadeAsync(null).ConfigureAwait(true);
     }
 
     private async Task LogoutAsync()
@@ -524,11 +519,17 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
                 return;
             }
         }
-        _offlineChosen = false;
-        _settingsPages?.RequestStartPage();
+        SetOfflineChosen(false);
+        ReplaceSessions([]);
+        _snapshotSummary = null;
+        _restoreSummary = null;
+        OnPropertyChanged(nameof(SnapshotSummary));
+        OnPropertyChanged(nameof(HasSnapshot));
+        OnPropertyChanged(nameof(RestoreSummary));
+        OnPropertyChanged(nameof(HasRestore));
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
-        _snapshotSummary = null;
+        NotifyAuth();
         SetMode(AccountMode.Login);
         SetMessage(L("Auth.Logout.Done", "已退出登录。"), isError: false);
     }
@@ -684,7 +685,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         {
             if (credential.Length == 0)
             {
-                Fail(L("Auth.Validation.Password", "密码需为 10–256 个字符。"));
+                Fail(L("Auth.Validation.PasswordRequired", "请输入当前账户密码。"));
                 return;
             }
             password = credential;
@@ -701,13 +702,38 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             return;
         }
         CancelDelete();
+        ReplaceSessions([]);
+        _snapshotSummary = null;
+        _restoreSummary = null;
+        OnPropertyChanged(nameof(SnapshotSummary));
+        OnPropertyChanged(nameof(HasSnapshot));
+        OnPropertyChanged(nameof(RestoreSummary));
+        OnPropertyChanged(nameof(HasRestore));
+        NotifyAuth();
         SetMessage(L("Auth.Delete.Done", "账号已删除。"), isError: false);
     }
 
-    private async Task PersistSyncOptionAsync(string id, bool value)
+    // Two quick toggles used to open two edit sessions at once; their previews raced and the second
+    // commit could be rejected as stale. Every change is now queued behind one gate and each commit
+    // writes the latest values of both switches, so the last state the user sees is the persisted one.
+    private void QueueSyncOptionsPersist() => _ = PersistSyncOptionsAsync();
+
+    private async Task PersistSyncOptionsAsync()
     {
         try
         {
+            await _syncPersistGate.WaitAsync(_lifetime.Token).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+        try
+        {
+            // Read inside the gate: a queued toggle that arrived while the previous commit ran
+            // must be the one written next, not the value captured by its setter.
+            var changes = new Dictionary<string, object?>
+            {
+                [SyncEnabledId] = SyncEnabled,
+                [SyncIncludeSettingsId] = IncludeSettings
+            };
             var session = await _settings.BeginEditSessionAsync(_lifetime.Token).ConfigureAwait(true);
             if (!session.IsSuccess)
             {
@@ -716,7 +742,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
                 return;
             }
             await using var edit = session.Value;
-            var changes = new Dictionary<string, object?> { [id] = value };
             var preview = await edit.PreviewAsync(changes, 1, _lifetime.Token).ConfigureAwait(true);
             if (!preview.IsSuccess)
             {
@@ -746,6 +771,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             Fail(L("Auth.Error.Unknown", "操作未完成，请稍后再试。"));
             await LoadSyncOptionsAsync().ConfigureAwait(true);
         }
+        finally { _syncPersistGate.Release(); }
     }
 
     private async Task LoadSyncOptionsAsync()
@@ -769,44 +795,50 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         StopDevicePolling();
         var source = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _devicePolling = source;
-        DeviceSecondsLeft = Math.Max(0, expiresInSeconds);
+        var expires = Math.Max(0, expiresInSeconds);
+        DeviceSecondsLeft = expires;
+        // A monotonic deadline owns the countdown; the UI property is a presentation copy. The
+        // poller never reads it back, so a background thread cannot race the dispatcher update.
+        var deadline = System.Diagnostics.Stopwatch.GetTimestamp() +
+            (long)expires * System.Diagnostics.Stopwatch.Frequency;
         // PollDeviceAsync only polls once the countdown has fallen to the next poll mark. Starting
         // that mark at zero would skip every poll until the code had already expired.
-        _ = PollDeviceAsync(Math.Clamp(intervalSeconds, 2, 30), Math.Max(0, expiresInSeconds), source.Token);
+        _ = PollDeviceAsync(Math.Clamp(intervalSeconds, 2, 30), deadline, source.Token);
     }
 
-    private async Task PollDeviceAsync(int baseIntervalSeconds, int nextPollAtSeconds, CancellationToken token)
+    private async Task PollDeviceAsync(int baseIntervalSeconds, long deadline, CancellationToken token)
     {
         // Server 0.1.1 answers a too-fast poll with 200 {status:"slow_down", interval}; honour it by
         // adding the hinted interval on top of the current cadence instead of treating it as pending.
         var effectiveInterval = baseIntervalSeconds;
         var slowDownIncrement = 0;
-        var pollAt = nextPollAtSeconds;
+        var pollAt = RemainingSeconds(deadline);
         try
         {
             while (!token.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false);
-                OnUi(() => { if (DeviceSecondsLeft > 0) DeviceSecondsLeft--; });
-                if (DeviceSecondsLeft <= 0)
+                var secondsLeft = RemainingSeconds(deadline);
+                OnUi(() => DeviceSecondsLeft = secondsLeft);
+                if (secondsLeft <= 0)
                 {
                     await StopWithStatusAsync(
                         L("Auth.Device.Expired", "授权码已过期，请重新获取。"), token).ConfigureAwait(false);
                     return;
                 }
-                if (DeviceSecondsLeft > pollAt) continue;
+                if (secondsLeft > pollAt) continue;
                 var polled = await _auth.PollDeviceAuthorizationAsync(token).ConfigureAwait(false);
                 if (!polled.IsSuccess)
                 {
                     await StopWithStatusAsync(AuthLocalization.Error(polled.Error), token).ConfigureAwait(false);
                     return;
                 }
-                pollAt = NextPollAt(DeviceSecondsLeft, effectiveInterval);
+                pollAt = NextPollAt(secondsLeft, effectiveInterval);
                 if (polled.Value.SlowDownIntervalSeconds is int slowDown && slowDown > 0)
                 {
                     slowDownIncrement += slowDown;
                     effectiveInterval = Math.Clamp(baseIntervalSeconds + slowDownIncrement, baseIntervalSeconds, 30);
-                    pollAt = NextPollAt(DeviceSecondsLeft, effectiveInterval);
+                    pollAt = NextPollAt(secondsLeft, effectiveInterval);
                 }
                 switch (polled.Value.Status)
                 {
@@ -819,7 +851,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
                             DeviceStatus = L("Auth.Device.Approved", "已在浏览器中确认，登录成功。");
                             SetMode(AccountMode.Login);
                             SetMessage(L("Auth.Login.Success", "登录成功。"), isError: false);
-                            _ = MarkAccountChoiceMadeAsync(null);
                         });
                         return;
                     case DeviceAuthorizationStatus.Denied:
@@ -840,6 +871,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     private static int NextPollAt(int secondsLeft, int intervalSeconds) =>
         Math.Max(0, secondsLeft - Math.Max(1, intervalSeconds));
+
+    private static int RemainingSeconds(long deadline) =>
+        Math.Max(0, (int)Math.Ceiling((deadline - System.Diagnostics.Stopwatch.GetTimestamp()) /
+            (double)System.Diagnostics.Stopwatch.Frequency));
 
     private Task StopWithStatusAsync(string status, CancellationToken token)
     {
@@ -939,25 +974,20 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     private void UseOffline()
     {
-        _ = MarkAccountChoiceMadeAsync(() =>
-        {
-            _offlineChosen = true;
-            _showServerPanel = false;
-            OnPropertyChanged(nameof(ShowServerPanel));
-            OnPropertyChanged(nameof(ShowOfflineNote));
-            OnPropertyChanged(nameof(ShowLoginCard));
-            OnPropertyChanged(nameof(ShowAccountChoice));
-            ClearMessage();
-        });
+        SetOfflineChosen(true);
+        _showServerPanel = false;
+        OnPropertyChanged(nameof(ShowServerPanel));
+        OnPropertyChanged(nameof(ShowOfflineNote));
+        OnPropertyChanged(nameof(ShowLoginCard));
+        ClearMessage();
     }
 
     private void Connect()
     {
-        _offlineChosen = false;
+        SetOfflineChosen(false);
         SetMode(AccountMode.Login);
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
-        OnPropertyChanged(nameof(ShowAccountChoice));
     }
 
     private void SetMode(AccountMode mode)
@@ -967,42 +997,13 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         ClearMessage();
     }
 
-    // Records the first-run account choice through a normal settings commit. A merely configured
-    // server address does not count; the choice flag exists only because the user acted.
-    private async Task MarkAccountChoiceMadeAsync(Action? onDone)
+    // The page view model is recreated per visit; the factory keeps this one bit so "use offline"
+    // survives leaving and returning to the account page, and is cleared by connect/sign-in/logout.
+    private void SetOfflineChosen(bool value)
     {
-        try
-        {
-            var session = await _settings.BeginEditSessionAsync().ConfigureAwait(true);
-            if (session.IsSuccess && session.Value is { } edit)
-            {
-                await using (edit.ConfigureAwait(true))
-                {
-                    var preview = await edit.PreviewAsync(
-                        new Dictionary<string, object?> { [AccountChoiceMadeId] = true }, 1, _lifetime.Token).ConfigureAwait(true);
-                    if (!preview.IsSuccess || preview.Value.Errors.Count > 0)
-                    {
-                        Fail(L("Auth.Error.Unavailable", "无法保存选择，请重试。"));
-                        return;
-                    }
-                    var commit = await edit.CommitAsync(1, _lifetime.Token).ConfigureAwait(true);
-                    if (!commit.IsSuccess)
-                    {
-                        Fail(AuthLocalization.Error(commit.Error));
-                        return;
-                    }
-                    onDone?.Invoke();
-                    _settingsPages?.CompleteInitialChoice();
-                    return;
-                }
-            }
-            Fail(L("Auth.Error.Unavailable", "无法保存选择，请重试。"));
-        }
-        catch (Exception ex)
-        {
-            _diagnostics.Report(Guid.NewGuid().ToString("N"), ex);
-            Fail(L("Auth.Error.Unavailable", "无法保存选择，请重试。"));
-        }
+        if (_offlineChosen == value) return;
+        _offlineChosen = value;
+        _offlineChosenChanged?.Invoke(value);
     }
 
     private void Fail(string message) => SetMessage(message, isError: true);
@@ -1057,7 +1058,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         OnPropertyChanged(nameof(AccountInitials));
         OnPropertyChanged(nameof(ShowOfflineNote));
         OnPropertyChanged(nameof(ShowLoginCard));
-        OnPropertyChanged(nameof(ShowAccountChoice));
         OnPropertyChanged(nameof(CanSync));
         NotifyCommands();
     }
@@ -1084,18 +1084,49 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         NotifyAuth();
         if (IsSignedIn)
         {
-            _offlineChosen = false;
-            if (Mode == AccountMode.Device) Mode = AccountMode.Login;
+            SetOfflineChosen(false);
+            if (Mode == AccountMode.Device) SetMode(AccountMode.Login);
+            // Sign-in also happens outside this page (device approval elsewhere, token refresh),
+            // so sessions and the latest backup are refreshed from the event rather than only in
+            // InitializeAsync on first visit.
+            _ = RefreshAccountContextAsync();
+            return;
         }
+        if (Mode == AccountMode.Device) SetMode(AccountMode.Login);
+        ReplaceSessions([]);
+        _snapshotSummary = null;
+        _restoreSummary = null;
+        OnPropertyChanged(nameof(SnapshotSummary));
+        OnPropertyChanged(nameof(HasSnapshot));
+        OnPropertyChanged(nameof(RestoreSummary));
+        OnPropertyChanged(nameof(HasRestore));
+        OnPropertyChanged(nameof(CanSync));
+        NotifyCommands();
     });
+
+    private async Task RefreshAccountContextAsync()
+    {
+        try
+        {
+            var latest = await _sync.RefreshLatestAsync(_lifetime.Token).ConfigureAwait(true);
+            if (!latest.IsSuccess && !_lifetime.IsCancellationRequested)
+                SetMessage(AuthLocalization.Error(latest.Error), isError: true);
+            RefreshSummaries();
+            var sessions = await _auth.ListSessionsAsync(_lifetime.Token).ConfigureAwait(true);
+            if (sessions.IsSuccess) ReplaceSessions(sessions.Value);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _diagnostics.Report(Guid.NewGuid().ToString("N"), ex);
+        }
+    }
 
     private void OnSyncChanged(object? sender, EventArgs e) => OnUi(RefreshSummaries);
 
-    private void OnLanguageChanged(object? sender, EventArgs e) => OnUi(() =>
-    {
-        _serverInput = DefaultServerInput;
-        OnPropertyChanged(string.Empty);
-    });
+    // A language switch re-renders every localized string but must not discard text the user has
+    // already typed into the server field (including an unsaved custom address).
+    private void OnLanguageChanged(object? sender, EventArgs e) => OnUi(() => OnPropertyChanged(string.Empty));
 
     private void OnUi(Action action)
     {

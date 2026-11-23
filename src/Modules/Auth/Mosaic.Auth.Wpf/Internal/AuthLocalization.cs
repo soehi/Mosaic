@@ -36,6 +36,8 @@ internal static class AuthLocalization
             AuthErrorCodes.DeviceCodeInvalid => "Auth.Error.DeviceCodeInvalid",
             AuthErrorCodes.DeviceFlowNotStarted => "Auth.Error.DeviceFlowNotStarted",
             AuthErrorCodes.SecretsUnavailable => "Auth.Error.SecretsUnavailable",
+            // 账户页同时承载登录与同步操作，所以这里映射 Sync 模块的错误码；
+            // 依赖方向是 Auth.Wpf → Sync.Contracts（只读契约），不引入 Sync.Core。
             SyncErrorCodes.Disabled => "Auth.Error.SyncDisabled",
             SyncErrorCodes.NotSignedIn => "Auth.Error.NotSignedIn",
             SyncErrorCodes.NetworkUnavailable => "Auth.Error.Network",

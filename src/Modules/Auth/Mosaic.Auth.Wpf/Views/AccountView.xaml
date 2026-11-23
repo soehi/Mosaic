@@ -78,12 +78,6 @@
                            Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextPrimaryBrushKey}}"/>
             </Border>
 
-            <Button Command="{Binding LogoutCommand}" HorizontalAlignment="Left" MinWidth="44" MinHeight="44"
-                    Content="&#xE8AC;" FontFamily="Segoe MDL2 Assets"
-                    ToolTip="{DynamicResource Auth.Account.Logout}"
-                    AutomationProperties.Name="{DynamicResource Auth.Account.Logout}"
-                    AutomationProperties.AutomationId="AccountLogoutButton"
-                    Visibility="{Binding ShowAccountSettings, Converter={StaticResource BoolVisibility}}"/>
             <StackPanel Visibility="{Binding ShowStartPage, Converter={StaticResource BoolVisibility}}">
             <!-- Signed out: optional sign-in. Nothing here runs until the user acts. -->
             <StackPanel Visibility="{Binding ShowLoginCard, Converter={StaticResource BoolVisibility}}">
@@ -187,8 +181,8 @@
             </Border>
 
             </StackPanel>
-            <!-- Signed-in account details are not shown on the settings page. -->
-            <StackPanel Visibility="Collapsed">
+            <!-- Signed-in account details: account, sync and sessions. -->
+            <StackPanel Visibility="{Binding ShowAccountSettings, Converter={StaticResource BoolVisibility}}">
                 <Border Style="{StaticResource Card}">
                     <DockPanel>
                         <Border DockPanel.Dock="Left" Width="48" Height="48" CornerRadius="24"
@@ -201,7 +195,8 @@
                         <Button DockPanel.Dock="Right" Content="{DynamicResource Auth.Account.Logout}"
                                 Command="{Binding LogoutCommand}"
                                 Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                VerticalAlignment="Center" MinHeight="36"/>
+                                VerticalAlignment="Center" MinHeight="36"
+                                AutomationProperties.AutomationId="AccountLogoutButton"/>
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="{Binding AccountEmail}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                             <TextBlock Text="{Binding AccountName}" FontSize="12" TextTrimming="CharacterEllipsis"

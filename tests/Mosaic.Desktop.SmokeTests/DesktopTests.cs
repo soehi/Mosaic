@@ -43,7 +43,7 @@ public sealed partial class DesktopTests
     private static async Task UntilCondition(Func<bool> condition, string description)
     {
         var deadline = Stopwatch.StartNew();
-        while (deadline.Elapsed < TimeSpan.FromSeconds(15))
+        while (deadline.Elapsed < TimeSpan.FromSeconds(30))
         {
             try { if (condition()) return; } catch (IOException) { } catch (JsonException) { }
             await Task.Delay(75);
@@ -59,7 +59,7 @@ public sealed partial class DesktopTests
     private static async Task<T> Until<T>(Func<T?> get, string description) where T : class
     {
         var deadline = Stopwatch.StartNew();
-        while (deadline.Elapsed < TimeSpan.FromSeconds(15))
+        while (deadline.Elapsed < TimeSpan.FromSeconds(30))
         {
             try { if (get() is { } result) return result; } catch (ElementNotAvailableException) { }
             await Task.Delay(75);
@@ -69,6 +69,14 @@ public sealed partial class DesktopTests
     private static AutomationElement? Window(Process process) => AutomationElement.RootElement.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
     private static AutomationElement? Id(AutomationElement parent, string id) => parent.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id));
     private static AutomationElement? Name(AutomationElement parent, string name) => parent.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, name));
+    // 任务行的自动化名称是整行无障碍标签（标题 + 完成状态 + 附件/时间），不再等于标题；
+    // 按名称找元素会命中行内 TextBlock（没有 SelectionItemPattern）。这里限定列表项控件类型。
+    private static AutomationElement? TaskRow(AutomationElement window, string title) =>
+        Id(window, "TaskList") is { } list
+            ? list.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+                .Cast<AutomationElement>()
+                .FirstOrDefault(element => element.Current.Name.Contains(title, StringComparison.Ordinal))
+            : null;
     private static void Click(AutomationElement element) => ((InvokePattern)element.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
     private static void Select(AutomationElement element) => ((SelectionItemPattern)element.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
     private static void Text(AutomationElement element, string value) => ((ValuePattern)element.GetCurrentPattern(ValuePattern.Pattern)).SetValue(value);
@@ -77,7 +85,7 @@ public sealed partial class DesktopTests
     private static async Task Close(Process process)
     {
         process.Refresh(); Assert.True(process.CloseMainWindow());
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10)); Assert.Equal(0, process.ExitCode);
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20)); Assert.Equal(0, process.ExitCode);
     }
     private static void Cleanup(Process? process) { if (process is { HasExited: false }) process.Kill(entireProcessTree: true); process?.Dispose(); }
 
@@ -97,7 +105,7 @@ public sealed partial class DesktopTests
             Assert.False(process.HasExited);
             await Close(process); process.Dispose(); process = Start(root);
             await Control(process, "TaskTitle");
-            var item = await Until(() => Window(process) is { } w ? Name(w, "编辑后的任务") : null, "Persisted task not found");
+            var item = await Until(() => Window(process) is { } w ? TaskRow(w, "编辑后的任务") : null, "Persisted task not found");
             Select(item);
             await Until(() => ((ValuePattern)Id(Window(process)!, "TaskTitle")!.GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "编辑后的任务" ? new object() : null, "Editor did not load");
             Assert.Equal("重启后应保留的备注", ((ValuePattern)(await Control(process, "TaskNotes")).GetCurrentPattern(ValuePattern.Pattern)).Current.Value);

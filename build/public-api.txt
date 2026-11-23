@@ -107,7 +107,6 @@ Mosaic.Presentation.Wpf.MosaicLocalizationManager
 Mosaic.Presentation.Wpf.MosaicTheme
 Mosaic.Presentation.Wpf.MosaicThemeManager
 Mosaic.Presentation.Wpf.MosaicThemeVariant
-Mosaic.Presentation.Wpf.MosaicWindowChrome
 Mosaic.ReleaseSummary.IReleaseSummaryApi
 Mosaic.ReleaseSummary.ReleaseContent
 Mosaic.ReleaseSummary.ReleaseManifest
@@ -151,6 +150,7 @@ Mosaic.Settings.Wpf.SettingsUiDependencies
 Mosaic.Settings.Wpf.SettingsUiModule
 Mosaic.Settings.Wpf.Views.SettingsView
 Mosaic.Shell.Wpf.ContributionRegistry
+Mosaic.Shell.Wpf.MosaicWindowChrome
 Mosaic.Shell.Wpf.ShellSettingSource
 Mosaic.Shell.Wpf.ShellWindow
 Mosaic.Shell.Wpf.UiDispatcher

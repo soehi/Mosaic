@@ -32,7 +32,7 @@ public sealed class TasksUiModule(TasksUiDependencies dependencies) : IModuleAct
     public ICompanionViewFactory CompanionFactory => new TaskPeekViewFactory(dependencies with { Detach=_detach }, () => _active);
     public IReadOnlyList<NavigationItem> Navigation => _active
         ? [
-            new("tasks.navigation", "任务", "check-square", "tasks.list", 100, "Tasks.Navigation"),
+            new("tasks.navigation", "任务", "check-square", "tasks.list", 100, "Tasks.Navigation", IsDefault: true),
             new("tasks.archived.navigation", "已归档任务", "folder", "tasks.archived.list", 110, "Tasks.Archived.Navigation")
         ]
         : [];

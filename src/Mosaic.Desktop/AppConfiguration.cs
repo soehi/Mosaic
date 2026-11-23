@@ -449,7 +449,14 @@ internal sealed record AppConfiguration(
             ["appliedMigrations"] = configuration.AppliedMigrations ?? [],
             ["modules"] = configuration.Modules,
             ["providers"] = configuration.Providers,
-            ["storage"] = configuration.Storage,
+            // 显式写成小写键：StorageConfiguration 的属性是 PascalCase，直接序列化会产出
+            // "Engine"/"Location"/"Filename"，与输入格式不一致，外部工具和按小写键读取的代码会拿到 null。
+            ["storage"] = new
+            {
+                engine = configuration.Storage.Engine,
+                location = configuration.Storage.Location,
+                filename = configuration.Storage.Filename
+            },
             ["settings"] = configuration.Settings
         };
         var temporaryPath = paths.ConfigPath + ".tmp";

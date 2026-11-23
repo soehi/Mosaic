@@ -97,6 +97,7 @@
 
     <sys:String x:Key="Auth.Validation.Email">Enter a valid email address.</sys:String>
     <sys:String x:Key="Auth.Validation.Password">Passwords must be 10–256 characters.</sys:String>
+    <sys:String x:Key="Auth.Validation.PasswordRequired">Enter the current account password.</sys:String>
     <sys:String x:Key="Auth.Validation.Code">Enter the 6-digit code.</sys:String>
 
     <sys:String x:Key="Auth.Error.Unknown">The action did not complete. Try again shortly.</sys:String>

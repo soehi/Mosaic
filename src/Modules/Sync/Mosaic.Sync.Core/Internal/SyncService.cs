@@ -56,7 +56,21 @@ internal sealed class SyncService : ISyncApi
         _options = options;
     }
 
-    internal void RaiseForAuthChange() => Raise();
+    internal void RaiseForAuthChange()
+    {
+        // A previous account's snapshot and restore summary must not survive sign-out or account
+        // deletion: they are rendered as "最近备份/上次恢复" on the next sign-in page.
+        if (_auth.State.Status != AuthStatus.SignedIn)
+        {
+            lock (_stateLock)
+            {
+                _latest = null;
+                _lastRestore = null;
+                _messageCode = null;
+            }
+        }
+        Raise();
+    }
 
     public event EventHandler? StateChanged;
 
@@ -65,7 +79,15 @@ internal sealed class SyncService : ISyncApi
         get
         {
             lock (_stateLock)
-                return new(_auth.State.Status == AuthStatus.SignedIn, _busy, _latest, _lastRestore, _messageCode);
+            {
+                var signedIn = _auth.State.Status == AuthStatus.SignedIn;
+                return new(
+                    signedIn,
+                    _busy,
+                    signedIn ? _latest : null,
+                    signedIn ? _lastRestore : null,
+                    signedIn ? _messageCode : null);
+            }
         }
     }
 

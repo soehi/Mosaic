@@ -16,14 +16,13 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private Task _removePage = Task.CompletedTask;
     private FrameworkElement? _content;
     private string _pageTitle = "工作空间";
+    private string? _pageError;
     private string? _currentNavigationId;
     private string? _currentViewId;
     private string? _currentNavigationLabel;
     private string? _currentNavigationLabelKey;
     private IDisposable? _localizationRegistration;
     private Mosaic.Settings.Contracts.ISettingsApi? _settings;
-    private readonly SettingsPageRegistry? _settingsPages;
-    private bool _firstChoiceActive;
     private readonly ObservableCollection<NavigationItem> _navigationItems = [];
     private readonly ObservableCollection<IStatusContribution> _statusItems = [];
     // Contributions that opt into the sidebar's bottom area; the same items stay in the
@@ -32,15 +31,9 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly ObservableCollection<IStatusContribution> _sidebarStatusItems = [];
     private readonly Dictionary<IStatusContribution, EventHandler> _statusActionHandlers = new(ReferenceEqualityComparer.Instance);
     internal IReadOnlyDictionary<string, object?>? InitialValues { get; private set; }
-    internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings, SettingsPageRegistry? settingsPages = null)
+    internal ShellViewModel(ContributionRegistry registry, IUserDialogService dialogs, Mosaic.Settings.Contracts.ISettingsApi? settings)
     {
         _navigation = new(registry, dialogs); _registry = registry; _dialogs = dialogs;
-        _settingsPages = settingsPages;
-        if (_settingsPages is not null)
-        {
-            _settingsPages.InitialChoiceCompleted += OnInitialChoiceCompleted;
-            _settingsPages.StartPageRequested += OnStartPageRequested;
-        }
         NavigateCommand = new AsyncRelayCommand<NavigationItem>(NavigateAsync);
         NavigateToViewCommand = new AsyncRelayCommand<string?>(NavigateToViewAsync);
         StatusActionCommand = new RelayCommand<IStatusContribution>(item => item?.RequestAction());
@@ -61,6 +54,17 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
     public IReadOnlyList<IStatusContribution> SidebarStatusItems { get; }
     public FrameworkElement? Content { get => _content; private set => SetProperty(ref _content, value); }
     public string PageTitle { get => _pageTitle; private set => SetProperty(ref _pageTitle, value); }
+    // Set when a page failed to load so the empty workspace does not claim success.
+    public string? PageError
+    {
+        get => _pageError;
+        private set
+        {
+            if (!SetProperty(ref _pageError, value)) return;
+            OnPropertyChanged(nameof(HasPageError));
+        }
+    }
+    public bool HasPageError => _pageError is not null;
     public string? CurrentNavigationId { get => _currentNavigationId; private set => SetProperty(ref _currentNavigationId, value); }
     public IAsyncRelayCommand<NavigationItem> NavigateCommand { get; }
     public IAsyncRelayCommand<string?> NavigateToViewCommand { get; }
@@ -78,9 +82,11 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
                 await ShellSettingsApplier.ApplyAsync(current);
             }
         }
-        // 无论是否完成过账户选择，启动都落在导航第一项（任务页）。账户选择只在用户
-        // 主动进入账户设置或退出登录后出现，不再劫持启动路径。
-        if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
+        // 启动页由导航贡献显式声明（IsDefault），不再依赖加载顺序或首次运行状态。
+        if ((Navigation.FirstOrDefault(candidate => candidate.IsDefault) ?? Navigation.FirstOrDefault()) is { } item)
+            await NavigateAsync(item);
+        else
+            PageError = ShellLocalization.Localize("Shell.Error.PageLoad", "页面加载失败，请重新启动应用。");
     }
     internal static string? ReadString(IReadOnlyDictionary<string, object?> values, string id) =>
         values.TryGetValue(id, out var raw) ? raw as string : null;
@@ -91,6 +97,7 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             if (!await _navigation.NavigateAsync(item.ViewId)) return;
             Content = _navigation.Current!.View;
+            PageError = null;
             _currentViewId = item.ViewId;
             _currentNavigationLabel = item.Label;
             _currentNavigationLabelKey = item.LabelKey;
@@ -99,8 +106,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         }
         catch (Exception)
         {
-            await _dialogs.ShowErrorAsync(ShellLocalization.Localize(
-                "Shell.Error.PageLoad", "页面加载失败，请重新启动应用。"));
+            PageError = ShellLocalization.Localize("Shell.Error.PageLoad", "页面加载失败，请重新启动应用。");
+            await _dialogs.ShowErrorAsync(PageError);
         }
     }
     private async Task NavigateToViewAsync(string? viewId)
@@ -119,6 +126,7 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             if (!await _navigation.NavigateAsync(viewId)) return;
             Content = _navigation.Current!.View;
+            PageError = null;
             _currentViewId = viewId;
             _currentNavigationLabel = null;
             _currentNavigationLabelKey = null;
@@ -127,8 +135,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         }
         catch (Exception)
         {
-            await _dialogs.ShowErrorAsync(ShellLocalization.Localize(
-                "Shell.Error.PageLoad", "页面加载失败，请重新启动应用。"));
+            PageError = ShellLocalization.Localize("Shell.Error.PageLoad", "页面加载失败，请重新启动应用。");
+            await _dialogs.ShowErrorAsync(PageError);
         }
     }
     private void OnContributionsChanged(object? sender, EventArgs e)
@@ -143,8 +151,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
             var release = _navigation.ReleaseCurrentAsync();
             _removePage = ReleaseRemovedPageAsync(_removePage, release);
         }
-        if (_navigation.Current is null && Navigation.FirstOrDefault() is { } first)
-            NavigateCommand.Execute(first);
+        if (_navigation.Current is null && (Navigation.FirstOrDefault(candidate => candidate.IsDefault) ?? Navigation.FirstOrDefault()) is { } fallback)
+            NavigateCommand.Execute(fallback);
     }
     private async Task ReleaseRemovedPageAsync(Task previous, ValueTask release)
     {
@@ -162,23 +170,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
         if (NavigateCommand.ExecutionTask is { IsCompleted: false } pending) await pending;
         return _navigation.Current is null || await _navigation.Current.Controller.CanLeaveAsync();
     }
-    private void OnStartPageRequested(object? sender, EventArgs e) => _firstChoiceActive = true;
-
-    private async void OnInitialChoiceCompleted(object? sender, EventArgs e)
-    {
-        if (!_firstChoiceActive) return;
-        _firstChoiceActive = false;
-        if (_settingsPages is not null) _settingsPages.IsInitialChoiceActive = false;
-        if (Navigation.FirstOrDefault() is { } item) await NavigateAsync(item);
-    }
-
     public async ValueTask DisposeAsync()
     {
-        if (_settingsPages is not null)
-        {
-            _settingsPages.InitialChoiceCompleted -= OnInitialChoiceCompleted;
-            _settingsPages.StartPageRequested -= OnStartPageRequested;
-        }
         _registry.Changed -= OnContributionsChanged;
         MosaicLocalizationManager.LanguageChanged -= OnLanguageChanged;
         foreach (var (item, handler) in _statusActionHandlers)
@@ -206,7 +199,8 @@ internal sealed class ShellViewModel : ObservableObject, IAsyncDisposable
                 item.IconKey,
                 item.ViewId,
                 item.Order,
-                item.LabelKey));
+                item.LabelKey,
+                item.IsDefault));
     }
 
     private void RebuildStatusItems()

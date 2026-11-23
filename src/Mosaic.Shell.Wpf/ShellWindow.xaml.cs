@@ -41,7 +41,7 @@ public partial class ShellWindow : Window, IAsyncDisposable
         Title = MosaicVersion.WindowTitle;
         VersionText.Text = MosaicVersion.Display;
         VersionText.ToolTip = MosaicVersion.Display;
-        _model = new(contributions, dialogs, settings, settingsPages); DataContext = _model;
+        _model = new(contributions, dialogs, settings); DataContext = _model;
         MosaicWindowChrome.Attach(this);
         ShellSettingsApplier.Attach(this);
         Closed += (_, _) => ShellSettingsApplier.Detach(this);
@@ -65,14 +65,43 @@ public partial class ShellWindow : Window, IAsyncDisposable
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        var area = SystemParameters.WorkArea;
-        MinWidth = Math.Min(MinWidth, area.Width);
-        MinHeight = Math.Min(MinHeight, area.Height);
-        Width = Math.Min(Width, area.Width);
-        Height = Math.Min(Height, area.Height);
-        if (Left < area.Left || Left + Width > area.Right) Left = area.Left + Math.Max(0, (area.Width - Width) / 2);
-        if (Top < area.Top || Top + Height > area.Bottom) Top = area.Top + Math.Max(0, (area.Height - Height) / 2);
+        ClampToVirtualScreen();
         UpdateSidebarLayout(ActualWidth);
+    }
+
+    /// <summary>
+    /// 保存的窗口位置可能来自副显示器或已经拔掉的显示器。这里只保证窗口落在所有
+    /// 显示器组成的虚拟屏幕范围内，且标题栏没有被推到屏幕外；不按主显示器工作区
+    /// 缩小窗口，也不在边界正常时移动窗口。
+    /// </summary>
+    private void ClampToVirtualScreen()
+    {
+        var virtualScreen = new Rect(
+            SystemParameters.VirtualScreenLeft,
+            SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth,
+            SystemParameters.VirtualScreenHeight);
+        if (virtualScreen.Width <= 0 || virtualScreen.Height <= 0) return;
+
+        var width = Width;
+        if (double.IsNaN(width) || double.IsInfinity(width) || width <= 0) width = ActualWidth;
+        var height = Height;
+        if (double.IsNaN(height) || double.IsInfinity(height) || height <= 0) height = ActualHeight;
+        if (width <= 0 || height <= 0) return;
+
+        var left = double.IsFinite(Left) ? Left : virtualScreen.Left;
+        var top = double.IsFinite(Top) ? Top : virtualScreen.Top;
+        var windowRect = new Rect(left, top, width, height);
+        var titleBarHeight = Math.Max(SystemParameters.CaptionHeight, 1);
+        var titleBarRect = new Rect(left, top, width, titleBarHeight);
+        if (virtualScreen.IntersectsWith(windowRect) && virtualScreen.IntersectsWith(titleBarRect)) return;
+
+        // 窗口贴边时保持左上角在内；窗口大于虚拟屏幕时优先保住顶部与左侧，
+        // 让标题栏始终可抓取。
+        var maxLeft = Math.Max(virtualScreen.Left, virtualScreen.Right - width);
+        var maxTop = Math.Max(virtualScreen.Top, virtualScreen.Bottom - height);
+        Left = Math.Clamp(left, virtualScreen.Left, maxLeft);
+        Top = Math.Clamp(top, virtualScreen.Top, maxTop);
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e) => UpdateSidebarLayout(e.NewSize.Width);

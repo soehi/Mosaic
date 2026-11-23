@@ -137,8 +137,7 @@
                                 <Setter Property="BorderBrush" Value="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"/>
                                 <Setter Property="BorderThickness" Value="1"/>
                                 <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                                <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
-                                <Setter Property="AutomationProperties.HelpText" Value="{Binding AccessibilityLabel}"/>
+                                <Setter Property="AutomationProperties.Name" Value="{Binding AccessibilityLabel}"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
@@ -217,8 +216,8 @@
                                                     Background="{DynamicResource {x:Static theme:MosaicTheme.AccentSoftBrushKey}}"
                                                     BorderBrush="{DynamicResource {x:Static theme:MosaicTheme.BorderBrushKey}}"
                                                     BorderThickness="1"
-                                                    ToolTip="{DynamicResource Tasks.Attachments.Indicator}"
-                                                    AutomationProperties.Name="{DynamicResource Tasks.Attachments.Indicator}"
+                                                    ToolTip="{Binding AttachmentLabel}"
+                                                    AutomationProperties.Name="{Binding AttachmentLabel}"
                                                     Visibility="{Binding HasAttachments, Converter={StaticResource BoolVisibility}}">
                                                 <Path Width="10" Height="12"
                                                       Stretch="Uniform"

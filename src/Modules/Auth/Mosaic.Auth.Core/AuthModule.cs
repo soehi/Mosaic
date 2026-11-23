@@ -41,9 +41,6 @@ public sealed class AuthModule : IModuleActivation
 
     public IAuthApi Api => _api;
 
-    public static SettingInitialization InitialAccountChoice(bool existingInstallation) =>
-        new("auth.account-choice-v1", AuthSettingsSource.AccountChoiceMade, existingInstallation);
-
     public async Task ActivateAsync(CancellationToken cancellationToken = default)
     {
         _settingsRegistration ??= _settings.Register(new AuthSettingsSource(_service));
