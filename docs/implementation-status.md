@@ -11,6 +11,7 @@
 - `tests/Mosaic.Wpf.Tests/PresenceTests.cs` 的 `Peek_remembers_user_filter_across_reopen_and_restart_and_preserves_the_configured_fallback` 走驻留宿主和真实速览单选按钮，覆盖三个筛选、关闭重开、宿主重建、缺失及非法文件、隐藏与重新显示筛选条。`AccountViewModelTests.cs` 的 `Account_cards_show_session_states_and_fit_the_available_width` 覆盖空状态、加载、保留已有会话、按钮对齐与换行和删除确认入口。`PreviewCaptureTests.cs` 的 `Render` 和 `FindRepositoryRoot` 供账户页预览复用。`tests/Mosaic.Desktop.SmokeTests/PeekCompletionTests.cs` 的 `Peek_completion_and_filter_use_real_persisted_task_state` 用 UI Automation 验证 Release 桌面进程关闭面板重开及退出重启后恢复所选筛选。
 
 - Release 方案构建为 0 警告、0 错误。16 个测试工程共 485 项通过，含 174 项 WPF 测试与 55 项实际桌面进程冒烟。默认并行冒烟中，浮窗拖动用例 `FloatingDragTests.cs:38` 两次读到 0 像素水平位移，期望区间为 56–64 像素。定向复跑和 `-parallel none` 串行全跑通过。核对了中文浅色 600 DIP、英文深色 320 DIP 的账户页渲染。预览位于 `artifacts/ui-preview/account-sessions-light.png` 与 `artifacts/ui-preview/account-sessions-dark.png`，构建和测试日志位于 `artifacts/verify-account-peek-release/`。
+- 发布文件：`Directory.Build.props`、`README.md`、`build/release-content.json`、`build/published-release-index.json`、`build/release-manifest.json` 与 `docs/releases/v0.18.10.md` 更新至 0.18.10，0.18.10 汇总包含 0.18.9 之后的任务列表与速览状态、附件显示更新。`build/package.ps1` 已通过发布载荷、快捷方式、维护路由、对话框、清单与 CAB 内容校验；发布载荷内嵌版本为 `0.18.10+f42e3e9`。`Mosaic-0.18.10-win-x64.msi` 为 52,558,074 字节，SHA-256 `7C7687AF8299F7DCCE9CAA9E75D7E8B23A617F9C5AD6BA2DCED55D2FB8818DA0`，校验和位于 `artifacts/installer/0.18.10/SHA256SUMS`。本次构建与测试日志位于 `artifacts/verify-0.18.10-tests.log` 与 `artifacts/verify-0.18.10-package.log`。
 
 ## 0.18.10 源码更新 · 任务列表与速览
 
