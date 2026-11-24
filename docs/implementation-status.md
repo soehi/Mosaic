@@ -1,4 +1,87 @@
-# Mosaic：实施与验证记录
+﻿# Mosaic：实施与验证记录
+
+## 0.19.1：合入 0.18.14 性能优化，保留任务附件同步（2026-11-24）
+
+本轮把 `origin/main` 的 0.18.14 性能优化（`9e1d70c`）合入 0.19.0 附件同步线，解决两侧并行的 10 个文件冲突，并发布为客户端 **0.19.1**。合并后同时具备：任务查询分页投影与聚合计数、主列表按行差量更新、整表恢复单次批量通知（来自 main），以及账号备份的附件上传/下载/删除通道（来自 0.19.0）。数据目录、设置键、模块装配与数据库 schema 均未变；服务端保持 0.1.2 不动。
+
+**根因位置**
+
+1. 两条发布线从同一祖先分叉后各自演进。共同祖先为 `162c74dc78aa4406a70fc7373d90f755d98a48e6`；0.19.0 在其上发布（工作分支 `f58323a`），0.18.14 在 main 上发布（`9e1d70c`），后者的提交从未进入工作分支。触发条件：把 main 合入工作分支。出错原因：两侧修改了同一批文件——`TaskQuery`（`TaskRequests.cs:17-29`）、`ITaskRepository`（`ITaskRepository.cs`）、SQLite 仓储（`SqliteTaskRepository.cs:18-51`）、`TaskService`（`TaskService.cs:85-86`）、`GuardedTasksApi`（`GuardedTasksApi.cs:28-34`）、`AttachmentCountingTasksApi`（`AttachmentCountingTasksApi.cs:20-29`）、`TaskChangeKind`（`TaskChanges.cs:2-3`）、`TaskTransferService`、`TasksViewModel`、`TaskPeekViewFactory`、`TaskListItemViewModel`——于是产生 10 个冲突文件（9 个内容冲突 + 1 个 `docs/releases/v0.18.14.md` add/add 重复）。
+2. 发布工具对历史长度上限的规则分叉。0.18.14 把三处 20000 上限一次性放宽到 40000（`build/release-content.ps1:160`、`scripts/release_content_verify.py:113-115`、`ReleaseManifest.cs:80-83`，对应上限用例 40001 字符）；0.19.0 把同一批位置改成「上限 `TaskConstraints.NotesMaxCharacters` = 20000 + 从最旧版本裁剪」。触发条件：合并时机械取一侧。出错原因：保留 40000 则 0.19.0 的裁剪实现与用例断言失效；只保留裁剪却沿用 main 的 40000 字面量则构建期与运行时（`TaskConstraints`）口径不一致。
+3. `TaskTransferService` 的改动语义不重叠但位置重叠。0.19.0 在构造函数注入 `ITaskAttachmentRepository? attachments` / `ITaskAttachmentBlobStore? blobs` 并新增 6 个附件方法；0.18.14 把 `ReplaceAllAsync` 的逐条 `changed(new(...))` 改成一次 `changed(new(Guid.Empty, 0, TaskChangeKind.Replaced))`。触发条件：整份备份恢复。出错原因：取任一侧都会丢掉另一侧能力（附件无法备份，或恢复 10 万行时逐条重载列表与浮窗）。
+4. 冻结回执链在两侧都追加到尾部。`build/published-release-index.json` 与 `build/release-content.json` 在 0.19.0 侧已冻结 0.18.14 回执（`f58323a`），main 侧自带同一 0.18.14 条目，数组尾部因此同时出现「相同条目、不同前驱链」的冲突块。
+
+**改动位置（逐冲突文件）**
+
+1. `Directory.Build.props:12`：版本取 `0.19.1`（两侧分别为 0.19.0 与 0.18.14），其余构建属性不变。
+2. `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskTransferService.cs`：文件头 `:1-5` 合并 `using System.Security.Cryptography;` 与 `using Mosaic.Contracts;`；构造函数 `:11-17` 保留附件依赖 `attachments`/`blobs`；`ReplaceAllAsync:33-36` 保留 main 的单次 `TaskChangeKind.Replaced` 通知；`:45-139` 的 `ExportAttachmentsAsync`/`OpenAttachmentAsync`/`ImportAttachmentAsync`/`DeleteAttachmentAsync`/`RemoveAttachmentsNotInAsync`/`SweepOrphanAttachmentsAsync` 原样保留。
+3. `build/published-release-index.json:298-311`：保留 0.18.14（`41480A27…`）与 0.19.0（`977CF1C8…`）两条既有回执，追加 0.19.1（`5524C8D5…`），共 62 条；已提交条目的 id/version/hash 未改。
+4. `build/release-content.json:1011-1026`：`currentReleaseId` 改为 `mosaic-0.19.1`；追加 0.19.1 条目（improved 3 条、fixed 1 条、`previousReleaseId = mosaic-0.19.0`），共 62 条；0.18.14 与 0.19.0 正文未改（指纹不变）。
+5. `build/release-content.ps1:165-188`：保留 0.19.0 的裁剪循环（从最旧版本起裁直到 ≤ 20000 rune，再追加「更早版本…见 docs/releases/」提示），删除 main 的 40000 分支；`:138-151` 保留已提交索引不可变校验。
+6. `scripts/release_content_verify.py:115-132`：同规则改为 `compose_range` 裁剪实现；`:98-103` 保留已提交索引条目不可变校验；`:136-139` 输出 `Release content verified: …`。
+7. `src/Modules/ReleaseSummary/Mosaic.ReleaseSummary/ReleaseManifest.cs:81-83`：限额检查改用 `TaskConstraints.TitleMaxCharacters` / `TaskConstraints.NotesMaxCharacters`（20000），与脚本默认常量对齐。
+8. `docs/releases/v0.18.14.md`：add/add 冲突去重，保留 3 条正文各一份（速览一页、主列表差量更新、恢复单次通知）。
+9. `tests/Mosaic.ReleaseSummary.Tests/ReleaseSummaryTests.cs:1-4`：合并 `using System.Text;` 与 `using System.Text.Json;`；`:191-213` 的 `Every_published_release_receipt_is_recognized_by_the_shipped_manifest` 完整保留（0.18.14 回执不得因新版本替换链尾而丢失）。
+10. `build/release-manifest.json`：由校验脚本按 0.19.1 重写，62 条，`currentReleaseId = mosaic-0.19.1`。
+
+**auto-merged 后复核的文件（0.18.14 性能改动 + 0.19.0 附件能力并存）**
+
+- 任务查询链路：`TaskRequests.cs`、`ITaskRepository.cs`、`SqliteTaskRepository.cs`、`TaskService.cs`、`GuardedTasksApi.cs`、`AttachmentCountingTasksApi.cs`（`CountAsync:28-29` 只透传，`ListAsync:20-26` 仍批量补附件数）、`TaskChanges.cs`。
+- WPF 展示：`TasksViewModel.cs`、`TaskPeekViewFactory.cs`、`TaskListItemViewModel.cs`、`TaskFloatingContentFactory.cs`（订阅 `Replaced`）。
+- 测试：`RepositoryContractTests.cs`、`AttachmentCleanupTests.cs`、`AutoArchiveTests.cs`、`TaskTransferTests.cs`、`FloatingWindowsTests.cs`、`PresenceTests.cs`、`PresentationTests.cs`、`PreviewCaptureTests.cs`、`ResponsiveLayoutTests.cs`、`tests/Shared/MemoryTaskRepository.cs`。
+- `build/public-api.txt`：已含 `Mosaic.Tasks.Contracts.TaskCountsDto:216`、`TaskChangeKind:213`、`TaskAttachmentExportDto:210`、`Mosaic.Sync.Contracts.AttachmentManifestDto:178`、`RemoteAttachmentDto:185`，与合并后源码一致，无需再改。
+
+**发布链调和说明**
+
+0.18.14 记录中「上限从 20000 放宽到 40000」是当时的一次应急放宽；0.19.0 引入裁剪机制后上限回到 `TaskConstraints.NotesMaxCharacters = 20000`（裁剪保证任意起点都能收敛），40000 分支随之作废。历史章节保留原文不改（已发布的实施记录不回写），以本节为当前口径：构建期（ps1 与 py）与运行时（`ReleaseManifest.Validate`）三处一致。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：不改数据库 schema、不改设置键、不改模块装配、不改安装布局，无需数据迁移。`TaskQuery` 默认值仍保持旧行为（`Limit = 0`、`IncludeNotes = true`）；发布链只追加，不改已冻结回执。
+- 对已有安装的影响：0.18.14 与 0.19.0 用户升级到 0.19.1 后，两者的发布回执都能在 62 条随包清单中识别，都能收到 0.19.1 更新简要；任务、附件、设置与备份数据原样读取。
+- 验收项：
+  1. 发布校验脚本输出 `Release content verified: 0.19.1, mosaic-0.19.1, 62 indexed releases.`
+  2. 已发布回执识别用例 `Every_published_release_receipt_is_recognized_by_the_shipped_manifest` 通过。
+  3. `dotnet test tests/Mosaic.ReleaseSummary.Tests`、`tests/Mosaic.Sync.Core.Tests`、`tests/Mosaic.Tasks.Core.Tests`、`tests/Mosaic.Architecture.Tests` 全部通过。
+  4. `dotnet build Mosaic.sln -c Release` 零警告零错误。
+  5. 计数 62 的算术：合并前工作分支 HEAD（`f58323a`）61 条、main（`9e1d70c`）60 条，且 main 的 id 序列是 HEAD 的真前缀（仅缺 `mosaic-0.19.0`），两侧并集仍为 61 条；追加 0.19.1 后为 62。任务书中的 61 是合并前工作分支条数，不含本次新版本本身。
+- 回滚方式：在 worktree 内 `git reset --hard f58323a` 即回到 0.19.0（合并提交未推送）；main 侧改动可在需要时从 `9e1d70c` 重新合入。无数据迁移需要撤销。
+
+## 0.18.14：任务查询分页投影、主列表差量更新与整表恢复批量通知（2026-11-24）
+
+本轮落实性能评审里优先级最高的三项：任务查询收窄为投影 + `LIMIT`/`COUNT`、主列表改为按 Id 差量更新行、整份备份恢复只发一次批量变更通知。附带把发布校验的历史长度上限从 20000 放宽到 40000 字符——0.18.13 之后整条发布历史已达 19959 字符，任何新条目都会在验证阶段被拒绝。数据目录、设置键与模块装配均未变。
+
+**根因位置**
+
+1. 列表查询没有上限且连备注一起物化。`SqliteTaskRepository.cs:18-26`（0.18.12）用 `SELECT *` 取回整行并逐条 `Map`；`TaskPeekViewFactory.cs:347`（0.18.12）每次加载都读取整张筛选结果、只在渲染时截断到 `MaxItems`；`TasksViewModel.cs:286`（0.18.12）同样取全字段。触发条件：打开速览、每次任务变更后的重载、主列表首屏与刷新。出错原因：行、DTO 与备注字符串的峰值和常驻量与任务总量同阶，备注上限 200000 字符时单条就可能占数百 KB；`AttachmentCountingTasksApi.cs:20-25` 还对整份结果再做一次 `with` 克隆。
+2. 主列表每次刷新重建全部行。`TasksViewModel.cs:892-893`（0.18.12）`Items.Clear()` 后逐条 `new TaskListItemViewModel`，而行类型不可观察、每个 getter 都重新做本地化与格式化。触发条件：保存、完成、归档、切换筛选或排序。出错原因：O(N) 个新对象与 N+1 次集合通知，容器、选择和滚动位置全部丢失，保存一次就要重建整张表；语言切换走 `RebuildListTitles` 时同样整表重建。
+3. 整表恢复逐条发变更。`TaskTransferService.cs:24-30`（0.18.12）对恢复的每一行调用 `changed(new(...))`，上限 10 万行。触发条件：从备份恢复。出错原因：速览、主列表与浮窗各自收到 N 次通知并各做一次全表查询，恢复大备份时界面持续被重载占满。
+4. 发布历史长度上限已触顶。`scripts/release_content_verify.py:113`（0.18.13）、`build/release-content.ps1:160` 与运行时校验 `ReleaseManifest.cs:80` 都把整段历史的长度上限设为 20000 字符；59 个版本后最长调用已到 19959，新增任何说明都会超限——打包脚本与程序内清单校验会先后拒绝这份清单。
+
+**改动位置**
+
+1. `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskRequests.cs:17-29`：`TaskQuery` 新增 `Limit`（0 表示不限）、`Offset`、`IncludeNotes`（默认 `true`，导出与详情行为不变），新增 `TaskCountsDto(Total, Open)`；`:44` 新增 `ITasksApi.CountAsync`。
+2. `src/Modules/Tasks/Mosaic.Tasks.Persistence.Contracts/ITaskRepository.cs`：新增 `QueryCountsAsync`（同筛选与归档范围计数，忽略分页）。
+3. `src/Modules/Storage/Mosaic.Tasks.Sqlite/Internal/SqliteTaskRepository.cs:18-51`：`QueryAsync` 按 `IncludeNotes` 选择列、按 `Limit` 追加 `LIMIT $limit OFFSET $offset`；新增 `QueryCountsAsync`（`COUNT(*)` 与未完成 `SUM`）；`:53-67` 抽出 `Where`；`:141-145` 的 `Map` 在跳过备注时填空串。
+4. `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskService.cs:85-86`、`GuardedTasksApi.cs:28-34`（`ValidQuery` 同时校验分页参数）、`AttachmentCountingTasksApi.cs:28-29`：计数路径贯通，附件装饰器只透传。
+5. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs:351-359`：速览取 `Limit = MaxItems`、`IncludeNotes = false` 的一页，再用一次 `CountAsync` 取总数与未完成数，计数失败时回退为当前页统计；`:379-380` 的摘要与「更多」提示改用总数。
+6. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs:286-288`：主列表查询不再携带备注（编辑器与详情仍走 `GetAsync`）；`:893` 调用新的 `ApplyItems`（`:907-940`），按 Id 复用行、先删已消失的行、再按目标顺序 `Move`/`Insert`，移动超过 64 次时改为一次重建以避免 O(n²)；`:942-948` 的 `IndexOf` 用引用比较；`:1202-1206` 的语言切换改为原地 `RefreshLocalizedText`。
+7. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskListItemViewModel.cs:8-82`：改为可观察行，`Update`（`:38-46`）只在数据或未命名标题变化时通知，`RefreshLocalizedText`（`:48-54`）只刷新展示串，不再重建集合。
+8. `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskChanges.cs:2-3`：新增 `TaskChangeKind.Replaced`（`TaskId` 为空、`Revision` 为 0，表示整表重载）；`TaskTransferService.cs:33-36` 在替换成功后只发一次该通知；`TaskFloatingContentFactory.cs:68` 的订阅改为同时响应 `Replaced`。
+9. 测试：`RepositoryContractTests.cs:16` 新增分页/投影/计数用例并对 SQLite 与内存仓储各跑一遍；`PresenceTests.cs:433` 断言速览只取一页、不带备注并读取聚合计数；`PresentationTests.cs:852` 断言刷新复用同一行对象、只更新变化字段且列表查询不带备注；`TaskTransferTests.cs:129` 改为断言单次 `Replaced`。各 `ITasksApi` 测试替身补齐 `CountAsync`。
+10. 发布工具与元数据：`scripts/release_content_verify.py:113-115`、`build/release-content.ps1:160` 与 `ReleaseManifest.cs:80-83` 的上限统一放宽到 40000（对应上限用例改为 40001 字符）；`build/public-api.txt` 登记 `Mosaic.Tasks.Contracts.TaskCountsDto`；`Directory.Build.props:12` 升到 0.18.14；`build/release-content.json` 与 `build/published-release-index.json` 追加第 60 条；`build/release-manifest.json`、`docs/releases/v0.18.14.md` 由校验脚本生成。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：不改数据库 schema、不改设置键、不改模块装配，无需数据迁移。`TaskQuery` 三个新属性都有保持旧行为的默认值（`Limit = 0`、`Offset = 0`、`IncludeNotes = true`），导出（`TaskTransferService.cs:16`）继续带备注；已发布历史与索引只追加，不改旧条目。
+- 对已有安装的影响：升级后任务、附件、设置与 `task-peek-filter.txt` 均原样读取；主列表与速览的筛选、排序、空态与计数口径与 0.18.13 一致；列表 DTO 的 `Notes` 变为空串只影响列表视图，编辑器与详情仍通过 `GetAsync` 取得完整备注。
+- 验收项：
+  1. 速览一次加载只发 `Limit = MaxItems`、`IncludeNotes = false` 的列表查询，另发一次计数查询；摘要按计数显示（新增用例）。
+  2. 主列表刷新后同一任务仍是同一个行对象、只收到变化字段的通知；查询不含备注（新增用例）。
+  3. 整表恢复只发一次 `Replaced`（改后用例），浮窗按该通知重载。
+  4. SQLite 与内存仓储在分页、投影、计数三处行为一致（新增契约用例双向执行）。
+  5. 全量 492 项测试仅剩发布提交前的两项一致性检查失败（提交后通过）。
+- 回滚方式：回退本次提交即可；无数据迁移需要撤销，旧版本读取的数据与设置不受影响。发布工具的上限放宽只影响构建期校验，不进入安装包。
 
 ## 0.19.0：任务附件同步（服务端 `/v1/attachments` + 客户端上传镜像与下载落盘）（2026-11-24）
 

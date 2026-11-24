@@ -1,4 +1,4 @@
-using Mosaic.Contracts;
+﻿using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Core;
 using Mosaic.Tasks.Persistence.Contracts;
@@ -126,7 +126,7 @@ public sealed class TaskTransferTests
     }
 
     [Fact]
-    public async Task Replace_swaps_tasks_preserving_ids_and_publishes_changes()
+    public async Task Replace_swaps_tasks_preserving_ids_and_publishes_one_bulk_change()
     {
         var (module, repository, transfer) = await Start();
         var created = (await module.Api.CreateAsync(new("旧任务", ""))).Value;
@@ -141,7 +141,8 @@ public sealed class TaskTransferTests
         Assert.Equal(backup.Id, Assert.Single(transfer.Replaced).Id);
         Assert.Equal(12, Assert.Single(transfer.Replaced).Revision);
         await WaitForChangesAsync(changes, 1);
-        Assert.Equal(new TaskChange(backup.Id, 12, TaskChangeKind.Updated), Assert.Single(changes));
+        // 整表恢复只发一次批量通知：观察者不必为每一行各重载一次列表。
+        Assert.Equal(new TaskChange(Guid.Empty, 0, TaskChangeKind.Replaced), Assert.Single(changes));
         var oldLookup = await module.Api.GetAsync(created.Id);
         Assert.True(oldLookup.IsSuccess is false || oldLookup.Value is null, "old task should be gone after the swap");
         Assert.Equal("备份任务", (await module.Api.GetAsync(backup.Id)).Value!.Title);

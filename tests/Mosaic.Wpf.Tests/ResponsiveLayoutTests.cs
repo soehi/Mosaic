@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -510,5 +510,13 @@ public sealed class ResponsiveLayoutTests
 
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1, 50, 10)));
-    }
+    
+        public async Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default)
+        {
+            var listed = await ListAsync(query, cancellationToken);
+            return listed.IsSuccess
+                ? OperationResult<TaskCountsDto>.Success(new(listed.Value.Count, listed.Value.Count(task => !task.IsCompleted)))
+                : OperationResult<TaskCountsDto>.Failure(listed.Error!);
+        }
+}
 }

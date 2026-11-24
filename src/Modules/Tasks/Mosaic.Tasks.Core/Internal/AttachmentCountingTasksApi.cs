@@ -1,4 +1,4 @@
-using Mosaic.Contracts;
+﻿using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Persistence.Contracts;
 
@@ -24,6 +24,9 @@ internal sealed class AttachmentCountingTasksApi(ITasksApi inner, ITaskAttachmen
         return OperationResult<IReadOnlyList<TaskItemDto>>.Success(
             result.Value.Select(task => task with { AttachmentCount = counts.Value.TryGetValue(task.Id, out var count) ? count : 0 }).ToArray());
     }
+
+    public Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default) =>
+        inner.CountAsync(query, cancellationToken);
 
     public async Task<OperationResult<TaskItemDto>> UpdateAsync(UpdateTaskRequest request, CancellationToken cancellationToken = default) =>
         await WithCountAsync(inner.UpdateAsync(request, cancellationToken), cancellationToken).ConfigureAwait(false);

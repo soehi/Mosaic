@@ -144,7 +144,7 @@ public sealed class ReleaseSummaryTests
         Assert.False(ReleaseManifest.Parse(Json(Manifest(original)), "0.5.1").IsSuccess);
         Assert.False(ReleaseManifest.Parse(Json(Manifest(original with { Added = ["changed"] })), "0.6.0").IsSuccess);
         Assert.False(ReleaseManifest.Parse(Json(Manifest(original with { ReleasedOn = "2026-99-99" })), "0.6.0").IsSuccess);
-        Assert.False(ReleaseManifest.Parse(Json(Manifest(Release("0.6.0", note: new string('文', 20001)))), "0.6.0").IsSuccess);
+        Assert.False(ReleaseManifest.Parse(Json(Manifest(Release("0.6.0", note: new string('文', 40001)))), "0.6.0").IsSuccess);
         Assert.False(ReleaseManifest.Parse("{\"schemaVersion\":1,\"unknown\":true}", "0.6.0").IsSuccess);
     }
 

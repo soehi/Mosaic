@@ -99,7 +99,13 @@ public sealed class PresenceTests
     {
         internal Func<TaskQuery, CancellationToken, Task<OperationResult<IReadOnlyList<TaskItemDto>>>> Query = (_, _) =>
             Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([]));
-        public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default) => Query(query, cancellationToken);
+        private IReadOnlyList<TaskItemDto>? _lastList;
+        public async Task<OperationResult<IReadOnlyList<TaskItemDto>>> ListAsync(TaskQuery query, CancellationToken cancellationToken = default)
+        {
+            var result = await Query(query, cancellationToken);
+            if (result.IsSuccess) _lastList = result.Value;
+            return result;
+        }
         public Task<OperationResult<TaskItemDto>> CreateAsync(CreateTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         internal Func<Guid, CancellationToken, Task<OperationResult<TaskItemDto>>> Get = (_, _) => throw new NotSupportedException();
         public Task<OperationResult<TaskItemDto>> GetAsync(Guid id, CancellationToken cancellationToken = default) => Get(id, cancellationToken);
@@ -109,7 +115,13 @@ public sealed class PresenceTests
         public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
+    
+        internal Func<TaskQuery, CancellationToken, Task<OperationResult<TaskCountsDto>>>? Counts;
+        public Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default) =>
+            Counts is { } counts
+                ? counts(query, cancellationToken)
+                : Task.FromResult(OperationResult<TaskCountsDto>.Success(new(_lastList?.Count ?? 0, _lastList?.Count(task => !task.IsCompleted) ?? 0)));
+}
     [Fact]
     public Task Peek_whole_label_routes_title_attachment_padding_and_buttons_but_filter_does_not() => Sta.Run(async () =>
     {
@@ -415,6 +427,37 @@ public sealed class PresenceTests
         Assert.Same(card, after);
         Assert.Same(row, after.DataContext);
         Assert.Contains("行复用", Texts(session.View));
+    });
+
+    [Fact]
+    public Task Peek_fetches_one_page_without_notes_and_reads_its_counts_from_the_aggregate() => Sta.Run(async () =>
+    {
+        // 预览只渲染 MaxItems 行：查询必须带分页并跳过备注，总数与未完成数来自一次聚合计数，
+        // 而不是把整张筛选结果取回来再在界面上截断。
+        var item = Item("分页任务");
+        TaskQuery? listed = null; TaskQuery? counted = null;
+        var api = new Api
+        {
+            Query = (query, _) =>
+            {
+                listed = query;
+                return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item]));
+            },
+            Counts = (query, _) =>
+            {
+                counted = query;
+                return Task.FromResult(OperationResult<TaskCountsDto>.Success(new(37, 12)));
+            }
+        };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+
+        Assert.Equal(12, listed!.Limit);
+        Assert.False(listed.IncludeNotes);
+        Assert.Equal(TaskFilter.All, counted!.Filter);
+        Assert.Contains("共 37 项 · 12 项未完成", Texts(session.View));
     });
 
     [Fact]

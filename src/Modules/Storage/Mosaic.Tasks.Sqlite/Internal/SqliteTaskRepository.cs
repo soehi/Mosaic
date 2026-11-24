@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Mosaic.Contracts;
 using Mosaic.Storage.Contracts;
 using Mosaic.Tasks.Contracts;
@@ -24,18 +24,46 @@ internal sealed class SqliteTaskRepository(IDatabaseSession database) : ITaskRep
             TaskSortOrder.TitleDesc => "title COLLATE NOCASE DESC",
             _ => "created_at DESC"
         };
+        var where = Where(query, out var values);
+        // Preview lists only render title and status; skipping the notes column keeps the
+        // row materialization cost proportional to the rows actually shown.
+        var columns = query.IncludeNotes ? "*" : "id,title,completed,created_at,updated_at,revision,completed_at,archived_at,restored_at";
+        var paging = "";
+        if (query.Limit > 0)
+        {
+            paging = " LIMIT $limit OFFSET $offset";
+            values["$limit"] = query.Limit;
+            values["$offset"] = Math.Max(0, query.Offset);
+        }
+        var rows = await database.QueryAsync(new($"SELECT {columns} FROM tasks WHERE {where} ORDER BY {orderBy}, id COLLATE BINARY ASC{paging}", values), cancellationToken).ConfigureAwait(false);
+        return rows.IsSuccess
+            ? OperationResult<IReadOnlyList<TaskItemDto>>.Success(Array.AsReadOnly(rows.Value.Select(row => Map(row, query.IncludeNotes)).ToArray()))
+            : OperationResult<IReadOnlyList<TaskItemDto>>.Failure(rows.Error!);
+    }
+    public async Task<OperationResult<TaskCountsDto>> QueryCountsAsync(TaskQuery query, CancellationToken cancellationToken = default)
+    {
+        var where = Where(query, out var values);
+        var rows = await database.QueryAsync(new(
+            $"SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END), 0) AS open FROM tasks WHERE {where}",
+            values), cancellationToken).ConfigureAwait(false);
+        return rows.IsSuccess
+            ? OperationResult<TaskCountsDto>.Success(new((int)rows.Value[0].Int64("total"), (int)rows.Value[0].Int64("open")))
+            : OperationResult<TaskCountsDto>.Failure(rows.Error!);
+    }
+    private static string Where(TaskQuery query, out Dictionary<string, object?> values)
+    {
         var scope = query.ArchiveScope switch
         {
             TaskArchiveScope.Active => " AND archived_at IS NULL",
             TaskArchiveScope.Archived => " AND archived_at IS NOT NULL",
             _ => ""
         };
-        var rows = await database.QueryAsync(new($"SELECT * FROM tasks WHERE ($filter=0 OR completed=$completed){scope} ORDER BY {orderBy}, id COLLATE BINARY ASC", new Dictionary<string, object?>
+        values = new Dictionary<string, object?>
         {
             ["$filter"] = (int)query.Filter,
             ["$completed"] = query.Filter == TaskFilter.Completed ? 1 : 0
-        }), cancellationToken).ConfigureAwait(false);
-        return rows.IsSuccess ? OperationResult<IReadOnlyList<TaskItemDto>>.Success(Array.AsReadOnly(rows.Value.Select(Map).ToArray())) : OperationResult<IReadOnlyList<TaskItemDto>>.Failure(rows.Error!);
+        };
+        return $"($filter=0 OR completed=$completed){scope}";
     }
     public async Task<OperationResult<IReadOnlyList<TaskItemDto>>> QueryArchiveCandidatesAsync(
         DateTimeOffset cutoffUtc, int limit, CancellationToken cancellationToken = default)
@@ -110,7 +138,8 @@ internal sealed class SqliteTaskRepository(IDatabaseSession database) : ITaskRep
         ["$archivedAt"] = Utc(t.ArchivedAtUtc),
         ["$restoredAt"] = Utc(t.RestoredAtUtc)
     };
-    private static TaskItemDto Map(SqlRow row) => new(Guid.ParseExact(row.String("id"), "D"), row.String("title"), row.String("notes"), row.Int64("completed") == 1,
+    private static TaskItemDto Map(SqlRow row) => Map(row, includeNotes: true);
+    private static TaskItemDto Map(SqlRow row, bool includeNotes) => new(Guid.ParseExact(row.String("id"), "D"), row.String("title"), includeNotes ? row.String("notes") : "", row.Int64("completed") == 1,
         DateTimeOffset.ParseExact(row.String("created_at"), "O", CultureInfo.InvariantCulture), DateTimeOffset.ParseExact(row.String("updated_at"), "O", CultureInfo.InvariantCulture), row.Int64("revision"))
     {
         CompletedAtUtc = ReadUtc(row.String("completed_at")),

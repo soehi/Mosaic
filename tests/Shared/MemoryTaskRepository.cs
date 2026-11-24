@@ -1,4 +1,4 @@
-using Mosaic.Contracts;
+﻿using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Persistence.Contracts;
 
@@ -24,19 +24,36 @@ internal sealed class MemoryTaskRepository : ITaskRepository
         lock (_sync)
         {
             if (Failure is not null) return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Failure(Failure));
-            var matches = _items.Values.Where(t => query.Filter == TaskFilter.All || t.IsCompleted == (query.Filter == TaskFilter.Completed));
-            matches = matches.Where(t => query.ArchiveScope == TaskArchiveScope.All || t.IsArchived == (query.ArchiveScope == TaskArchiveScope.Archived));
-            var ordered = Ordering is not null
-                ? Ordering(matches)
-                : query.SortOrder switch
-                {
-                    TaskSortOrder.CreatedAsc => matches.OrderBy(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
-                    TaskSortOrder.TitleAsc => matches.OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
-                    TaskSortOrder.TitleDesc => matches.OrderByDescending(t => t.Title, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
-                    _ => matches.OrderByDescending(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal)
-                };
-            return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(Array.AsReadOnly(ordered.ToArray())));
+            var ordered = Matches(query);
+            var page = query.Limit > 0
+                ? ordered.Skip(Math.Max(0, query.Offset)).Take(query.Limit)
+                : ordered.Skip(Math.Max(0, query.Offset));
+            var rows = page.Select(task => query.IncludeNotes ? task : task with { Notes = "" }).ToArray();
+            return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(Array.AsReadOnly(rows)));
         }
+    }
+    public Task<OperationResult<TaskCountsDto>> QueryCountsAsync(TaskQuery query, CancellationToken cancellationToken = default)
+    {
+        lock (_sync)
+        {
+            if (Failure is not null) return Task.FromResult(OperationResult<TaskCountsDto>.Failure(Failure));
+            var matches = Matches(query);
+            return Task.FromResult(OperationResult<TaskCountsDto>.Success(new(matches.Count(), matches.Count(task => !task.IsCompleted))));
+        }
+    }
+    private IEnumerable<TaskItemDto> Matches(TaskQuery query)
+    {
+        var matches = _items.Values.Where(t => query.Filter == TaskFilter.All || t.IsCompleted == (query.Filter == TaskFilter.Completed));
+        matches = matches.Where(t => query.ArchiveScope == TaskArchiveScope.All || t.IsArchived == (query.ArchiveScope == TaskArchiveScope.Archived));
+        return Ordering is not null
+            ? Ordering(matches)
+            : query.SortOrder switch
+            {
+                TaskSortOrder.CreatedAsc => matches.OrderBy(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
+                TaskSortOrder.TitleAsc => matches.OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
+                TaskSortOrder.TitleDesc => matches.OrderByDescending(t => t.Title, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal),
+                _ => matches.OrderByDescending(t => t.CreatedAtUtc).ThenBy(t => t.Id.ToString("D"), StringComparer.Ordinal)
+            };
     }
     public Task<OperationResult<IReadOnlyList<TaskItemDto>>> QueryArchiveCandidatesAsync(DateTimeOffset cutoffUtc, int limit, CancellationToken cancellationToken = default)
     {

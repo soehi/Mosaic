@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -65,7 +65,7 @@ internal sealed class TaskFloatingContentSession : IFloatingContentSession
             _notes.Allowed = values.GetValueOrDefault(TaskUiSettingsTarget.FloatingNotesEditing) is true;
             RenderNotes();
         });
-        _subscription=dependencies.Changes?.Subscribe(change=> {if(change.TaskId==_id) _=dependencies.Dispatcher.InvokeAsync(()=>{if(!_closed)Track(ReloadAsync());});});
+        _subscription=dependencies.Changes?.Subscribe(change=> {if(change.Kind==TaskChangeKind.Replaced||change.TaskId==_id) _=dependencies.Dispatcher.InvokeAsync(()=>{if(!_closed)Track(ReloadAsync());});});
         MosaicLocalizationManager.LanguageChanged+=LanguageChanged;
         Render();
     }

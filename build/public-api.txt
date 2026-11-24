@@ -1,4 +1,4 @@
-Mosaic.Auth.Contracts.AuthAccountDto
+﻿Mosaic.Auth.Contracts.AuthAccountDto
 Mosaic.Auth.Contracts.AuthEmailCodePurpose
 Mosaic.Auth.Contracts.AuthErrorCodes
 Mosaic.Auth.Contracts.AuthPolicyDto
@@ -213,6 +213,7 @@ Mosaic.Tasks.Contracts.TaskChange
 Mosaic.Tasks.Contracts.TaskChangeKind
 Mosaic.Tasks.Contracts.TaskConstraints
 Mosaic.Tasks.Contracts.TaskConstraintsDto
+Mosaic.Tasks.Contracts.TaskCountsDto
 Mosaic.Tasks.Contracts.TaskCreateOnceDisposition
 Mosaic.Tasks.Contracts.TaskCreateOnceResult
 Mosaic.Tasks.Contracts.TaskCreationReceiptDto

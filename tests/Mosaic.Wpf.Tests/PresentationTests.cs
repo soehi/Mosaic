@@ -66,7 +66,15 @@ public sealed class PresentationTests
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) { Deletes++; return Task.FromResult(DeleteResult?.Invoke(request) ?? OperationResult.Success()); }
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20_000, true, false, 1, 50, 10)));
-    }
+    
+        public async Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default)
+        {
+            var listed = await ListAsync(query, cancellationToken);
+            return listed.IsSuccess
+                ? OperationResult<TaskCountsDto>.Success(new(listed.Value.Count, listed.Value.Count(task => !task.IsCompleted)))
+                : OperationResult<TaskCountsDto>.Failure(listed.Error!);
+        }
+}
     private sealed class Diagnostics : IDiagnosticSink
     {
         internal List<(string CorrelationId, Exception Exception)> Reports { get; } = [];
@@ -838,6 +846,45 @@ public sealed class PresentationTests
         filter.SetValue(model, 2); await Get<IAsyncRelayCommand>(model, "LoadCommand").ExecutionTask!;
         Assert.Equal("还没有已完成的任务", Get<string>(model, "EmptyTitle"));
         Assert.Equal("0 项已完成", Get<string>(model, "CountLabel"));
+        await page.Controller.DisposeAsync();
+    });
+    [Fact]
+    public Task Refreshing_the_list_updates_rows_in_place_and_skips_notes() => Sta.Run(async () =>
+    {
+        // 列表刷新按 Id 复用行对象：选择、容器与滚动都不重建，只把变化的字段通知出去；
+        // 列表查询本身不再携带备注。
+        var api = new Api();
+        var now = DateTimeOffset.UtcNow;
+        var newer = api.Item with { Id = Guid.NewGuid(), Title = "较新", CreatedAtUtc = now, UpdatedAtUtc = now };
+        var older = api.Item with { Id = Guid.NewGuid(), Title = "较旧", CreatedAtUtc = now.AddMinutes(-10), UpdatedAtUtc = now };
+        TaskQuery? listed = null;
+        api.Query = query =>
+        {
+            listed = query;
+            return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([newer, older]));
+        };
+        var page = await Page(api, new());
+        await page.Controller.InitializeAsync();
+        var model = page.View.DataContext;
+        var rows = Items(model).Cast<Mosaic.Tasks.Wpf.Internal.TaskListItemViewModel>().ToArray();
+        Assert.Equal(2, rows.Length);
+
+        var updated = newer with { Title = "较新（已改）", IsCompleted = true, Revision = newer.Revision + 1 };
+        api.Query = query =>
+        {
+            listed = query;
+            return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([updated, older]));
+        };
+        await Get<IAsyncRelayCommand>(model, "LoadCommand").ExecuteAsync(null);
+
+        var after = Items(model).Cast<Mosaic.Tasks.Wpf.Internal.TaskListItemViewModel>().ToArray();
+        Assert.Same(rows[0], after[0]);
+        Assert.Same(rows[1], after[1]);
+        Assert.Equal("较新（已改）", after[0].Title);
+        Assert.True(after[0].IsCompleted);
+        Assert.Equal("较旧", after[1].Title);
+        Assert.False(after[1].IsCompleted);
+        Assert.False(listed!.IncludeNotes);
         await page.Controller.DisposeAsync();
     });
     [Fact]

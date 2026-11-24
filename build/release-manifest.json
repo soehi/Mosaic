@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.19.0",
+  "currentReleaseId": "mosaic-0.19.1",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -1006,6 +1006,22 @@
         "更新简要正文超过任务备注 20000 字符上限：从最旧版本开始裁剪并指向 docs/releases/ 下对应版本的发布说明，运行时合成器、build/release-content.ps1 与 scripts/release_content_verify.py 三处规则一致；补齐 v0.2.0、v0.4.0 发布说明，60 个已发布版本均有对应文件。"
       ],
       "contentSha256": "977CF1C8405BCBA945B692083402A62F5D65DC70DB47F1680B35A525FE41620F"
+    },
+    {
+      "releaseId": "mosaic-0.19.1",
+      "version": "0.19.1",
+      "releasedOn": "2026-11-24",
+      "previousReleaseId": "mosaic-0.19.0",
+      "added": [],
+      "improved": [
+        "任务速览改为只读取一页且不携带备注，总数与未完成数改由一次聚合计数得到；任务与备注较多时打开更快、占用更少。",
+        "主列表刷新按任务复用行对象，只更新变化的行：保存或切换筛选不再重建整张列表，选择与滚动位置保持稳定。",
+        "保留 0.19.0 的账号备份附件同步：同步任务附件开关、附件清单与上传下载删除端点、恢复时逐件校验与导入均不受本次合并影响。"
+      ],
+      "fixed": [
+        "恢复整份备份后只发送一次批量变更通知，任务很多时不再逐条重载列表与浮窗。"
+      ],
+      "contentSha256": "5524C8D563A103A72AD2ABB291D3C2BBBE7D474EF33FFC285746073EAF47BB21"
     }
   ]
 }

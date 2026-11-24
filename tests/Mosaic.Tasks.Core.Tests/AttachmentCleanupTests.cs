@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
 using Mosaic.Tasks.Contracts;
@@ -155,5 +155,7 @@ public sealed class AttachmentCleanupTests
         public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
+    
+        public Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+}
 }

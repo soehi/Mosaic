@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -283,8 +283,9 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         try
         {
             var archived = FilterIndex == 3;
+            // 列表行不需要备注：编辑器与详情通过 GetAsync 取完整数据，列表查询只投影展示字段。
             var result = await _api.ListAsync(new(archived ? TaskFilter.All : (TaskFilter)FilterIndex, _sortOrder)
-            { ArchiveScope = archived ? TaskArchiveScope.Archived : TaskArchiveScope.Active }, query.Token);
+            { ArchiveScope = archived ? TaskArchiveScope.Archived : TaskArchiveScope.Active, IncludeNotes = false }, query.Token);
             await _dispatcher.InvokeAsync(() =>
             {
                 if (_disposed || version != _queryVersion) return;
@@ -889,8 +890,7 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (result.IsSuccess)
         {
             var selectedId = Editor.Current?.Id ?? SelectedItem?.Id;
-            Items.Clear();
-            foreach (var task in result.Value) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
+            ApplyItems(result.Value);
             SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
             PruneMultiSelection();
             ListError = "";
@@ -900,6 +900,50 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
         if (result.Error!.Code == ErrorCodes.Canceled) return;
         ClearList();
         SetListError(TasksFeedbackKind.Api, TaskErrorLocalizer.Localize(result.Error), result.Error.CorrelationId);
+    }
+
+    // 按 Id 复用行对象：刷新只更新数据变化的行，集合只在身份或顺序变化时才改动，
+    // 因此容器、滚动位置和多选状态都不必随着每次保存重建。
+    private void ApplyItems(IReadOnlyList<TaskItemDto> tasks)
+    {
+        var existing = new Dictionary<Guid, TaskListItemViewModel>(Items.Count);
+        foreach (var item in Items) existing.TryAdd(item.Id, item);
+        var desired = new TaskListItemViewModel[tasks.Count];
+        var alive = new HashSet<Guid>(tasks.Count);
+        for (var index = 0; index < tasks.Count; index++)
+        {
+            var task = tasks[index];
+            var item = existing.TryGetValue(task.Id, out var known) ? known : new TaskListItemViewModel(task, _text.UntitledTask);
+            item.Update(task, _text.UntitledTask);
+            desired[index] = item;
+            alive.Add(task.Id);
+        }
+        for (var index = Items.Count - 1; index >= 0; index--)
+            if (!alive.Contains(Items[index].Id)) Items.RemoveAt(index);
+
+        // 每次移动都会触发集合通知；排序或筛选整体变化时改为一次重建，
+        // 避免刷新退化成 O(n²) 次移动。
+        var moves = 0;
+        for (var index = 0; index < desired.Length; index++)
+        {
+            if (index < Items.Count && ReferenceEquals(Items[index], desired[index])) continue;
+            var from = IndexOf(desired[index]);
+            if (from < 0) { Items.Insert(index, desired[index]); continue; }
+            Items.Move(from, index);
+            if (++moves > 64)
+            {
+                Items.Clear();
+                foreach (var item in desired) Items.Add(item);
+                return;
+            }
+        }
+    }
+
+    private int IndexOf(TaskListItemViewModel item)
+    {
+        for (var index = 0; index < Items.Count; index++)
+            if (ReferenceEquals(Items[index], item)) return index;
+        return -1;
     }
 
     private void ClearList()
@@ -1157,12 +1201,8 @@ internal sealed class TasksViewModel : ObservableObject, IPageController
 
     private void RebuildListTitles()
     {
-        var selectedId = SelectedItem?.Id;
-        var tasks = Items.Select(item => item.Item).ToArray();
-        Items.Clear();
-        foreach (var task in tasks) Items.Add(new TaskListItemViewModel(task, _text.UntitledTask));
-        SetSelectedItem(selectedId is null ? null : Items.FirstOrDefault(item => item.Id == selectedId));
-        PruneMultiSelection();
+        // 语言切换只改变展示串：原地刷新每一行，不重建集合，选择与滚动都保留。
+        foreach (var item in Items) item.RefreshLocalizedText(_text.UntitledTask);
     }
 
     private static bool ReadBoolean(IReadOnlyDictionary<string, object?> values, string id, bool fallback) =>
