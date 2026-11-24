@@ -276,4 +276,6 @@
     <sys:String x:Key="Settings.Setting.SyncEnabled.Description">Upload and download backups manually after signing in; when off, the account page only shows local data</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings">Back up user settings</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings.Description">Include task rules, task texts, appearance theme and interface language; when off, backups contain only tasks</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncIncludeAttachments">Back up task attachments</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncIncludeAttachments.Description">Allow manual upload and download of task attachments; when off, backups contain only tasks and restoring clears local attachment records while leaving files on disk</sys:String>
 </ResourceDictionary>

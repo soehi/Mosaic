@@ -29,6 +29,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 {
     private const string SyncEnabledId = "sync.enabled";
     private const string SyncIncludeSettingsId = "sync.includeSettings";
+    private const string SyncIncludeAttachmentsId = "sync.includeAttachments";
 
     private readonly IAuthApi _auth;
     private readonly ISyncApi _sync;
@@ -65,6 +66,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     private Uri? _deviceVerificationUri;
     private bool _syncEnabled = true;
     private bool _includeSettings = true;
+    private bool _includeAttachments = true;
     private bool _includeOnUpload = true;
     private bool _loadingSync;
     private readonly SemaphoreSlim _syncPersistGate = new(1, 1);
@@ -324,6 +326,16 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         }
     }
 
+    public bool IncludeAttachments
+    {
+        get => _includeAttachments;
+        set
+        {
+            if (!SetProperty(ref _includeAttachments, value) || _loadingSync) return;
+            QueueSyncOptionsPersist();
+        }
+    }
+
     public bool IncludeOnUpload
     {
         get => _includeOnUpload;
@@ -542,9 +554,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         RefreshSummaries();
         SetMessage(string.Format(
             CultureInfo.CurrentCulture,
-            L("Auth.Sync.Uploaded", "备份已上传：{0} 个任务，{1} 项设置。"),
+            L("Auth.Sync.Uploaded", "备份已上传：{0} 个任务，{1} 项设置，{2} 个附件。"),
             result.Value.TaskCount,
-            result.Value.SettingCount), isError: false);
+            result.Value.SettingCount,
+            result.Value.AttachmentCount), isError: false);
     }
 
     private async Task DownloadAsync()
@@ -562,9 +575,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         RefreshSummaries();
         SetMessage(string.Format(
             CultureInfo.CurrentCulture,
-            L("Auth.Sync.Restored", "已从备份恢复：{0} 个任务，{1} 项设置。"),
+            L("Auth.Sync.Restored", "已从备份恢复：{0} 个任务，{1} 项设置，{2} 个附件。"),
             result.Value.TaskCount,
-            result.Value.SettingCount), isError: false);
+            result.Value.SettingCount,
+            result.Value.AttachmentCount), isError: false);
     }
 
     private async Task RefreshLatestAsync()
@@ -728,7 +742,8 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             var changes = new Dictionary<string, object?>
             {
                 [SyncEnabledId] = SyncEnabled,
-                [SyncIncludeSettingsId] = IncludeSettings
+                [SyncIncludeSettingsId] = IncludeSettings,
+                [SyncIncludeAttachmentsId] = IncludeAttachments
             };
             var session = await _settings.BeginEditSessionAsync(_lifetime.Token).ConfigureAwait(true);
             if (!session.IsSuccess)
@@ -779,6 +794,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         {
             SyncEnabled = values.Value.GetValueOrDefault(SyncEnabledId) is not false;
             IncludeSettings = values.Value.GetValueOrDefault(SyncIncludeSettingsId) is not false;
+            IncludeAttachments = values.Value.GetValueOrDefault(SyncIncludeAttachmentsId) is not false;
             IncludeOnUpload = IncludeSettings;
         }
         finally { _loadingSync = false; }
@@ -1028,9 +1044,10 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
             ? null
             : string.Format(
                 CultureInfo.CurrentCulture,
-                L("Auth.Sync.LastRestore", "上次恢复：{0} 个任务，{1} 项设置"),
+                L("Auth.Sync.LastRestore", "上次恢复：{0} 个任务，{1} 项设置，{2} 个附件"),
                 restore.TaskCount,
-                restore.SettingCount);
+                restore.SettingCount,
+                restore.AttachmentCount);
         OnPropertyChanged(nameof(SnapshotSummary));
         OnPropertyChanged(nameof(HasSnapshot));
         OnPropertyChanged(nameof(RestoreSummary));

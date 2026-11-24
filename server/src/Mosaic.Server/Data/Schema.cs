@@ -163,4 +163,22 @@ internal static class Schema
             floor_seq INTEGER NOT NULL,
             updated_at INTEGER NOT NULL);
         """;
+
+    /// <summary>
+    /// Migration 3. Task attachment blobs live on disk under
+    /// <c>{DataDirectory}/attachments/{userId}/{attachmentId:N}{ext}</c>; this table is the
+    /// authoritative manifest. Rows cascade away with the owning user.
+    /// </summary>
+    public const string Migration3 = """
+        CREATE TABLE IF NOT EXISTS attachments(
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            task_id TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS ix_attachments_user ON attachments(user_id, task_id);
+        """;
 }

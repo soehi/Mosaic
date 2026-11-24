@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Mosaic.Contracts;
+using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.ReleaseSummary;
 
@@ -77,7 +78,8 @@ public sealed record ReleaseManifest(int SchemaVersion, string CurrentReleaseId,
                     .CompareTo(currentVersion) >= 0) continue;
             var composed = ReleaseSummaryComposer.Compose(this, announced is null ? [] : [announced]);
             if (!composed.IsSuccess) return composed.Error!.Message;
-            if (RuneCount(ReleaseSummaryComposer.TaskTitle) > 200 || RuneCount(composed.Value.Notes) > 20000)
+            if (RuneCount(ReleaseSummaryComposer.TaskTitle) > TaskConstraints.TitleMaxCharacters ||
+                RuneCount(composed.Value.Notes) > TaskConstraints.NotesMaxCharacters)
                 return "发布范围内容超过默认任务限额，不能完整生成更新简要。";
         }
         return null;

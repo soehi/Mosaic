@@ -30,6 +30,9 @@ public sealed class TaskDeleteAttachmentCleanupTests
         private readonly Dictionary<Guid, string> _paths = [];
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(_items.Where(a => a.TaskId == taskId).ToArray()));
+        public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAllAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(
+                _items.OrderBy(a => a.AddedAtUtc).ThenBy(a => a.Id).ToArray()));
         public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default)
         {
             _items.Add(attachment);

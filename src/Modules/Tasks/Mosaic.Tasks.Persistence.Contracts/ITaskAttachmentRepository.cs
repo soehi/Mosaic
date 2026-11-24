@@ -6,6 +6,8 @@ namespace Mosaic.Tasks.Persistence.Contracts;
 public interface ITaskAttachmentRepository
 {
     Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default);
+    /// <summary>跨全部任务列出附件（备份上传与孤立文件清理用），顺序为 added_at, id。</summary>
+    Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAllAsync(CancellationToken cancellationToken = default);
     Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default);
     Task<OperationResult<TaskAttachmentDto?>> FindAsync(Guid attachmentId, CancellationToken cancellationToken = default);
     Task<OperationResult<string?>> FindStoredPathAsync(Guid attachmentId, CancellationToken cancellationToken = default);

@@ -51,7 +51,7 @@ public sealed class LoggingAndMigrationTests
             await connection.OpenAsync();
             await using var versions = connection.CreateCommand();
             versions.CommandText = "SELECT COUNT(*) FROM schema_migrations";
-            Assert.Equal(2L, Convert.ToInt64(await versions.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+            Assert.Equal(3L, Convert.ToInt64(await versions.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
 
             await using var floor = connection.CreateCommand();
             floor.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_floor'";
@@ -60,6 +60,13 @@ public sealed class LoggingAndMigrationTests
             await using var tables = connection.CreateCommand();
             tables.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'";
             Assert.Equal(1L, Convert.ToInt64(await tables.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+
+            // Migration 3 introduces the attachment manifest; keep the count above in
+            // sync whenever a migration is appended.
+            await using var attachments = connection.CreateCommand();
+            attachments.CommandText =
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'attachments'";
+            Assert.Equal(1L, Convert.ToInt64(await attachments.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
         }
         finally
         {

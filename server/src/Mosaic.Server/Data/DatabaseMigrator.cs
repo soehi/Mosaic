@@ -9,6 +9,7 @@ public sealed class DatabaseMigrator(Database database, TimeProvider timeProvide
     [
         (1, "initial", Schema.Migration1),
         (2, "session_management_and_sync_floor", Schema.Migration2),
+        (3, "attachments", Schema.Migration3),
     ];
 
     public async Task ApplyAsync(CancellationToken cancellationToken = default)

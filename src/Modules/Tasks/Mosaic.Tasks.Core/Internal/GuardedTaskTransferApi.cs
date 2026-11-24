@@ -32,4 +32,36 @@ internal sealed class GuardedTaskTransferApi(TaskTransferService service, IModul
         }, cancellationToken).ConfigureAwait(false);
         return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
     }
+
+    public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ExportAttachmentsAsync(CancellationToken cancellationToken = default) =>
+        Invoke(() => service.ExportAttachmentsAsync(cancellationToken), cancellationToken);
+
+    public Task<OperationResult<TaskAttachmentExportDto>> OpenAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default) =>
+        Invoke(() => service.OpenAttachmentAsync(attachmentId, cancellationToken), cancellationToken);
+
+    public Task<OperationResult> ImportAttachmentAsync(TaskAttachmentDto attachment, string sourcePath, CancellationToken cancellationToken = default) =>
+        ToResult(() => Invoke<object?>(async () =>
+        {
+            var imported = await service.ImportAttachmentAsync(attachment, sourcePath, cancellationToken).ConfigureAwait(false);
+            return imported.IsSuccess ? OperationResult<object?>.Success(null) : OperationResult<object?>.Failure(imported.Error!);
+        }, cancellationToken));
+
+    public Task<OperationResult> DeleteAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default) =>
+        ToResult(() => Invoke<object?>(async () =>
+        {
+            var deleted = await service.DeleteAttachmentAsync(attachmentId, cancellationToken).ConfigureAwait(false);
+            return deleted.IsSuccess ? OperationResult<object?>.Success(null) : OperationResult<object?>.Failure(deleted.Error!);
+        }, cancellationToken));
+
+    public Task<OperationResult<int>> RemoveAttachmentsNotInAsync(IReadOnlyCollection<Guid> keepIds, CancellationToken cancellationToken = default) =>
+        Invoke(() => service.RemoveAttachmentsNotInAsync(keepIds, cancellationToken), cancellationToken);
+
+    public Task<OperationResult<int>> SweepOrphanAttachmentsAsync(CancellationToken cancellationToken = default) =>
+        Invoke(() => service.SweepOrphanAttachmentsAsync(cancellationToken), cancellationToken);
+
+    private static async Task<OperationResult> ToResult(Func<Task<OperationResult<object?>>> pending)
+    {
+        var result = await pending().ConfigureAwait(false);
+        return result.IsSuccess ? OperationResult.Success() : OperationResult.Failure(result.Error!);
+    }
 }

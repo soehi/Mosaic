@@ -20,6 +20,15 @@ internal sealed class SqliteTaskAttachmentRepository(IDatabaseSession database) 
             : OperationResult<IReadOnlyList<TaskAttachmentDto>>.Failure(result.Error!);
     }
 
+    public async Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAllAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await database.QueryAsync(new(
+            $"SELECT {Columns} FROM task_attachments ORDER BY added_at, id"), cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess
+            ? OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(result.Value.Select(Map).ToArray())
+            : OperationResult<IReadOnlyList<TaskAttachmentDto>>.Failure(result.Error!);
+    }
+
     public async Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default)
     {
         var result = await database.ExecuteAsync(new(

@@ -38,10 +38,18 @@ function Get-SemanticVersion([string]$Text) {
     return $parsed
 }
 
-function Get-SummaryText($Current, [object[]]$Applicable, [string]$PreviousVersion) {
+function Get-SummaryText($Current, [object[]]$Applicable, [string]$PreviousVersion, $Trimmed = $null) {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("Mosaic $($Current.version) · 更新日期 $($Current.releasedOn)")
     $lines.Add("适用范围：$PreviousVersion → $($Current.version)")
+    if ($null -ne $Trimmed) {
+        $lines.Add('')
+        $lines.Add($(if ($Trimmed[0] -eq $Trimmed[1]) {
+            "更早版本 $($Trimmed[0]) 的变更见 docs/releases/ 下对应版本的发布说明。"
+        } else {
+            "更早版本（$($Trimmed[0]) 至 $($Trimmed[1])）的变更见 docs/releases/ 下对应版本的发布说明。"
+        }))
+    }
     foreach ($category in @(
         @('added', '新增功能'), @('improved', '功能改进'), @('fixed', '问题修复与兼容变化'))) {
         $items = [System.Collections.Generic.List[string]]::new()
@@ -154,11 +162,28 @@ while ($null -ne $next) {
     $chain.Insert(0, $next)
     $next = if ($null -ne $next.previousReleaseId) { $byId[$next.previousReleaseId] } else { $null }
 }
+# The runtime trims the oldest releases until the notes fit the default task notes limit,
+# so every supported range must resolve here with the same rule.
+if ((Get-RuneCount '更新简要') -gt 200) {
+    throw 'The default task title exceeds its limit.'
+}
 for ($from = 0; $from -lt $chain.Count; $from++) {
     $applicable = @($chain | Select-Object -Skip $from)
-    $text = Get-SummaryText $current $applicable $(if ($from -eq 0) { '首次使用' } else { $chain[$from - 1].version })
-    if ((Get-RuneCount '更新简要') -gt 200 -or (Get-RuneCount $text) -gt 20000) {
-        throw 'A supported update range exceeds the default task title or notes limit.'
+    $previous = if ($from -eq 0) { '首次使用' } else { $chain[$from - 1].version }
+    $text = $null
+    for ($start = 0; $start -lt $applicable.Count; $start++) {
+        $covered = @($applicable | Select-Object -Skip $start)
+        $empty = @($covered | Where-Object {
+            @($_.added).Count + @($_.improved).Count + @($_.fixed).Count -eq 0
+        })
+        if ($empty.Count -gt 0) { throw "Update range has a release without content: $($empty[0].releaseId)" }
+        $rangePrevious = if ($start -eq 0) { $previous } else { $applicable[$start - 1].version }
+        $trimmed = if ($start -eq 0) { $null } else { @($applicable[0].version, $applicable[$start - 1].version) }
+        $candidate = Get-SummaryText $current $covered $rangePrevious $trimmed
+        if ((Get-RuneCount $candidate) -le 20000) { $text = $candidate; break }
+    }
+    if ($null -eq $text) {
+        throw "Update notes exceed the default task notes limit: $($current.version)"
     }
 }
 $json = ($source | ConvertTo-Json -Depth 30) + "`n"

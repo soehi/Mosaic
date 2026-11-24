@@ -40,6 +40,12 @@ public sealed class ServerOptions
 
     public long MaxRequestBodyBytes { get; set; } = 16L * 1024 * 1024;
 
+    /// <summary>Total attachment bytes stored per user (task attachment sync).</summary>
+    public long AttachmentQuotaBytes { get; set; } = 1024L * 1024 * 1024;
+
+    /// <summary>Largest single attachment body accepted by PUT /v1/attachments/{id}.</summary>
+    public long AttachmentMaxBytes { get; set; } = 50L * 1024 * 1024;
+
     public long AccessTokenSeconds { get; set; } = 900;
 
     public long RefreshTokenSeconds { get; set; } = 14L * 24 * 60 * 60;
@@ -93,6 +99,8 @@ public sealed class ServerOptions
             BackupQuotaBytes = Number(configuration, "MOSAIC_BACKUP_QUOTA_BYTES", 50L * 1024 * 1024),
             BackupRetention = (int)Number(configuration, "MOSAIC_BACKUP_RETENTION", 20),
             MaxRequestBodyBytes = Number(configuration, "MOSAIC_MAX_BODY_BYTES", 16L * 1024 * 1024),
+            AttachmentQuotaBytes = Number(configuration, "MOSAIC_ATTACHMENT_QUOTA_BYTES", 1024L * 1024 * 1024),
+            AttachmentMaxBytes = Number(configuration, "MOSAIC_ATTACHMENT_MAX_BYTES", 50L * 1024 * 1024),
             AccessTokenSeconds = Number(configuration, "MOSAIC_ACCESS_TOKEN_SECONDS", 900),
             RefreshTokenSeconds = Number(configuration, "MOSAIC_REFRESH_TOKEN_SECONDS", 14L * 24 * 60 * 60),
             EmailCodeTtlSeconds = (int)Number(configuration, "MOSAIC_EMAIL_CODE_TTL_SECONDS", 600),
@@ -175,6 +183,12 @@ public sealed class ServerOptions
         if (MaxRequestBodyBytes < 1024)
         {
             throw new InvalidOperationException("MOSAIC_MAX_BODY_BYTES 太小。");
+        }
+
+        if (AttachmentMaxBytes < 1 || AttachmentQuotaBytes < AttachmentMaxBytes)
+        {
+            throw new InvalidOperationException(
+                "MOSAIC_ATTACHMENT_MAX_BYTES 必须为正数且不超过 MOSAIC_ATTACHMENT_QUOTA_BYTES。");
         }
 
         foreach (var proxy in TrustedProxies)

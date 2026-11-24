@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Mosaic.Server.Attachments;
 using Mosaic.Server.Data;
 using Mosaic.Server.Http;
 using Mosaic.Server.Security;
@@ -426,6 +427,10 @@ public sealed class SessionService(
                 return 0;
             },
             cancellationToken).ConfigureAwait(false);
+
+        // Attachment rows are gone with the user; the blobs are not covered by the
+        // cascade, so remove the directory after the account is committed.
+        AttachmentPaths.TryDeleteUserDirectory(options, userId, out _);
     }
 
     public async Task<SessionUser> CreateUserAsync(

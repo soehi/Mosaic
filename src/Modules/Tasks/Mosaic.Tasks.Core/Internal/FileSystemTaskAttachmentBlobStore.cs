@@ -79,6 +79,83 @@ internal sealed class FileSystemTaskAttachmentBlobStore : ITaskAttachmentBlobSto
         }
     }
 
+    public async Task<OperationResult<string>> ImportAsync(Guid taskId, Guid attachmentId, string fileName, string sourcePath, CancellationToken cancellationToken = default)
+    {
+        if (Root is not { } root)
+            return OperationResult<string>.Failure(new(ErrorCodes.CapabilityUnavailable, "附件存储不可用，请重启应用后重试。", MessageKey: "Tasks.Attachments.Error.StoreUnavailable"));
+        var storedPath = PathFor(root, taskId, attachmentId, fileName);
+        // 源文件就是受管目标（例如重复恢复）：无需也不允许再写一次，否则 FileMode.Create 会先截断源。
+        if (IsSamePath(sourcePath, storedPath))
+            return File.Exists(storedPath)
+                ? OperationResult<string>.Success(storedPath)
+                : OperationResult<string>.Failure(new(ErrorCodes.NotFound, "附件内容已丢失。", MessageKey: "Tasks.Attachments.Error.ContentMissing"));
+
+        var wrote = false;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(storedPath)!);
+            await using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            await using var target = new FileStream(storedPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+            wrote = true;
+            await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (wrote) TryDelete(storedPath);
+            throw;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // 已截断/写了一半的目标留在盘上只会成为不可用的半文件，删除后由下次恢复重试。
+            if (wrote) TryDelete(storedPath);
+            return OperationResult<string>.Failure(new(ErrorCodes.InternalError, "无法写入附件，请重试。", MessageKey: "Tasks.Attachments.Error.ImportFailed"));
+        }
+        return OperationResult<string>.Success(storedPath);
+    }
+
+    public Task<OperationResult<int>> SweepAsync(IReadOnlyCollection<Guid> keepAttachmentIds, CancellationToken cancellationToken = default)
+    {
+        if (Root is not { } root || !Directory.Exists(root))
+            return Task.FromResult(OperationResult<int>.Success(0));
+        var keep = new HashSet<Guid>(keepAttachmentIds);
+        var removed = 0;
+        try
+        {
+            foreach (var taskDirectory in Directory.EnumerateDirectories(root))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var managedTaskDirectory = Guid.TryParseExact(Path.GetFileName(taskDirectory), "D", out _);
+                if (!managedTaskDirectory) continue; // 用户自建目录一律不碰
+                foreach (var file in Directory.EnumerateFiles(taskDirectory))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(file), "D", out var attachmentId)
+                        || keep.Contains(attachmentId))
+                        continue;
+                    try
+                    {
+                        File.Delete(file);
+                        removed++;
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        // 占用中的文件留到下次清理。
+                    }
+                }
+                if (!Directory.EnumerateFileSystemEntries(taskDirectory).Any())
+                {
+                    try { Directory.Delete(taskDirectory); }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return Task.FromResult(OperationResult<int>.Failure(new(ErrorCodes.InternalError, "无法清理附件目录。", MessageKey: "Tasks.Attachments.Error.SweepFailed")));
+        }
+        return Task.FromResult(OperationResult<int>.Success(removed));
+    }
+
     public Task<OperationResult> DeleteAsync(Guid taskId, Guid attachmentId, string fileName, string? storedPathHint, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

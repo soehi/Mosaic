@@ -56,15 +56,17 @@
     <sys:String x:Key="Auth.Sync.Enabled.Description">When off, no backup is uploaded or downloaded; tasks and settings stay local.</sys:String>
     <sys:String x:Key="Auth.Sync.IncludeSettings">Back up portable settings</sys:String>
     <sys:String x:Key="Auth.Sync.IncludeSettings.Description">Theme, language and text preferences only. Window placement, presence, storage paths and credentials are never synced.</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeAttachments">Sync task attachments</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeAttachments.Description">Upload mirrors this device's attachments to the server; restore downloads the backup's attachments. When off, attachments are neither uploaded nor restored.</sys:String>
     <sys:String x:Key="Auth.Sync.IncludeOnUpload">Include settings in this upload</sys:String>
     <sys:String x:Key="Auth.Sync.Upload">Upload backup</sys:String>
     <sys:String x:Key="Auth.Sync.Download">Restore from backup</sys:String>
     <sys:String x:Key="Auth.Sync.Refresh">Refresh server backup</sys:String>
     <sys:String x:Key="Auth.Sync.None">No backup on the server yet.</sys:String>
     <sys:String x:Key="Auth.Sync.Latest">Latest backup: {0} · {1} items · {2}</sys:String>
-    <sys:String x:Key="Auth.Sync.LastRestore">Last restore: {0} tasks, {1} settings</sys:String>
-    <sys:String x:Key="Auth.Sync.Uploaded">Backup uploaded: {0} tasks, {1} settings.</sys:String>
-    <sys:String x:Key="Auth.Sync.Restored">Restored from backup: {0} tasks, {1} settings.</sys:String>
+    <sys:String x:Key="Auth.Sync.LastRestore">Last restore: {0} tasks, {1} settings, {2} attachments</sys:String>
+    <sys:String x:Key="Auth.Sync.Uploaded">Backup uploaded: {0} tasks, {1} settings, {2} attachments.</sys:String>
+    <sys:String x:Key="Auth.Sync.Restored">Restored from backup: {0} tasks, {1} settings, {2} attachments.</sys:String>
     <sys:String x:Key="Auth.Sync.Confirm.Title">Replace local tasks</sys:String>
     <sys:String x:Key="Auth.Sync.Confirm.Message">Downloading the server backup replaces every task on this device and may overwrite portable settings. This cannot be undone. Continue?</sys:String>
 

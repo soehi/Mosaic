@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.13",
+  "currentReleaseId": "mosaic-0.19.0",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -968,6 +968,44 @@
         "修正迁移绑定、设置归属与 README 三处描述。"
       ],
       "contentSha256": "8B92129E17522E61D95EBFA5C90BE0072DD7EE78DD68FE6EEAE5F5E93B66F32C"
+    },
+    {
+      "releaseId": "mosaic-0.18.14",
+      "version": "0.18.14",
+      "releasedOn": "2026-11-24",
+      "previousReleaseId": "mosaic-0.18.13",
+      "added": [],
+      "improved": [
+        "任务速览只读取一页且不再携带备注，总数与未完成数改由一次聚合计数得到；任务与备注较多时打开更快、占用更少。",
+        "主列表刷新按任务复用行对象，只更新变化的行：保存或切换筛选不再重建整张列表，选择与滚动位置保持稳定。"
+      ],
+      "fixed": [
+        "恢复整份备份后只发送一次批量变更通知，任务很多时不再逐条重载列表与浮窗。"
+      ],
+      "contentSha256": "41480A27905B5217AEBBA8B6DF4EE36B594C9D5B9E336DFA48D54EEADC6B79C5"
+    },
+    {
+      "releaseId": "mosaic-0.19.0",
+      "version": "0.19.0",
+      "releasedOn": "2026-11-24",
+      "previousReleaseId": "mosaic-0.18.14",
+      "added": [
+        "账号备份新增任务附件：服务端提供 /v1/attachments 清单、上传、下载与幂等删除端点，附件按用户与附件 ID 落盘，attachments 表为权威清单。",
+        "上传备份时镜像全部任务附件：同一 Id 且 TaskId、Sha256 与远端一致的跳过，其余重传，远端多余附件按 ID 删除。",
+        "下载恢复时按备份清单逐个落盘并校验 SHA-256，保留原 Id 与 AddedAtUtc，收尾只清理 Guid 布局的无主文件。",
+        "账号页新增「同步任务附件」开关（sync.includeAttachments，默认开启）；服务端新增 MOSAIC_ATTACHMENT_QUOTA_BYTES（每用户 1 GiB）与 MOSAIC_ATTACHMENT_MAX_BYTES（单件 50 MiB）。"
+      ],
+      "improved": [
+        "恢复摘要与账号页状态显示附件数量；单个附件失败汇总为一条可读错误，其余附件继续恢复。",
+        "附件下载使用独立 30 分钟超时与 %TEMP%/mosaic-sync 临时文件，哈希不符即丢弃已下载内容。"
+      ],
+      "fixed": [
+        "恢复任务时 task_attachments 随 tasks 级联清空导致附件关系丢失：改为先按清单预删、再逐件导入并保留原记录字段。",
+        "服务端全局 16 MiB 请求体上限拦截大附件：附件 PUT 单独放宽到单件上限后再读流。",
+        "服务端 README 版本号、测试计数（91）与服务器端实施记录同步到 0.1.2。",
+        "更新简要正文超过任务备注 20000 字符上限：从最旧版本开始裁剪并指向 docs/releases/ 下对应版本的发布说明，运行时合成器、build/release-content.ps1 与 scripts/release_content_verify.py 三处规则一致；补齐 v0.2.0、v0.4.0 发布说明，60 个已发布版本均有对应文件。"
+      ],
+      "contentSha256": "977CF1C8405BCBA945B692083402A62F5D65DC70DB47F1680B35A525FE41620F"
     }
   ]
 }

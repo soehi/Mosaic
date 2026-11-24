@@ -47,7 +47,8 @@ public sealed class TasksModule : IModuleActivation
         _archive = new(dependencies.Repository, api, dependencies.Clock, dependencies.Diagnostics);
         CreateOnceApi = api;
         Transfer = dependencies.TransferRepository is { } transfer
-            ? new GuardedTaskTransferApi(new TaskTransferService(Api, transfer, _rules, _changes.Publish), _gate, dependencies.Diagnostics)
+            ? new GuardedTaskTransferApi(new TaskTransferService(Api, transfer, _rules, _changes.Publish,
+                dependencies.AttachmentRepository, _attachmentBlobs), _gate, dependencies.Diagnostics)
             : null;
         Attachments = dependencies.AttachmentRepository is { } attachments
             ? new GuardedTaskAttachmentApi(new TaskAttachmentService(service, attachments, _attachmentBlobs, _rules, _changes.Publish, dependencies.Clock, dependencies.Ids), _gate, dependencies.Diagnostics)

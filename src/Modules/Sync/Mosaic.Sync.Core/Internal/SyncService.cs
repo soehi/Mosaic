@@ -130,8 +130,18 @@ internal sealed class SyncService : ISyncApi
                 _latest = uploaded.Value;
                 _messageCode = null;
             }
+            // 快照已落库：先把"最近备份"更新出去，即使随后附件失败，用户看到的仍是这份快照。
             Raise();
-            return OperationResult<BackupUploadResult>.Success(new(uploaded.Value.SnapshotId, exported.Value.Count, settingsCount, uploaded.Value.TotalBytes, uploaded.Value.ServerRevision, uploaded.Value.Cursor));
+            var attachmentCount = 0;
+            var deletedAttachmentCount = 0;
+            if (_options.IncludeAttachments)
+            {
+                var mirrored = await UploadAttachmentsAsync(context.Value.Server, context.Value.Token, cancellationToken).ConfigureAwait(false);
+                if (!mirrored.IsSuccess) return OperationResult<BackupUploadResult>.Failure(mirrored.Error!);
+                attachmentCount = mirrored.Value.Ensured;
+                deletedAttachmentCount = mirrored.Value.Deleted;
+            }
+            return OperationResult<BackupUploadResult>.Success(new(uploaded.Value.SnapshotId, exported.Value.Count, settingsCount, uploaded.Value.TotalBytes, uploaded.Value.ServerRevision, uploaded.Value.Cursor, attachmentCount, deletedAttachmentCount));
         }, cancellationToken);
 
     public Task<OperationResult<RestoreSummary>> DownloadAndReplaceAsync(CancellationToken cancellationToken = default) =>
@@ -148,16 +158,65 @@ internal sealed class SyncService : ISyncApi
             if (!content.IsSuccess) return Fail<RestoreSummary>(content.Error!.Code, content.Error.Message);
             var prepared = await PrepareRestoreAsync(content.Value.Items, cancellationToken).ConfigureAwait(false);
             if (!prepared.IsSuccess) return OperationResult<RestoreSummary>.Failure(prepared.Error!);
+
+            // 附件清单在动本地数据之前取：拿不到清单就整体放弃，避免任务被替换后才发现附件无法恢复。
+            var remoteAttachments = new List<RemoteAttachmentDto>();
+            if (_options.IncludeAttachments)
+            {
+                var manifest = await _transport.ListAttachmentsAsync(context.Value.Server, context.Value.Token, cancellationToken).ConfigureAwait(false);
+                if (!manifest.IsSuccess) return Fail<RestoreSummary>(manifest.Error!.Code, manifest.Error.Message);
+                var taskIds = prepared.Value.Tasks.Select(task => task.Id).ToHashSet();
+                remoteAttachments.AddRange(manifest.Value.Items.Where(item => taskIds.Contains(item.TaskId)));
+                // ReplaceAllAsync 在一个事务里清空全部 tasks 行，附件行会被外键级联清空。所以在它之前
+                // 把"服务端没有的附件"（行 + 文件）删干净，本地只剩即将重新下载的那批，磁盘上不留旧副本。
+                var keep = remoteAttachments.Select(item => item.Id).ToHashSet();
+                var pruned = await _tasks.RemoveAttachmentsNotInAsync(keep, cancellationToken).ConfigureAwait(false);
+                if (!pruned.IsSuccess) return Fail<RestoreSummary>(pruned.Error!.Code, pruned.Error.Message);
+            }
+
             var replaced = await _tasks.ReplaceAllAsync(prepared.Value.Tasks, cancellationToken).ConfigureAwait(false);
             if (!replaced.IsSuccess)
                 return Fail<RestoreSummary>(SyncErrorCodes.TasksImportFailed, "本地任务未能被备份覆盖：" + replaced.Error!.Message);
-            var summary = new RestoreSummary(prepared.Value.Tasks.Count, 0);
+            var settingCount = 0;
             if (prepared.Value.Changes.Count > 0)
             {
                 var applied = await ApplySettingsAsync(prepared.Value.Changes, cancellationToken).ConfigureAwait(false);
                 if (!applied.IsSuccess) return OperationResult<RestoreSummary>.Failure(applied.Error!);
-                summary = new(prepared.Value.Tasks.Count, prepared.Value.Changes.Count);
+                settingCount = prepared.Value.Changes.Count;
             }
+
+            var attachmentCount = 0;
+            var attachmentErrors = new List<OperationError>();
+            if (_options.IncludeAttachments && remoteAttachments.Count > 0)
+            {
+                var tempRoot = Path.Combine(Path.GetTempPath(), "mosaic-sync");
+                Directory.CreateDirectory(tempRoot);
+                foreach (var item in remoteAttachments)
+                {
+                    if (cancellationToken.IsCancellationRequested) return Fail<RestoreSummary>(ErrorCodes.Canceled, "操作已取消。");
+                    var temp = Path.Combine(tempRoot, item.Id.ToString("D") + ".part");
+                    try
+                    {
+                        var downloaded = await _transport.DownloadAttachmentAsync(context.Value.Server, context.Value.Token, item.Id, temp, item.Sha256, cancellationToken).ConfigureAwait(false);
+                        if (!downloaded.IsSuccess)
+                        {
+                            attachmentErrors.Add(TagAttachmentError(item.FileName, downloaded.Error!));
+                            continue;
+                        }
+                        var imported = await _tasks.ImportAttachmentAsync(new(item.Id, item.TaskId, item.FileName, item.SizeBytes, item.AddedAtUtc), temp, cancellationToken).ConfigureAwait(false);
+                        if (!imported.IsSuccess) attachmentErrors.Add(TagAttachmentError(item.FileName, imported.Error!));
+                        else attachmentCount++;
+                    }
+                    finally
+                    {
+                        TryDelete(temp);
+                    }
+                }
+                // 只清 "Guid 目录 / Guid 文件名" 布局里的无行文件；用户手动放进目录的文件永不触碰。
+                await _tasks.SweepOrphanAttachmentsAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            var summary = new RestoreSummary(prepared.Value.Tasks.Count, settingCount, attachmentCount);
             lock (_stateLock)
             {
                 _latest = snapshot;
@@ -165,6 +224,12 @@ internal sealed class SyncService : ISyncApi
                 _messageCode = null;
             }
             Raise();
+            if (attachmentErrors.Count > 0)
+            {
+                var first = attachmentErrors[0];
+                return Fail<RestoreSummary>(first.Code,
+                    $"任务与设置已恢复，但有 {attachmentErrors.Count} 个附件未能恢复：{first.Message}");
+            }
             return OperationResult<RestoreSummary>.Success(summary);
         }, cancellationToken);
 
@@ -308,6 +373,60 @@ internal sealed class SyncService : ISyncApi
                     return false;
             }
         }
+    }
+
+    // 附件上传把本地集合镜像到服务器：PUT 是幂等的（同 SHA-256 服务端返回 duplicate、不重写），
+    // 已在服务器上且内容一致的附件跳过，本地没有的远端附件删除。上传顺序由快照之后开始，
+    // 因此快照里引用的任务一定已经存在，附件行的外键检查不会失败。
+    private async Task<OperationResult<(int Ensured, int Deleted)>> UploadAttachmentsAsync(Uri server, string token, CancellationToken cancellationToken)
+    {
+        var local = await _tasks.ExportAttachmentsAsync(cancellationToken).ConfigureAwait(false);
+        if (!local.IsSuccess) return OperationResult<(int, int)>.Failure(local.Error!);
+        var remote = await _transport.ListAttachmentsAsync(server, token, cancellationToken).ConfigureAwait(false);
+        if (!remote.IsSuccess) return OperationResult<(int, int)>.Failure(remote.Error!);
+        var remoteById = remote.Value.Items.ToDictionary(item => item.Id);
+        var ensured = 0;
+        foreach (var attachment in local.Value)
+        {
+            if (cancellationToken.IsCancellationRequested) return Fail<(int, int)>(ErrorCodes.Canceled, "操作已取消。");
+            var opened = await _tasks.OpenAttachmentAsync(attachment.Id, cancellationToken).ConfigureAwait(false);
+            if (!opened.IsSuccess) return OperationResult<(int, int)>.Failure(TagAttachmentError(attachment.FileName, opened.Error!));
+            using (var content = opened.Value.Content)
+            {
+                var upToDate = remoteById.TryGetValue(attachment.Id, out var existing) && SameAttachment(existing, attachment, opened.Value.Sha256);
+                if (!upToDate)
+                {
+                    var uploaded = await _transport.UploadAttachmentAsync(server, token, attachment.TaskId, attachment.Id, attachment.FileName,
+                        content, opened.Value.Sha256, cancellationToken).ConfigureAwait(false);
+                    if (!uploaded.IsSuccess) return OperationResult<(int, int)>.Failure(TagAttachmentError(attachment.FileName, uploaded.Error!));
+                }
+            }
+            ensured++;
+        }
+        var keep = local.Value.Select(item => item.Id).ToHashSet();
+        var deleted = 0;
+        foreach (var item in remote.Value.Items)
+        {
+            if (keep.Contains(item.Id)) continue;
+            if (cancellationToken.IsCancellationRequested) return Fail<(int, int)>(ErrorCodes.Canceled, "操作已取消。");
+            var removed = await _transport.DeleteAttachmentAsync(server, token, item.Id, cancellationToken).ConfigureAwait(false);
+            if (!removed.IsSuccess) return OperationResult<(int, int)>.Failure(TagAttachmentError(item.FileName, removed.Error!));
+            deleted++;
+        }
+        return OperationResult<(int, int)>.Success((ensured, deleted));
+    }
+
+    private static bool SameAttachment(RemoteAttachmentDto remote, TaskAttachmentDto local, string localSha256) =>
+        remote.TaskId == local.TaskId &&
+        string.Equals(remote.Sha256, localSha256, StringComparison.OrdinalIgnoreCase);
+
+    private static OperationError TagAttachmentError(string fileName, OperationError error) =>
+        new(error.Code, $"附件「{fileName}」同步失败：{error.Message}", MessageKey: error.MessageKey, CorrelationId: error.CorrelationId);
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { /* best effort */ }
     }
 
     private async Task<OperationResult<(Uri Server, string Token)>> ContextAsync(CancellationToken cancellationToken)

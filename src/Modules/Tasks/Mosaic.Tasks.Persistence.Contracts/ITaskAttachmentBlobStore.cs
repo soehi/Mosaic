@@ -21,6 +21,20 @@ public interface ITaskAttachmentBlobStore
     /// <summary>删除内容；文件不存在视为成功（幂等），根目录之外的路径一律忽略。</summary>
     Task<OperationResult> DeleteAsync(Guid taskId, Guid attachmentId, string fileName, string? storedPathHint, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 把外部文件导入受管布局 {root}/{taskId}/{attachmentId}{ext}，覆盖同路径已有内容
+    /// （仅用于备份下载恢复：目标路径由 ID 推导，同名即同一附件）。返回持久化路径。
+    /// </summary>
+    Task<OperationResult<string>> ImportAsync(Guid taskId, Guid attachmentId, string fileName, string sourcePath,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 删除不在 <paramref name="keepAttachmentIds"/> 中的受管附件文件：只认
+    /// "Guid 目录 / Guid 文件名" 布局，绝不碰用户手动放进附件目录的其他文件。返回删除的文件数。
+    /// </summary>
+    Task<OperationResult<int>> SweepAsync(IReadOnlyCollection<Guid> keepAttachmentIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>判断路径是否位于受管附件根目录内（导出目标目录校验用）。</summary>
     bool IsWithinStore(string path);
 }

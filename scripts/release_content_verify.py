@@ -32,9 +32,14 @@ def fingerprint(r):
         lines.extend(items)
     return hashlib.sha256('\n'.join(lines).encode('utf-8')).hexdigest().upper()
 
-def summary_text(current, applicable, previous_version):
+def summary_text(current, applicable, previous_version, trimmed=None):
     lines = ['Mosaic %s · 更新日期 %s' % (current['version'], current['releasedOn']),
              '适用范围：%s → %s' % (previous_version, current['version'])]
+    if trimmed is not None:
+        first, last = trimmed
+        lines.append('')
+        lines.append('更早版本 %s 的变更见 docs/releases/ 下对应版本的发布说明。' % first if first == last
+                     else '更早版本（%s 至 %s）的变更见 docs/releases/ 下对应版本的发布说明。' % (first, last))
     for c in CATEGORIES:
         items = []
         for r in applicable:
@@ -107,11 +112,24 @@ while nxt is not None:
     chain.insert(0, nxt)
     prev = nxt.get('previousReleaseId')
     nxt = by_id[prev] if prev else None
-for frm in range(len(chain)):
+def compose_range(chain, frm):
+    """Mirror ReleaseSummaryComposer.Compose: trim the oldest releases until the
+    notes fit TaskConstraints.NotesMaxCharacters, then point at docs/releases."""
     applicable = chain[frm:]
     previous_version = '首次使用' if frm == 0 else chain[frm - 1]['version']
-    if len(summary_text(current, applicable, previous_version)) > 20000:
-        sys.exit('Notes exceed limit')
+    for start in range(len(applicable)):
+        covered = applicable[start:]
+        if any(sum(len(r[c]) for c in CATEGORIES) == 0 for r in covered):
+            sys.exit('Empty history: ' + covered[-1]['releaseId'])
+        prev = previous_version if start == 0 else applicable[start - 1]['version']
+        trimmed = None if start == 0 else (applicable[0]['version'], applicable[start - 1]['version'])
+        text = summary_text(current, covered, prev, trimmed)
+        if len(text) <= 20000:
+            return text
+    sys.exit('Notes exceed limit: ' + current['releaseId'])
+
+for frm in range(len(chain)):
+    compose_range(chain, frm)
 
 write_utf8(os.path.join(ROOT, 'build', 'release-manifest.json'),
            json.dumps(source, ensure_ascii=False, indent=2) + '\n')

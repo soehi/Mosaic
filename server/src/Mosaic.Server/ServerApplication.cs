@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mosaic.Server.Admin;
+using Mosaic.Server.Attachments;
 using Mosaic.Server.Auth;
 using Mosaic.Server.Backups;
 using Mosaic.Server.Data;
@@ -86,6 +87,7 @@ public static class ServerApplication
         builder.Services.AddSingleton<DeviceFlowService>();
         builder.Services.AddSingleton<BackupService>();
         builder.Services.AddSingleton<SyncService>();
+        builder.Services.AddSingleton<AttachmentService>();
         builder.Services.AddSingleton<IEmailSender>(services => options.EmailSenderOverride
             ?? new SmtpEmailSender(services.GetRequiredService<ILogger<SmtpEmailSender>>()));
 
@@ -123,6 +125,7 @@ public static class ServerApplication
         app.MapAuthEndpoints();
         app.MapDeviceEndpoints();
         app.MapBackupEndpoints();
+        app.MapAttachmentEndpoints();
         app.MapSyncEndpoints();
         app.MapAdminEndpoints();
         app.MapHealthEndpoints();

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Reflection;
 using Mosaic.Contracts;
@@ -87,6 +88,56 @@ public sealed class ReleaseSummaryTests
     }
 
     [Fact]
+    public void Overlong_range_drops_the_oldest_release_and_points_at_release_notes()
+    {
+        var note = new string('文', 7000);
+        var manifest = Manifest(
+            Release("0.1.0"),
+            Release("0.2.0", "0.1.0", note),
+            Release("0.3.0", "0.2.0", note),
+            Release("0.4.0", "0.3.0", note));
+        var result = ReleaseSummaryComposer.Compose(manifest, ["mosaic-0.1.0"]);
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Notes.EnumerateRunes().Count() <= TaskConstraints.NotesMaxCharacters);
+        Assert.Contains("适用范围：0.2.0 → 0.4.0", result.Value.Notes);
+        Assert.Contains("更早版本 0.2.0 的变更见 docs/releases/ 下对应版本的发布说明。", result.Value.Notes);
+        Assert.Contains("[0.3.0]", result.Value.Notes);
+        Assert.Contains("[0.4.0]", result.Value.Notes);
+        Assert.DoesNotContain("[0.2.0]", result.Value.Notes);
+        Assert.True(result.Value.Notes.IndexOf("更早版本 0.2.0", StringComparison.Ordinal) <
+                    result.Value.Notes.IndexOf("新增功能", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Overlong_range_with_multiple_trimmed_releases_lists_the_trimmed_span()
+    {
+        var note = new string('文', 10000);
+        var manifest = Manifest(
+            Release("0.1.0"),
+            Release("0.2.0", "0.1.0", note),
+            Release("0.3.0", "0.2.0", note),
+            Release("0.4.0", "0.3.0", note));
+        var result = ReleaseSummaryComposer.Compose(manifest, ["mosaic-0.1.0"]);
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Notes.EnumerateRunes().Count() <= TaskConstraints.NotesMaxCharacters);
+        Assert.Contains("适用范围：0.3.0 → 0.4.0", result.Value.Notes);
+        Assert.Contains("更早版本（0.2.0 至 0.3.0）的变更见 docs/releases/ 下对应版本的发布说明。", result.Value.Notes);
+        Assert.DoesNotContain("[0.2.0]", result.Value.Notes);
+        Assert.DoesNotContain("[0.3.0]", result.Value.Notes);
+        Assert.Contains("改进 0.4.0", result.Value.Notes);
+        Assert.DoesNotContain("改进 0.2.0", result.Value.Notes);
+    }
+
+    [Fact]
+    public void Single_release_body_over_the_notes_limit_fails_instead_of_truncating_text()
+    {
+        var manifest = Manifest(Release("0.9.0", note: new string('文', 20001)));
+        var result = ReleaseSummaryComposer.Compose(manifest, []);
+        Assert.False(result.IsSuccess);
+        Assert.Contains("备注上限", result.Error!.Message);
+    }
+
+    [Fact]
     public void Manifest_rejects_version_drift_tampering_invalid_dates_and_default_limit_overflow()
     {
         var original = Release("0.6.0");
@@ -134,6 +185,33 @@ public sealed class ReleaseSummaryTests
         Assert.Contains($"[{latest.Version}]", result.Value.Notes);
         Assert.Equal(latest.ReleaseId, result.Value.ReleaseId);
         Assert.Empty(ReleaseSummaryComposer.Compose(manifest.Value, [latest.ReleaseId]).Value.Notes);
+    }
+
+    [Fact]
+    public void Every_published_release_receipt_is_recognized_by_the_shipped_manifest()
+    {
+        // 已发布版本的回执必须永远能在随包发布清单里解析：装载过该版本的用户升级后要收到更新简要，
+        // 而不是「无法识别已有公告回执」并被无限重试。0.18.14 曾因链尾被新版本替换而丢失回执。
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Mosaic.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        var version = typeof(ReleaseSummaryModule).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+        var manifest = ReleaseManifest.Parse(File.ReadAllText(Path.Combine(directory.FullName, "build/release-content.json")), version);
+        Assert.True(manifest.IsSuccess, manifest.Error?.Message);
+        using var index = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory.FullName, "build/published-release-index.json")));
+        var latest = manifest.Value.Releases[^1];
+        var receipts = index.RootElement.EnumerateArray()
+            .Select(entry => entry.GetProperty("releaseId").GetString()!)
+            .ToArray();
+        Assert.Contains("mosaic-0.18.14", receipts);
+        foreach (var receipt in receipts)
+        {
+            var result = ReleaseSummaryComposer.Compose(manifest.Value, [receipt]);
+            Assert.True(result.IsSuccess, $"{receipt}: {result.Error?.Message}");
+            if (receipt == latest.ReleaseId) Assert.Empty(result.Value.Notes);
+            else Assert.False(string.IsNullOrWhiteSpace(result.Value.Notes), receipt);
+        }
     }
 
     [Fact]

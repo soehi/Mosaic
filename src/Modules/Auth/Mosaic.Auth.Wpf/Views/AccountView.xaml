@@ -237,6 +237,11 @@
                         <CheckBox Content="{DynamicResource Auth.Sync.IncludeSettings}" IsChecked="{Binding IncludeSettings}"
                                   MinHeight="36" AutomationProperties.AutomationId="SyncIncludeSettingsToggle"/>
                         <TextBlock Text="{DynamicResource Auth.Sync.IncludeSettings.Description}" TextWrapping="Wrap"
+                                   FontSize="12" Margin="0,0,0,10"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                        <CheckBox Content="{DynamicResource Auth.Sync.IncludeAttachments}" IsChecked="{Binding IncludeAttachments}"
+                                  MinHeight="36" AutomationProperties.AutomationId="SyncIncludeAttachmentsToggle"/>
+                        <TextBlock Text="{DynamicResource Auth.Sync.IncludeAttachments.Description}" TextWrapping="Wrap"
                                    FontSize="12" Margin="0,0,0,14"
                                    Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
 

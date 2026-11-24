@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Mosaic.Auth.Contracts;
 using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
@@ -98,6 +99,39 @@ internal sealed class FakeSyncTransport : ISyncTransport
     public OperationResult<BackupSnapshotContentDto> DownloadResult { get; set; } =
         OperationResult<BackupSnapshotContentDto>.Success(new(Snapshot("snap-1"), []));
 
+    // 附件侧：服务器上的清单与内容都放在这里，测试可预置或断言。
+    public int ListAttachmentRequests { get; private set; }
+    public List<RemoteAttachmentDto> RemoteAttachments { get; } = [];
+    public Dictionary<Guid, byte[]> RemoteContents { get; } = [];
+    public List<Guid> UploadedAttachments { get; } = [];
+    public List<Guid> DeletedAttachments { get; } = [];
+    public List<Guid> DownloadedAttachments { get; } = [];
+    public HashSet<Guid> FailDownload { get; } = [];
+    public OperationResult<AttachmentManifestDto>? ManifestResult { get; set; }
+    public OperationResult? UploadAttachmentResult { get; set; }
+    public OperationResult? DeleteAttachmentResult { get; set; }
+
+    public static string Sha256(Stream content)
+    {
+        try
+        {
+            return Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+        }
+        finally
+        {
+            if (content.CanSeek) content.Position = 0;
+        }
+    }
+
+    public static string Sha256(byte[] content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+
+    public void AddRemoteAttachment(Guid attachmentId, Guid taskId, string fileName, byte[] content, DateTimeOffset addedAtUtc = default)
+    {
+        RemoteAttachments.Add(new(attachmentId, taskId, fileName, content.Length, Sha256(content),
+            addedAtUtc == default ? DateTimeOffset.UtcNow : addedAtUtc));
+        RemoteContents[attachmentId] = content;
+    }
+
     public static BackupSnapshotDto Snapshot(string id) =>
         new(id, new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero), 3, "sha", 1024);
 
@@ -124,13 +158,71 @@ internal sealed class FakeSyncTransport : ISyncTransport
         LastToken = accessToken;
         return Task.FromResult(DownloadResult);
     }
+
+    public Task<OperationResult<AttachmentManifestDto>> ListAttachmentsAsync(
+        Uri server, string accessToken, CancellationToken cancellationToken = default)
+    {
+        LastToken = accessToken;
+        ListAttachmentRequests++;
+        return Task.FromResult(ManifestResult ?? OperationResult<AttachmentManifestDto>.Success(
+            new(RemoteAttachments.ToArray(), RemoteAttachments.Sum(item => item.SizeBytes), 1L << 30, 50L << 20)));
+    }
+
+    public async Task<OperationResult> UploadAttachmentAsync(
+        Uri server, string accessToken, Guid taskId, Guid attachmentId, string fileName,
+        Stream content, string sha256, CancellationToken cancellationToken = default)
+    {
+        LastToken = accessToken;
+        if (UploadAttachmentResult is { IsSuccess: false } failure) return failure;
+        using var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+        var bytes = buffer.ToArray();
+        if (!string.Equals(Sha256(bytes), sha256, StringComparison.OrdinalIgnoreCase))
+            return OperationResult.Failure(new(SyncErrorCodes.AttachmentHashMismatch, "附件内容校验失败。"));
+        UploadedAttachments.Add(attachmentId);
+        AddRemoteAttachment(attachmentId, taskId, fileName, bytes);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> DownloadAttachmentAsync(
+        Uri server, string accessToken, Guid attachmentId, string targetPath,
+        string expectedSha256, CancellationToken cancellationToken = default)
+    {
+        LastToken = accessToken;
+        DownloadedAttachments.Add(attachmentId);
+        if (FailDownload.Contains(attachmentId))
+            return OperationResult.Failure(new(SyncErrorCodes.NetworkUnavailable, "无法连接服务器。"));
+        if (!RemoteContents.TryGetValue(attachmentId, out var bytes))
+            return OperationResult.Failure(new(SyncErrorCodes.AttachmentsInvalid, "服务器上没有该附件。"));
+        if (expectedSha256.Length > 0 && !string.Equals(Sha256(bytes), expectedSha256, StringComparison.OrdinalIgnoreCase))
+            return OperationResult.Failure(new(SyncErrorCodes.AttachmentHashMismatch, "附件内容校验失败，已丢弃下载内容。"));
+        await File.WriteAllBytesAsync(targetPath, bytes, cancellationToken).ConfigureAwait(false);
+        return OperationResult.Success();
+    }
+
+    public Task<OperationResult> DeleteAttachmentAsync(
+        Uri server, string accessToken, Guid attachmentId, CancellationToken cancellationToken = default)
+    {
+        LastToken = accessToken;
+        if (DeleteAttachmentResult is { IsSuccess: false } failure) return Task.FromResult(failure);
+        DeletedAttachments.Add(attachmentId);
+        RemoteAttachments.RemoveAll(item => item.Id == attachmentId);
+        RemoteContents.Remove(attachmentId);
+        return Task.FromResult(OperationResult.Success());
+    }
 }
 
 internal sealed class FakeTaskTransferApi : ITaskTransferApi
 {
     public List<TaskItemDto> Tasks { get; } = [];
+    public List<TaskAttachmentDto> Attachments { get; } = [];
+    public Dictionary<Guid, byte[]> Blobs { get; } = [];
     public IReadOnlyList<TaskItemDto>? Replaced { get; private set; }
+    public List<Guid> ImportedAttachments { get; } = [];
+    public List<Guid> DeletedAttachments { get; } = [];
+    public int Sweeps { get; private set; }
     public OperationResult ReplaceResult { get; set; } = OperationResult.Success();
+    public OperationResult? ImportResult { get; set; }
 
     public Task<OperationResult<IReadOnlyList<TaskItemDto>>> ExportAllAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success(Tasks.ToArray()));
@@ -141,7 +233,62 @@ internal sealed class FakeTaskTransferApi : ITaskTransferApi
         Replaced = tasks;
         Tasks.Clear();
         Tasks.AddRange(tasks);
+        // 真实实现先在一个事务里清空 tasks 表，task_attachments 的 ON DELETE CASCADE 因此删掉全部附件行，
+        // 备份里的附件随后由 ImportAttachmentAsync 重新落库；磁盘文件由 SweepOrphanAttachmentsAsync 收尾。
+        Attachments.Clear();
+        Blobs.Clear();
         return Task.FromResult(OperationResult.Success());
+    }
+
+    public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ExportAttachmentsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(
+            Attachments.OrderBy(item => item.AddedAtUtc).ThenBy(item => item.Id).ToArray()));
+
+    public Task<OperationResult<TaskAttachmentExportDto>> OpenAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default)
+    {
+        var attachment = Attachments.FirstOrDefault(item => item.Id == attachmentId);
+        if (attachment is null || !Blobs.TryGetValue(attachmentId, out var bytes))
+            return Task.FromResult(OperationResult<TaskAttachmentExportDto>.Failure(new(SyncErrorCodes.AttachmentsInvalid, "附件不存在。")));
+        return Task.FromResult(OperationResult<TaskAttachmentExportDto>.Success(
+            new(attachment, new MemoryStream(bytes, writable: false), FakeSyncTransport.Sha256(bytes))));
+    }
+
+    public async Task<OperationResult> ImportAttachmentAsync(
+        TaskAttachmentDto attachment, string sourcePath, CancellationToken cancellationToken = default)
+    {
+        if (ImportResult is { IsSuccess: false } failure) return failure;
+        Blobs[attachment.Id] = await File.ReadAllBytesAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        if (Attachments.All(item => item.Id != attachment.Id)) Attachments.Add(attachment);
+        ImportedAttachments.Add(attachment.Id);
+        return OperationResult.Success();
+    }
+
+    public Task<OperationResult> DeleteAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default)
+    {
+        Remove(attachmentId);
+        DeletedAttachments.Add(attachmentId);
+        return Task.FromResult(OperationResult.Success());
+    }
+
+    public Task<OperationResult<int>> RemoveAttachmentsNotInAsync(
+        IReadOnlyCollection<Guid> keepIds, CancellationToken cancellationToken = default)
+    {
+        var keep = keepIds.ToHashSet();
+        var stale = Attachments.Where(item => !keep.Contains(item.Id)).ToArray();
+        foreach (var attachment in stale) Remove(attachment.Id);
+        return Task.FromResult(OperationResult<int>.Success(stale.Length));
+    }
+
+    public Task<OperationResult<int>> SweepOrphanAttachmentsAsync(CancellationToken cancellationToken = default)
+    {
+        Sweeps++;
+        return Task.FromResult(OperationResult<int>.Success(0));
+    }
+
+    private void Remove(Guid attachmentId)
+    {
+        Attachments.RemoveAll(item => item.Id == attachmentId);
+        Blobs.Remove(attachmentId);
     }
 }
 

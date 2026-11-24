@@ -175,12 +175,14 @@ Mosaic.Storage.Sqlite.SqliteModule
 Mosaic.Storage.Sqlite.SqliteOptions
 Mosaic.Storage.Sqlite.SqliteStorageRelocation
 Mosaic.Storage.Sqlite.StorageSettingSource
+Mosaic.Sync.Contracts.AttachmentManifestDto
 Mosaic.Sync.Contracts.BackupItemDto
 Mosaic.Sync.Contracts.BackupSnapshotContentDto
 Mosaic.Sync.Contracts.BackupSnapshotDto
 Mosaic.Sync.Contracts.BackupUploadResult
 Mosaic.Sync.Contracts.ISyncApi
 Mosaic.Sync.Contracts.ISyncTransport
+Mosaic.Sync.Contracts.RemoteAttachmentDto
 Mosaic.Sync.Contracts.RestoreSummary
 Mosaic.Sync.Contracts.SyncErrorCodes
 Mosaic.Sync.Contracts.SyncItemKinds
@@ -205,6 +207,7 @@ Mosaic.Tasks.Contracts.SetTaskCompletedRequest
 Mosaic.Tasks.Contracts.TaskArchiveScope
 Mosaic.Tasks.Contracts.TaskAttachmentConstraints
 Mosaic.Tasks.Contracts.TaskAttachmentDto
+Mosaic.Tasks.Contracts.TaskAttachmentExportDto
 Mosaic.Tasks.Contracts.TaskAttachmentTransferMode
 Mosaic.Tasks.Contracts.TaskChange
 Mosaic.Tasks.Contracts.TaskChangeKind

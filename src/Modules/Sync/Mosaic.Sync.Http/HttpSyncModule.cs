@@ -17,7 +17,9 @@ public sealed class HttpSyncModule : IModuleActivation, IDisposable
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         }, disposeHandler: true)
         {
-            Timeout = TimeSpan.FromSeconds(60),
+            // 大附件上传/下载可能要几分钟，共用超时会把它截断；每个请求在传输层自带截止时间
+            // （JSON 60 秒、附件 30 分钟），handler 本身不再设超时。
+            Timeout = Timeout.InfiniteTimeSpan,
         };
         _transport = new(_client, clock);
     }

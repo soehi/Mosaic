@@ -183,9 +183,9 @@
 - 长时间运行下 `sync_floor` 水位推进与客户端“先恢复快照再增量”的完整链路（仅在小时间窗内用假时钟验证）。
 - 0.1.0 数据库升级到 0.1.1 的真实二进制启动验证（迁移由测试的幂等迁移用例覆盖，但未用 0.1.0 生成的库文件实测）。
 
-## 0.1.2（尚未发布、尚未提交）：浏览器登录页补齐注册/重置与共用授权码
+## 0.1.2（其一）：浏览器登录页补齐注册/重置与共用授权码（2026-11-19）
 
-用户裁决：桌面登录页不再保留邮箱+密码表单，「在浏览器中登录」直接用系统浏览器打开服务端 `/device`，注册、验证码、密码、忘记密码全部在网站完成。本机版本号仍为 0.1.1（未改 Directory.Build.props），线上 0.1.1 不动。
+用户裁决：桌面登录页不再保留邮箱+密码表单，「在浏览器中登录」直接用系统浏览器打开服务端 `/device`，注册、验证码、密码、忘记密码全部在网站完成。本条目提交于 `76b63c3`（2026-11-19），当时未单独提升版本号；随本次任务附件一并发布为 `0.1.2`。
 
 ### 根因位置
 
@@ -228,4 +228,77 @@
 
 ### 状态
 
-按协调会话要求：未提交、未打 tag、未发布；当前版本号仍为 0.1.1，线上 0.1.1 不变。
+已由 `76b63c3`（2026-11-19）提交；提交时按协调会话要求未提升版本号（`server/Directory.Build.props` 仍为 0.1.1）、未单独打 tag。本次任务附件改动把版本统一提升为 0.1.2 并一并发布，本条的版本号现状以此为准。
+
+## 0.1.2（其二）：任务附件存储与 `/v1/attachments`（2026-11-24）
+
+为桌面端「账号备份」提供附件通道：新增 `attachments` 表（迁移 3）与四个端点，附件二进制按用户与附件 ID 落盘，数据库表为权威清单。附件只由客户端显式上传/下载触发，不参与增量同步，任务的 revision 仍由任务通道管理。配套桌面侧实现与验收见 `docs/implementation-status.md` 的 0.19.0 条目。
+
+### 根因位置
+
+- 服务端只有 `users`/`sessions`/`device_auth`/`backups` 等表，没有附件表与目录约定（`server/src/Mosaic.Server/Data/Schema.cs` 迁移 1–2），客户端上传附件时没有任何可信落点，也没有清单可对齐。
+- 全局请求体上限 `MOSAIC_MAX_BODY_BYTES = 16777216` 施加在整条管道（`ServerOptions.cs` 的 Kestrel 配置），单个 50 MiB 附件会在读 body 前被 413 拒绝。
+- 备份表只覆盖设置与任务 JSON，不含附件元数据；删除账户的清理逻辑只处理数据库行（`SessionService.cs` 删除账户事务），磁盘侧若新增目录则无人回收。
+- 缺少每用户配额与单件上限的服务端约束，客户端单方面限制无法阻止多客户端绕过。
+
+### 改动位置
+
+- `server/src/Mosaic.Server/Attachments/AttachmentPaths.cs`（新增）：`AttachmentPaths:9`、`MaxFileNameCharacters = 260:11`、`Root:13`、`UserDirectory:16`、`FileFor:19`、`NormalizeUserId:23`、`NormalizeAttachmentId:34`、`Extension:48`、`TryDeleteUserDirectory:71`。
+- `server/src/Mosaic.Server/Attachments/AttachmentService.cs`（新增）：`AttachmentService:31`、`ListAsync:39`、`SaveAsync:61`、`OpenAsync:246`、`DeleteAsync:274`、`CopyAndHashAsync:313`、`MapItem:354`、`NormalizeAttachmentId:364`、`NormalizeTaskId:374`、`ValidateFileName:384`、`ValidateHash:409`、`TryDelete:425`。
+- `server/src/Mosaic.Server/Attachments/AttachmentEndpoints.cs`（新增）：`AttachmentEndpoints:7`、`MapAttachmentEndpoints:9`（四个端点；PUT 提升 `IHttpMaxRequestBodySizeFeature` 到 `AttachmentsMaxBytes` 后再读流）。
+- `server/src/Mosaic.Server/Data/Schema.cs:168-182`：`Migration3` 建 `attachments(id,user_id,task_id,file_name,size_bytes,sha256,created_at,updated_at)` 与索引 `ix_attachments_user(user_id, task_id)`。
+- `server/src/Mosaic.Server/Data/DatabaseMigrator.cs:12`：迁移清单加入 `(3, "attachments", Schema.Migration3)`；`schema_migrations` 记录版本 3。
+- `server/src/Mosaic.Server/ServerApplication.cs:4`、`:90`（`AddSingleton<AttachmentService>()`）、`:128`（`app.MapAttachmentEndpoints()`）。
+- `server/src/Mosaic.Server/ServerOptions.cs:44`、`:47`、`:102-103`、`:188`（配额 1 GiB、单件 50 MiB、对应环境变量、`quota >= max` 校验）。
+- `server/src/Mosaic.Server/Auth/SessionService.cs:2`、`:431-433`：账户删除事务提交后调用 `AttachmentPaths.TryDeleteUserDirectory`，失败只记日志。
+- `server/tests/Mosaic.Server.Tests/AttachmentTests.cs`（新增，275 行）；`server/tests/Mosaic.Server.Tests/LoggingAndMigrationTests.cs` 迁移断言由 2 改为 3。
+- `server/README.md`：`:1` 版本、`:50-52` 环境变量、`:133` 磁盘布局、`:230-248`《任务附件》、`:346-352` 错误码、`:389` 测试计数（91）。
+- `server/Directory.Build.props:12`：`0.1.1` → `0.1.2`。
+
+### 端点与行为
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/v1/attachments` | `{items:[{id,taskId,fileName,sizeBytes,sha256,createdAt,updatedAt}], usageBytes, quotaBytes, maxBytes}` |
+| PUT | `/v1/attachments/{attachmentId}?taskId=&fileName=` | 原始流 body；新建 `201`；同内容重放 `200 {duplicate:true}` |
+| GET | `/v1/attachments/{attachmentId}` | 原始字节，`Content-Disposition` 用清单文件名；行存在但文件缺失返回 `404 attachment.not_found` |
+| DELETE | `/v1/attachments/{attachmentId}` | `204`；不存在同样 `204`（幂等） |
+
+- 前置校验：`attachmentId`/`taskId` 必须 Guid（归一化为 32 位无连字符小写）；`fileName` 去空白后拒绝控制字符、`Path.GetInvalidFileNameChars()`、`.`/`..`、超过 260 字符；`X-Mosaic-Sha256` 若存在必须是 64 位十六进制。任一不过 → `400 attachment.invalid`（哈希格式除外为 `attachment.hash_mismatch`）。
+- 路径：磁盘名只由 `attachmentId:N` 与白名单扩展名（2–17 位字母数字）组成，客户端文件名永不进入路径。
+- 写序：流式写临时文件并同时算 SHA-256（`Content-Length` 或实际字节超 `MOSAIC_ATTACHMENT_MAX_BYTES` → `413 attachment.too_large`）→ 校验 `X-Mosaic-Sha256` → 配额检查（`SUM(size_bytes)` 覆盖前扣除自身旧值，超 `MOSAIC_ATTACHMENT_QUOTA_BYTES` → `413 attachment.quota_exceeded`）→ 事务写行 → 提交后原子 `File.Move`；`File.Move` 失败回滚行并删临时文件，返回 `500 attachment.storage_failed`。
+- 去重：同用户、同 ID、同 `taskId`/`fileName`/大小/哈希且文件仍在 → `200 {duplicate:true}`，不重写；同 ID 不同内容 → 覆盖并删旧扩展名文件；不同用户同 ID → `409 attachment.conflict`（不泄露对方是否持有）。
+- 错误码：`attachment.invalid`、`attachment.hash_mismatch`、`attachment.not_found`、`attachment.conflict`、`attachment.too_large`、`attachment.quota_exceeded`、`attachment.storage_failed`。
+- 下载当前为整体响应，不支持 `Range`；客户端自行校验 SHA-256。
+
+### 迁移与升级影响
+
+- 迁移 3 为纯增量 DDL（`CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS`），无数据回填；迁移 1–2 的库启动后 `schema_migrations` 出现版本 3，备份与用户数据不变。
+- `attachments` 目录首次上传时按需创建（`<数据目录>/attachments/<userId:N>/`），旧安装不存在该目录不影响启动，无需新增配置项。
+- 删除账户：行随 `users` 级联删除（外键在 `Migration3` 中声明），目录在事务提交后清理；目录删除失败仅浪费磁盘，不影响删除结果。
+- 新增环境变量均有默认值，旧部署的 `appsettings`/容器环境无需修改；反向代理需把 `client_max_body_size` 放到 ≥ `MOSAIC_ATTACHMENT_MAX_BYTES`，否则大附件在代理层被拒。
+
+### 验收项
+
+1. 用迁移 2 的旧数据目录启动 → 日志出现迁移 3 应用记录，`attachments` 表存在且为空，`/v1/backups` 仍可正常往返。
+2. 上传一件附件 → 目录出现 `<attachmentId:N><ext>`，`GET /v1/attachments` 的 `usageBytes` 增加对应大小；重复上传返回 `200 {duplicate:true}` 且文件 mtime 不变。
+3. 上传超过 `MOSAIC_ATTACHMENT_MAX_BYTES` 的 body → `413 attachment.too_large`，目录内无残留临时文件。
+4. 上传直到 `usageBytes` 逼近 `MOSAIC_ATTACHMENT_QUOTA_BYTES` → 下一件返回 `413 attachment.quota_exceeded`。
+5. `X-Mosaic-Sha256` 填错 → `400 attachment.hash_mismatch`；`fileName=../x` 或非 Guid ID → `400 attachment.invalid`。
+6. 下载 → 内容与上传字节一致、SHA-256 相同；删除 → `204`，再删仍 `204`，清单项消失。
+7. 删除账户 → `attachments` 行清空、用户目录被删；重新注册同邮箱不受影响。
+8. 两台设备并发写同一 ID 不同内容 → 一方成功、另一方内容被覆盖后清单只有一个哈希，无残留临时文件。
+
+### 验证与未验证
+
+已验证：`dotnet test server/tests/Mosaic.Server.Tests/Mosaic.Server.Tests.csproj` → 91/91 通过（含新增 9 组附件用例与迁移 3 幂等用例）；`dotnet build Mosaic.Server.sln` 0 警告 0 错误；本机 Kestrel 冒烟覆盖清单/PUT/GET/DELETE 与错误码。
+
+未验证：真实 Linux 自包含包与 Docker 镜像下的附件目录权限与磁盘配额；反向代理（Nginx/Caddy）后的 50 MiB 上传；多实例共享同一数据目录（当前设计为单进程 + 本地 SQLite，不支持多实例并发写）；`Range` 断点续传（未实现）。
+
+### 状态
+
+随桌面 0.19.0 一并提交与发布；版本号 `0.1.2`，协议仍为 `/v1`。
+
+### 回滚方式
+
+`git revert` 本次提交并回退 `server/Directory.Build.props:12` 至 `0.1.1`。已升级的库可继续以 0.1.1 运行（旧代码不读取 `attachments` 表）；如需彻底清理：停服务 → 备份数据目录 → `DROP TABLE attachments; DELETE FROM schema_migrations WHERE version = 3;` → 删除 `<数据目录>/attachments/`。

@@ -56,15 +56,17 @@
     <sys:String x:Key="Auth.Sync.Enabled.Description">关闭后不再上传或下载备份，任务与设置继续在本机使用。</sys:String>
     <sys:String x:Key="Auth.Sync.IncludeSettings">同时备份可移植设置</sys:String>
     <sys:String x:Key="Auth.Sync.IncludeSettings.Description">仅包含主题、语言与文案偏好；不同步窗口位置、驻留、存储路径与登录凭据。</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeAttachments">同步任务附件</sys:String>
+    <sys:String x:Key="Auth.Sync.IncludeAttachments.Description">上传时把本机附件镜像到服务器，恢复时把备份里的附件下载到本机；关闭后不传附件，恢复只还原任务与设置。</sys:String>
     <sys:String x:Key="Auth.Sync.IncludeOnUpload">本次上传包含设置</sys:String>
     <sys:String x:Key="Auth.Sync.Upload">上传备份</sys:String>
     <sys:String x:Key="Auth.Sync.Download">从备份恢复</sys:String>
     <sys:String x:Key="Auth.Sync.Refresh">刷新服务器备份</sys:String>
     <sys:String x:Key="Auth.Sync.None">服务器上还没有备份。</sys:String>
     <sys:String x:Key="Auth.Sync.Latest">最近备份：{0} · {1} 项 · {2}</sys:String>
-    <sys:String x:Key="Auth.Sync.LastRestore">上次恢复：{0} 个任务，{1} 项设置</sys:String>
-    <sys:String x:Key="Auth.Sync.Uploaded">备份已上传：{0} 个任务，{1} 项设置。</sys:String>
-    <sys:String x:Key="Auth.Sync.Restored">已从备份恢复：{0} 个任务，{1} 项设置。</sys:String>
+    <sys:String x:Key="Auth.Sync.LastRestore">上次恢复：{0} 个任务，{1} 项设置，{2} 个附件</sys:String>
+    <sys:String x:Key="Auth.Sync.Uploaded">备份已上传：{0} 个任务，{1} 项设置，{2} 个附件。</sys:String>
+    <sys:String x:Key="Auth.Sync.Restored">已从备份恢复：{0} 个任务，{1} 项设置，{2} 个附件。</sys:String>
     <sys:String x:Key="Auth.Sync.Confirm.Title">覆盖本机任务</sys:String>
     <sys:String x:Key="Auth.Sync.Confirm.Message">从服务器下载备份会替换本机全部任务，并可能覆盖可移植设置，且无法撤销。是否继续？</sys:String>
 

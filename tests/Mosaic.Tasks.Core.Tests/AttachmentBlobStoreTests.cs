@@ -25,6 +25,9 @@ public sealed class AttachmentBlobStoreTests
         public readonly Dictionary<Guid, string> Paths = [];
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken ct = default) =>
             Task.FromResult(OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(Items.Where(a => a.TaskId == taskId).ToArray()));
+        public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAllAsync(CancellationToken ct = default) =>
+            Task.FromResult(OperationResult<IReadOnlyList<TaskAttachmentDto>>.Success(
+                Items.OrderBy(a => a.AddedAtUtc).ThenBy(a => a.Id).ToArray()));
         public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken ct = default)
         {
             Items.Add(attachment);

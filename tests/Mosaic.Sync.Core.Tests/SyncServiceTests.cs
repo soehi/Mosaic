@@ -297,6 +297,174 @@ public sealed class SyncServiceTests
         Assert.Empty(fixture.Settings.Commits);
     }
 
+    private static readonly Guid AttachmentKept = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    private static readonly Guid AttachmentFresh = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    private static readonly Guid AttachmentStale = Guid.Parse("66666666-6666-6666-6666-666666666666");
+    private static readonly Guid AttachmentOrphanTask = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    private static readonly DateTimeOffset AttachmentAddedAt = new(2026, 11, 18, 7, 0, 0, TimeSpan.Zero);
+    private static readonly byte[] AttachmentBytes = "附件一"u8.ToArray();
+    private static readonly byte[] StaleAttachmentBytes = "旧附件"u8.ToArray();
+    private static readonly byte[] OrphanAttachmentBytes = "孤儿附件"u8.ToArray();
+
+    private static TaskItemDto BackupTask() => new(TaskId, "备份任务", "", false,
+        new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero),
+        new DateTimeOffset(2026, 11, 2, 8, 0, 0, TimeSpan.Zero), 12);
+
+    private static OperationResult<BackupSnapshotContentDto> TaskBackup() =>
+        OperationResult<BackupSnapshotContentDto>.Success(new(
+            FakeSyncTransport.Snapshot("snap-1"),
+            [new(SyncItemKinds.Task, TaskId.ToString("D"), JsonSerializer.Serialize(BackupTask()), 12)]));
+
+    private static TaskAttachmentDto LocalAttachment(Guid id, Guid taskId, string fileName, byte[] content) =>
+        new(id, taskId, fileName, content.Length, AttachmentAddedAt);
+
+    [Fact]
+    public async Task Upload_mirrors_local_attachments_and_deletes_the_ones_missing_locally()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.AddTask();
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentKept, TaskId, "kept.txt", AttachmentBytes));
+        fixture.Tasks.Blobs[AttachmentKept] = AttachmentBytes;
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentFresh, TaskId, "fresh.txt", AttachmentBytes));
+        fixture.Tasks.Blobs[AttachmentFresh] = AttachmentBytes;
+        // 服务器上已有 kept 的同内容副本与一份本地已删除的 stale。
+        fixture.Transport.AddRemoteAttachment(AttachmentKept, TaskId, "kept.txt", AttachmentBytes);
+        fixture.Transport.AddRemoteAttachment(AttachmentStale, TaskId, "stale.txt", StaleAttachmentBytes);
+
+        var result = await fixture.Api.UploadAsync(false);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(new[] { AttachmentFresh }, fixture.Transport.UploadedAttachments);
+        Assert.Equal(new[] { AttachmentStale }, fixture.Transport.DeletedAttachments);
+        Assert.DoesNotContain(fixture.Transport.RemoteAttachments, item => item.Id == AttachmentStale);
+        Assert.Equal(2, result.Value.AttachmentCount);
+        Assert.Equal(1, result.Value.DeletedAttachmentCount);
+        Assert.Equal(1, result.Value.TaskCount);
+    }
+
+    [Fact]
+    public async Task Upload_reports_a_remote_attachment_failure_after_the_snapshot_is_already_published()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.AddTask();
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentFresh, TaskId, "fresh.txt", AttachmentBytes));
+        fixture.Tasks.Blobs[AttachmentFresh] = AttachmentBytes;
+        fixture.Transport.UploadAttachmentResult = OperationResult.Failure(
+            new(SyncErrorCodes.NetworkUnavailable, "无法连接服务器。"));
+
+        var result = await fixture.Api.UploadAsync(false);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(SyncErrorCodes.NetworkUnavailable, result.Error!.Code);
+        Assert.Contains("fresh.txt", result.Error.Message, StringComparison.Ordinal);
+        Assert.Equal(1, fixture.Transport.Uploads);
+        Assert.Equal("snap-1", fixture.Api.State.LatestSnapshot!.SnapshotId);
+    }
+
+    [Fact]
+    public async Task Upload_leaves_the_server_manifest_alone_when_attachment_sync_is_off()
+    {
+        var fixture = await new Fixture().StartAsync(("sync.includeAttachments", SettingPersistence.UserSettings));
+        fixture.AddTask();
+        fixture.Settings.Values["sync.includeAttachments"] = false;
+        await fixture.Settings.ApplySourcesAsync();
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentFresh, TaskId, "fresh.txt", AttachmentBytes));
+        fixture.Tasks.Blobs[AttachmentFresh] = AttachmentBytes;
+        fixture.Transport.AddRemoteAttachment(AttachmentStale, TaskId, "stale.txt", StaleAttachmentBytes);
+
+        var result = await fixture.Api.UploadAsync(false);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(0, result.Value.AttachmentCount);
+        Assert.Equal(0, result.Value.DeletedAttachmentCount);
+        Assert.Empty(fixture.Transport.UploadedAttachments);
+        Assert.Empty(fixture.Transport.DeletedAttachments);
+        Assert.Equal(0, fixture.Transport.ListAttachmentRequests);
+    }
+
+    [Fact]
+    public async Task Download_restores_only_attachments_of_backed_up_tasks_and_prunes_other_local_rows()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.Transport.DownloadResult = TaskBackup();
+        fixture.Transport.AddRemoteAttachment(AttachmentKept, TaskId, "kept.txt", AttachmentBytes, AttachmentAddedAt);
+        // 服务器上属于"备份里没有的任务"的附件不得落到本机。
+        fixture.Transport.AddRemoteAttachment(AttachmentOrphanTask, Guid.NewGuid(), "orphan.txt", OrphanAttachmentBytes);
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentStale, TaskId, "stale.txt", StaleAttachmentBytes));
+        fixture.Tasks.Blobs[AttachmentStale] = StaleAttachmentBytes;
+
+        var result = await fixture.Api.DownloadAndReplaceAsync();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(new RestoreSummary(1, 0, 1), result.Value);
+        Assert.Equal(new[] { AttachmentKept }, fixture.Transport.DownloadedAttachments);
+        Assert.Equal(new[] { AttachmentKept }, fixture.Tasks.ImportedAttachments);
+        var imported = Assert.Single(fixture.Tasks.Attachments);
+        Assert.Equal(AttachmentAddedAt, imported.AddedAtUtc);
+        Assert.Equal(AttachmentBytes, fixture.Tasks.Blobs[AttachmentKept]);
+        Assert.Equal(1, fixture.Tasks.Sweeps);
+        Assert.Equal(new RestoreSummary(1, 0, 1), fixture.Api.State.LastRestore);
+    }
+
+    [Fact]
+    public async Task Download_keeps_restoring_the_other_attachments_and_reports_the_first_failure()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.Transport.DownloadResult = TaskBackup();
+        fixture.Transport.AddRemoteAttachment(AttachmentStale, TaskId, "stale.txt", StaleAttachmentBytes);
+        fixture.Transport.AddRemoteAttachment(AttachmentKept, TaskId, "kept.txt", AttachmentBytes);
+        fixture.Transport.FailDownload.Add(AttachmentStale);
+
+        var result = await fixture.Api.DownloadAndReplaceAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(SyncErrorCodes.NetworkUnavailable, result.Error!.Code);
+        Assert.Contains("1 个附件未能恢复", result.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("stale.txt", result.Error.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { AttachmentKept }, fixture.Tasks.ImportedAttachments);
+        Assert.NotNull(fixture.Tasks.Replaced);
+        Assert.Equal(new RestoreSummary(1, 0, 1), fixture.Api.State.LastRestore);
+    }
+
+    [Fact]
+    public async Task Download_abandons_before_touching_local_data_when_the_manifest_cannot_be_read()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.Transport.DownloadResult = TaskBackup();
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentStale, TaskId, "stale.txt", StaleAttachmentBytes));
+        fixture.Transport.ManifestResult = OperationResult<AttachmentManifestDto>.Failure(
+            new(SyncErrorCodes.NetworkUnavailable, "无法连接服务器。"));
+
+        var result = await fixture.Api.DownloadAndReplaceAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(SyncErrorCodes.NetworkUnavailable, result.Error!.Code);
+        Assert.Null(fixture.Tasks.Replaced);
+        Assert.Contains(fixture.Tasks.Attachments, item => item.Id == AttachmentStale);
+        Assert.Null(fixture.Api.State.LastRestore);
+    }
+
+    [Fact]
+    public async Task Download_with_attachment_sync_off_restores_tasks_and_reports_zero_attachments()
+    {
+        var fixture = await new Fixture().StartAsync(("sync.includeAttachments", SettingPersistence.UserSettings));
+        fixture.Settings.Values["sync.includeAttachments"] = false;
+        await fixture.Settings.ApplySourcesAsync();
+        fixture.Transport.DownloadResult = TaskBackup();
+        fixture.Transport.AddRemoteAttachment(AttachmentKept, TaskId, "kept.txt", AttachmentBytes);
+        fixture.Tasks.Attachments.Add(LocalAttachment(AttachmentStale, TaskId, "stale.txt", StaleAttachmentBytes));
+
+        var result = await fixture.Api.DownloadAndReplaceAsync();
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(new RestoreSummary(1, 0, 0), result.Value);
+        Assert.Equal(0, fixture.Transport.ListAttachmentRequests);
+        Assert.Empty(fixture.Transport.DownloadedAttachments);
+        Assert.Equal(0, fixture.Tasks.Sweeps);
+        // ReplaceAllAsync 的级联清空本地附件行；磁盘文件成为孤儿，需由用户手动清理。
+        Assert.Empty(fixture.Tasks.Attachments);
+    }
+
     [Fact]
     public async Task Signing_out_is_reflected_in_sync_state_and_notifies_listeners()
     {

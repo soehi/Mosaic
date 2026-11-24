@@ -118,6 +118,17 @@ Device Flow（截图交互）：
 - 删除通过 tombstone 传播；创建使用幂等键；服务端分配单调递增 `serverRevision`，`cursor` 是不透明字符串；不把客户端本地 `Revision` 当全局版本。
 - 服务端 0.1.1 实际 canonical 错误码：`auth.invalid_credentials`、`auth.invalid_code`、`auth.code_expired`、`auth.code_attempts_exceeded`、`auth.weak_password`、`auth.rate_limited`、`auth.registration_closed`、`auth.required`、`auth.session_revoked`、`auth.session_expired`、`auth.session_not_found`（撤销不存在的会话）、`auth.invalid_refresh`、`auth.refresh_reused`、`auth.reauth_required`（账号删除/敏感操作重新认证失败）、`device.invalid_code`、`device.rate_limited`、`backup.*`、`sync.invalid`、`sync.cursor_invalid`、`sync.conflict`。注意：账号删除是级联真删，不保留墓碑，旧令牌因此解析不到账户，返回 `auth.required` 而非 `auth.session_revoked`——客户端把两者都映射到"重新登录"即可。兼容别名 `auth.code_invalid`、`auth.password_policy`、`sync.invalid`（服务端 0.1.0）已由客户端映射层兼容。
 
+任务附件（0.19.0，用户主动上传/下载）：
+
+- 附件字节不进备份快照与增量变更：任务条目的 `payload` 只带附件元数据，二进制走独立的 `/v1/attachments` 通道，避免 1 GiB 级配额撑爆 50 MiB 的快照配额与 16 MiB 请求体上限。
+- `GET /v1/attachments` → `{items:[{id,taskId,fileName,sizeBytes,sha256,createdAt,updatedAt}], usageBytes, quotaBytes, maxBytes}`；清单是上传比对与下载对齐的唯一依据。
+- `PUT /v1/attachments/{attachmentId}?taskId=<guid>&fileName=<name>`，请求体为原始字节，`X-Mosaic-Sha256` 可选；`201` 新建、`200` 内容相同重放（`duplicate:true`，不重写磁盘文件）、`400 attachment.hash_mismatch`、`409 attachment.conflict`（跨用户 ID 占用或内容归属冲突）、`413 attachment.too_large` / `attachment.quota_exceeded`、`500 attachment.storage_failed`（行已提交但 `File.Move` 失败，原样重传可修复）。
+- `GET /v1/attachments/{attachmentId}` 下载原始字节并带 `Content-Disposition`；`DELETE` 幂等返回 `204`；不存在时 GET 返回 `404 attachment.not_found`。
+- 存储：元数据表 `attachments`，字节 `<数据目录>/attachments/<userId:N>/<attachmentId:N><ext>`；`attachmentId`/`taskId` 必须是 Guid，`fileName` 只做展示与扩展名提取（2–17 位字母数字），绝不参与路径拼接。
+- 配额：`MOSAIC_ATTACHMENT_QUOTA_BYTES`（默认 1 GiB/用户）、`MOSAIC_ATTACHMENT_MAX_BYTES`（默认 50 MiB/个）；附件 PUT 在执行时把 Kestrel 单请求体上限提升到后者，不受 `MOSAIC_MAX_BODY_BYTES`（16 MiB）限制；反向代理需同步放宽。
+- 一致性：先写临时文件并流式计算 SHA-256，再提交数据库行，最后原子 `File.Move`；崩溃只会留下"行在文件不在"（下次同内容上传修复）或孤立临时文件，不会出现半写 blob。账号删除由外键级联清行，目录在事务提交后尽力删除。
+- 服务端不主动推送、不自动合并；何时上传、何时下载由客户端账户页显式触发。
+
 ### 3.5 测试
 
 服务端至少覆盖：验证码重发/过期/尝试次数/并发消费/重放；密码哈希参数；账号枚举防护；登录和 refresh 轮换/重用检测；改密撤销；Device Flow 状态机；按 IP 和邮箱限流；备份隔离、配额、sha256、恢复校验；同步游标、冲突、tombstone、幂等；Linux 容器启动和迁移；日志中不出现秘密。
@@ -177,6 +188,15 @@ Tasks 只增加明确的新能力，不改现有 `ITasksApi` 签名：
 - `tests/Mosaic.Architecture.Tests/BoundaryTests.cs` 的 WPF 项目列表、SQL 白名单、设置归属。
 - Settings 的 `SettingsGroup`/`SettingsSection` 若要新增分区必须同步本地化和映射；更简洁的做法是把非秘密同步设置放入现有“存储与系统”分区。
 - Desktop Smoke 覆盖：离线默认流程不回归、账户页打开、表单校验、假服务端/本地测试服务器完成注册与登录、Device Flow、上传备份、恢复确认、退出后令牌不泄漏。
+
+### 4.5 任务附件同步
+
+- 传输通道与备份/增量同步并列：`ITaskTransferApi` 增加 `ExportAttachmentsAsync`/上传/下载/删除方法，`SyncService` 只在用户点"上传备份"或"下载并恢复"时使用，不做后台轮询。
+- 上传：先发快照，再取 `ITaskTransferApi.ExportAttachmentsAsync()`（跨全部任务，底层为 `ITaskAttachmentRepository.ListAllAsync()`）与远端清单，逐个 `PUT`；同一 `Id` 且 `TaskId`、`Sha256` 都与远端一致的直接跳过，其余重新上传；服务端清单里存在但本地已不引用的附件按 ID `DELETE`（镜像删除，避免服务端空间被已删任务占用）。
+- 下载：先按服务端清单删除本地"服务端没有"的附件行与文件，再 `ReplaceAllAsync` 重建任务（`DELETE FROM tasks` 会级联清掉附件行，但文件仍在磁盘），最后逐个下载导入并用 `sha256` 校验，失败计入错误报告但不中断其余附件；收尾只清理"Guid 名 + 无对应行"的孤立文件，绝不碰用户手动放进附件目录的文件。
+- 恢复时不走 `TaskAttachmentService.AddAsync`：保留原 `Id`/`AddedAtUtc`，不递增任务 revision，避免恢复动作自己制造同步冲突。
+- 开关：设置键 `sync.includeAttachments`（默认 `true`）由账户页"同步任务附件"复选框控制，关闭时上传/下载都跳过附件且不改动服务器现存附件。
+- 能力绑定：新增 `tasks.attachments@1`，`tasks.transfer@1` 保持 v1 不变（AppConfiguration provider 绑定与桌面冒烟测试按版本号断言）。
 
 ## 5. 手机端规划（另起新会话）
 

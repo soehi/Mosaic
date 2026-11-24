@@ -276,4 +276,6 @@
     <sys:String x:Key="Settings.Setting.SyncEnabled.Description">登录账号后可手动上传和下载备份；关闭后账号页只显示本地数据</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings">备份用户设置</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings.Description">允许备份任务规则、任务文案、外观主题与界面语言；关闭后备份只包含任务</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncIncludeAttachments">备份任务附件</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncIncludeAttachments.Description">允许手动上传和下载任务附件；关闭后备份只包含任务本身，下载恢复会清空本地附件记录并保留磁盘文件</sys:String>
 </ResourceDictionary>

@@ -1,5 +1,115 @@
 # Mosaic：实施与验证记录
 
+## 0.19.0：任务附件同步（服务端 `/v1/attachments` + 客户端上传镜像与下载落盘）（2026-11-24）
+
+本轮把「账号备份」从设置与任务扩展到**任务附件**：服务端新增 `attachments` 表（迁移 3）与 `/v1/attachments` 四个端点，客户端在既有「上传备份 / 下载恢复」两条显式路径上增加附件镜像与落盘，仍由用户点按钮触发，没有任何后台静默双向覆盖。设置键新增 `sync.includeAttachments`（默认开），账号页给出复选框与说明；关闭时备份只含任务本身，恢复会清空本地附件记录并保留磁盘文件（详见下方迁移节）。数据结构变化仅限服务端新增一张表；桌面端本地库 schema 未变，安装布局未变。
+
+**根因位置（按问题顺序）**
+
+1. 附件在传输层没有通道。`ITaskTransferApi` 原只有任务与设置两个方向的导出/替换（`src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskTransferContracts.cs:16`，HEAD），`TaskTransferService` 也只按 `ITaskRepository` 组装任务 DTO。触发条件：用户点「上传备份」。出错原因：备份体只能带 `TaskItemDto`，附件元数据与二进制既无处导出也无处导入；即便将来加上，也没有可靠的时间戳与哈希可用于去重和校验。
+2. 同步服务只搬运设置与任务。`SyncService.UploadAsync` 在 `Raise()` 之后直接返回 `BackupUploadResult`（`src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncService.cs:137`，HEAD 前），`DownloadAsync` 在 `ReplaceAllAsync` 之后就结束。触发条件：同一账号在两台机器间迁移。出错原因：任务行恢复了、附件行随 `DELETE FROM tasks` 的级联一起消失，磁盘上却留着旧文件，形成「有文件无记录」的孤儿；反向则是「有记录无文件」，打开附件直接失败。
+3. 恢复时附件行的级联语义没被显式处理。`task_attachments` 对 `tasks` 声明 `ON DELETE CASCADE`，`ReplaceAllAsync` 在一个事务里清空 `tasks` 表。触发条件：下载恢复。出错原因：附件行随父行静默清空，若不先按备份清单预删、事后按备份逐件 `ImportAttachmentAsync` 回填并保留原 `Id`/`AddedAtUtc`，任务与附件的关系就会整体丢失；只补「新出现的」附件则会残留上一次备份里的旧附件。
+4. 服务端没有附件存储。`server/src/Mosaic.Server/Data/Schema.cs` 原只有用户、设备、会话、备份三张表（迁移 1–2），`ServerApplication.cs` 没有附件端点。触发条件：客户端要上传附件。出错原因：没有表就没有权威清单，没有目录约定就没有落盘位置；配额与单件上限也无法在服务端约束，客户端单方面限制等于没有限制。
+5. 服务端全局请求体上限 16 MiB 会挡住正常的附件。`MOSAIC_MAX_BODY_BYTES` 默认 16777216 施加在整条管道上。触发条件：上传大于 16 MiB 的附件。出错原因：`PUT /v1/attachments/{id}` 会在读 body 之前被框架以 413 拒绝，与「单件 50 MiB」的承诺矛盾。
+6. 附件开关没有默认值与本地化说明。`SyncSettingsSource` 原只暴露 `sync.serverUrl`/`sync.deviceId`/`sync.lastUpload` 等键（`src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncSettingsSource.cs:23`，HEAD 前）。触发条件：新安装用户首次上传。出错原因：没有键就没有可持久化的开关；缺说明文案则用户不知道关闭后会遗留孤儿文件。
+
+**改动位置（逐文件、类型与方法）**
+
+服务端（`server/`，独立版本 0.1.1 → 0.1.2）：
+
+1. `server/src/Mosaic.Server/Attachments/AttachmentPaths.cs`（新增）：`class AttachmentPaths:9` 定义磁盘布局 `<数据目录>/attachments/<userId:N>/<attachmentId:N><ext>`；`MaxFileNameCharacters:11`、`Root:13`、`UserDirectory:16`、`FileFor:19`、`NormalizeUserId:23`、`NormalizeAttachmentId:34`、`Extension:48`（仅接受 2–17 位字母数字、白名单扩展，否则空串）、`TryDeleteUserDirectory:71`。
+2. `server/src/Mosaic.Server/Attachments/AttachmentService.cs`（新增）：`class AttachmentService:31`（依赖 `Database`、`ServerOptions`、`TimeProvider`）；`ListAsync:39`、`SaveAsync:61`（校验 `taskId`/`fileName`/`sha256` → 已存在同哈希返回 duplicate → 复制到临时文件并同步计算 SHA-256 → 事务写行 → 提交后 `File.Move` 原子落盘 → 失败回滚行并删临时文件）、`OpenAsync:246`、`DeleteAsync:274`、`CopyAndHashAsync:313`、`MapItem:354`、`NormalizeAttachmentId:364`、`NormalizeTaskId:374`、`ValidateFileName:384`、`ValidateHash:409`、`TryDelete:425`。
+3. `server/src/Mosaic.Server/Attachments/AttachmentEndpoints.cs`（新增）：`class AttachmentEndpoints:7`、`MapAttachmentEndpoints:9` 注册 `GET /v1/attachments`、`PUT /v1/attachments/{attachmentId}`、`GET /v1/attachments/{attachmentId}`、`DELETE /v1/attachments/{attachmentId}`；PUT 先提升 `IHttpMaxRequestBodySizeFeature` 到单件上限再读流，校验 `X-Mosaic-Sha256` 头。
+4. `server/src/Mosaic.Server/Data/Schema.cs:168-182`（新增迁移 3）：`attachments(id,user_id,task_id,file_name,size_bytes,sha256,created_at,updated_at)` 与索引 `ix_attachments_user(user_id, task_id)`。
+5. `server/src/Mosaic.Server/Data/DatabaseMigrator.cs:12`：迁移清单追加 `(3, "attachments", Schema.Migration3)`。
+6. `server/src/Mosaic.Server/ServerApplication.cs:4`（using）、`:90`（`AddSingleton<AttachmentService>()`）、`:128`（`app.MapAttachmentEndpoints()`）。
+7. `server/src/Mosaic.Server/ServerOptions.cs:44`（`AttachmentQuotaBytes`，1 GiB）、`:47`（`AttachmentMaxBytes`，50 MiB）、`:102-103`（`MOSAIC_ATTACHMENT_QUOTA_BYTES` / `MOSAIC_ATTACHMENT_MAX_BYTES`）、`:188`（配额不得小于单件上限的校验）。
+8. `server/src/Mosaic.Server/Auth/SessionService.cs:2`（using）、`:431-433`：删除账户时行随用户级联删除，目录在事务提交后由 `AttachmentPaths.TryDeleteUserDirectory` 清理，失败只记日志不影响删除结果。
+9. `server/tests/Mosaic.Server.Tests/AttachmentTests.cs`（新增，275 行）：覆盖清单/写序/重复上传/哈希不符/越界 ID/超限/配额/下载/删除/账户删除清理共 9 组；`server/tests/Mosaic.Server.Tests/LoggingAndMigrationTests.cs` 迁移断言改为 3。
+
+桌面端：
+
+10. `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskTransferContracts.cs`：`ITaskTransferApi.ExportAttachmentsAsync:16`、`OpenAttachmentAsync:19`、`ImportAttachmentAsync:22`、`DeleteAttachmentAsync:25`、`RemoveAttachmentsNotInAsync:28`、`SweepOrphanAttachmentsAsync:31`；`record TaskAttachmentExportDto:35`（附件 DTO + 内容流 + `Sha256`）。`:8` 注释写明这些成员只服务于用户触发的备份上传/下载。
+11. `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskTransferService.cs`：构造函数追加 `ITaskAttachmentBlobStore? blobs:18`；`ExportAttachmentsAsync:45`、`OpenAttachmentAsync:52`、`ImportAttachmentAsync:77`（失败时回删已落盘 blob `:98`）、`DeleteAttachmentAsync:102`（先删行 `:109` 再删 blob `:111`）、`RemoveAttachmentsNotInAsync:115`、`SweepOrphanAttachmentsAsync:133-139`。
+12. `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/FileSystemTaskAttachmentBlobStore.cs:82` 起新增：`SweepAsync:116`（只清「Guid 目录 / Guid 文件名」布局与无主文件）、`DeleteAsync(taskId, attachmentId, fileName, storedPathHint):159`。
+13. `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/GuardedTaskTransferApi.cs:35-60`：六个附件方法加模块闸门，`ImportAttachmentAsync`/`DeleteAttachmentAsync` 成功后发任务变更通知。
+14. `src/Modules/Tasks/Mosaic.Tasks.Persistence.Contracts/ITaskAttachmentBlobStore.cs`：`DeleteAsync:22`、`ImportAsync:28`、`SweepAsync:35`；`ITaskAttachmentRepository.cs:10` 增加 `ListAllAsync`；`src/Modules/Storage/Mosaic.Tasks.Sqlite/Internal/SqliteTaskAttachmentRepository.cs:23-31`（`ListAllAsync`，`SELECT ... ORDER BY added_at, id`）。
+15. `src/Modules/Tasks/Mosaic.Tasks.Core/TasksModule.cs`：构造依赖追加 `ITaskAttachmentRepository? AttachmentRepository:16` 与 `string? DefaultAttachmentRoot:17`；`_attachmentBlobs:26`；`Transfer` 传入 blobs `:41`；能力清单补 `tasks.attachments@1:61`；`Attachments:69`；设置应用时同步 `tasks.attachments.storagePath:82-84`；清理钩子 `:91`、`:104`。
+16. `src/Modules/Sync/Mosaic.Sync.Contracts/SyncContracts.cs`：`SyncErrorCodes.AttachmentHashMismatch:20`、`AttachmentsInvalid:21`；`BackupUploadResult` 增 `AttachmentCount`/`DeletedAttachmentCount:39`；`RestoreSummary` 增 `AttachmentCount:41`；`RemoteAttachmentDto:44`、`AttachmentManifestDto:47-48`；`ISyncTransport` 四个附件方法 `:69`、`:72`、`:76`、`:80`。
+17. `src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncService.cs`：`_lastRestore:46`；上传侧 `if (_options.IncludeAttachments)` 调用 `UploadAttachmentsAsync:137-139`；下载侧开关 `:164`、预删 `:173`、错误聚合 `:189`、临时目录 `Path.GetTempPath()/mosaic-sync:192`、逐件下载 `:200`、`ImportAttachmentAsync(new(item.Id, item.TaskId, item.FileName, item.SizeBytes, item.AddedAtUtc), temp, ...):206`、`SweepOrphanAttachmentsAsync:216`（注释明确只清 Guid 布局）、写 `_lastRestore` 后 `Raise():223-225`、聚合错误返回 `:227-231`；`UploadAttachmentsAsync:381`、同哈希跳过 `:396`、`SameAttachment:419`、`TagAttachmentError:424`、`TryDelete:428`。
+18. `src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncSettingsSource.cs`：默认 `IncludeAttachments = true:9`、读取 `:15`、常量 `IncludeAttachments = "sync.includeAttachments":23`、定义 `:37-40`（显示名 `Settings.Setting.SyncIncludeAttachments`，说明含「关闭后备份只包含任务本身，下载恢复会清空本地附件记录并保留磁盘文件」）。
+19. `src/Modules/Sync/Mosaic.Sync.Http/HttpSyncTransport.cs`：`AttachmentsPath = "v1/attachments":20`、`AttachmentRequestTimeout = 30min:25`、`ListAttachmentsAsync:102`、`UploadAttachmentAsync:105`（`X-Mosaic-Sha256:122`、独立 deadline `:125`）、`DownloadAttachmentAsync:140`（校验失败在 `:178` 返回 `SYNC_ATTACHMENT_HASH_MISMATCH` 并丢弃临时文件）、`DeleteAttachmentAsync:197`、`ReadManifest:223`、`AttachmentEndpoint:248-250`。
+20. `src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`：`SyncIncludeAttachmentsId = "sync.includeAttachments":32`、`_includeAttachments = true:69`、属性 `IncludeAttachments:329-334`、保存 `:746`、读取 `:797`；`src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml:242-244` 复选框（AutomationId `SyncIncludeAttachmentsToggle`）与说明文本。
+21. 本地化：`src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml:59-60`、`en.xaml:59-60`（开关与说明）、`en.xaml:67-69`（LastRestore/Uploaded/Restored 三段带附件数）；`src/Modules/Settings/Mosaic.Settings.Wpf/Localization/zh.xaml:279-280`、`en.xaml:279-280`（`Settings.Setting.SyncIncludeAttachments`）。
+22. 架构契约：`build/public-api.txt` 追加 `AttachmentManifestDto`、`RemoteAttachmentDto`、`TaskAttachmentExportDto`（架构测试的索引核对依赖此文件）。
+23. 测试：`tests/Mosaic.Sync.Core.Tests/Fakes.cs`（假传输补四个附件方法 `:162-212`、`AddRemoteAttachment:128-133`；`FakeTaskTransferApi.ReplaceAllAsync:230-241` 按真实级联语义清空附件行与 blob `:238-239`）；`tests/Mosaic.Sync.Core.Tests/SyncServiceTests.cs` 新增 7 个用例（+168 行）；`tests/Mosaic.Tasks.Core.Tests/` 的 `AttachmentBlobStoreTests`、`AttachmentCleanupTests`、`AttachmentCountingApiTests`、`TaskDeleteAttachmentCleanupTests` 少量加法（新接口成员）。
+24. 发布元数据：`Directory.Build.props:12` 升 `0.19.0`；`server/Directory.Build.props:12` 升 `0.1.2`；`build/release-content.json` 追加 `mosaic-0.19.0` 并改 `currentReleaseId`；`build/published-release-index.json` 追加第 60 条；`build/release-manifest.json` 与 `docs/releases/v0.19.0.md` 由 `scripts/release_content_verify.py` 生成；`server/README.md:1`、`:389`（测试计数 82 → 91）、`:397` 同步版本；`docs/server-implementation-status.md` 增补「任务附件」一节并校正 0.1.2 段状态；`docs/auth-sync-server-plan.md` §4.5 措辞校正（`ListAllAsync` → `ExportAttachmentsAsync` + 同哈希跳过）。
+
+**迁移逻辑与对已有安装的影响**
+
+1. 服务端迁移 3：`DatabaseMigrator` 启动时对既有库执行 `CREATE TABLE IF NOT EXISTS attachments(...)` 与索引创建，纯增量、无数据回填；旧库（迁移 1–2）升级后 `schema_version` 变为 3，备份表与用户表内容不变。验收：用迁移 2 的旧数据目录启动，日志出现 `applied migration 3 (attachments)`，`attachments` 表存在且 `SELECT COUNT(*)` 为 0，`/v1/backups` 仍可正常上传下载。
+2. 附件目录：首次上传时按需创建 `<数据目录>/attachments/<userId:N>/`，旧安装不存在该目录不影响启动；`AttachmentPaths.Root` 使用既有 `ServerOptions.DataDirectory`，不需要新配置项。验收：上传一件附件后目录内出现 `<attachmentId:N><ext>`，删除后文件消失、目录可空。
+3. 桌面端设置键迁移：`sync.includeAttachments` 走既有设置库，缺省读取为 `true`（`SyncSettingsSource:9`），旧安装无需迁移动作，首次打开账号页即显示为勾选。验收：升级后不点开关直接上传，`UploadAsync` 调用 `ListAttachmentsAsync`（`ListAttachmentRequests` 计数 +1）。
+4. 关闭开关的后果（必须让用户知道）：备份体只含任务与设置；下载恢复时 `ReplaceAllAsync` 的级联清空会删掉本地全部附件记录，而磁盘文件不会被删除，也不会被 `SweepOrphanAttachmentsAsync` 自动回收（sweep 只清 Guid 布局且只在附件同步开启时执行）。本地化说明已写在 `Settings.Wpf/Localization/{zh,en}.xaml:280`，恢复摘要的附件数为 0。验收：关闭开关 → 下载恢复 → 任务恢复、`task_attachments` 为空、附件目录内旧文件仍在；重新打开开关再次上传，附件按哈希重新镜像。手工清理方式：删除 `<附件存储目录>` 下对应任务的文件，或调用任务模块的 `SweepOrphanAttachmentsAsync`。
+5. 对已有安装的语言与布局：无新增窗口、无改名的设置键、无改动的任务数据目录；`tasks.attachments@1` 只是能力清单新增项，旧插件不受影响。验收：升级后打开任务页与账号页无异常，附件按钮行为与此前一致。
+
+**验证与未做项**
+
+- 已跑：`dotnet test tests/Mosaic.Sync.Core.Tests/Mosaic.Sync.Core.Tests.csproj` → 总计 21，失败 0，成功 21（含新增 7 个附件用例）；`dotnet test server/tests/Mosaic.Server.Tests/Mosaic.Server.Tests.csproj` → 91/91；`dotnet test tests/Mosaic.Tasks.Core.Tests/Mosaic.Tasks.Core.Tests.csproj` 定向通过；`dotnet test tests/Mosaic.Architecture.Tests` 通过（公共 API 索引与 SQL 关键字规则）；`dotnet test tests/Mosaic.ReleaseSummary.Tests/Mosaic.ReleaseSummary.Tests.csproj` → 总计 21，失败 0，成功 21（含新增 3 个裁剪用例与 1 个已发布回执用例）；`python scripts/release_content_verify.py` → `Release content verified: 0.19.0, mosaic-0.19.0, 61 indexed releases.`，并生成 `build/release-manifest.json` 与 `docs/releases/v0.19.0.md`。
+- 未跑：全量 `dotnet test Mosaic.sln`（按用户要求不做每次全量；其中 `Mosaic.Desktop.SmokeTests.Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds` 在 `FloatingDragTests.cs:38` 因真实指针/DPI 环境期望 56–64 实测 68，与本轮改动无关）；未做 MSI 安装后的真机附件往返（无现成测试账号与两台设备环境），由发布前手工验收项覆盖。
+- 未做：附件断点续传与服务端去重（跨用户共享同一 blob）、附件按任务增量同步（当前为整清单镜像）、附件在速览/详情里的预览仍是原有能力，未接入同步状态提示。
+
+**同轮修复：更新简要超过任务备注上限（发布链门禁阻塞）**
+
+**根因位置（按问题顺序）**
+
+1. 更新简要正文没有长度控制。`ReleaseSummaryComposer.Compose` 把升级范围内所有版本逐条拼接成一段正文（`src/Modules/ReleaseSummary/Mosaic.ReleaseSummary/ReleaseSummaryComposer.cs:29-43`，HEAD 前）。触发条件：用户回执停留在较早版本，或从 0.1.0 一路升级。出错原因：正文被运行时写成任务备注，而备注受 `TaskConstraints.NotesMaxCharacters = 20_000`（`src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskConstraints.cs:14`，按 rune 计数）约束，`TaskService.CreateAsync` 在写入前校验（`src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskService.cs:27`）。实测 0.1.0 → 0.18.14 已占 20,145 个 rune，追加 0.19.0 后为 21,062（含本条修复自身的发布正文与 0.18.14 的三条条目），必然被拒绝；发布门禁要求「每个起点都能完整生成」，因此整条发布链被卡住。
+2. 清单校验把上限写成魔数。`ReleaseManifest.Validate:81` 使用字面量 `200` / `20000`，与任务契约常量重复。触发条件：任务契约调整标题或备注上限。出错原因：契约变化后发布清单校验与运行时任务校验各说各话，门禁漂移。
+3. 两个构建门禁按「整段拼接」只算一次。`build/release-content.ps1:157-163`（HEAD 前）与 `scripts/release_content_verify.py:110-114`（HEAD 前）对每个起点计算一次完整正文并与 20000 比较，没有与运行时一致的降级路径。触发条件：链上累计正文超限。出错原因：门禁与运行时必须是同一套规则，否则要么运行时拒绝而门禁放行（本次），要么门禁拒绝而运行时能生成。
+4. 裁剪后的正文承诺「见 docs/releases/ 下对应版本的发布说明」，而 `v0.2.0.md` 与 `v0.4.0.md` 不存在：0.2.0 的内容写在 `v0.1.0.md`（标题为「Mosaic 0.1.0 / 0.2.0」）里，0.4.0 没有任何发布说明文件。触发条件：裁剪区间覆盖这两个版本（真实链 0.1.0 → 0.19.0 的裁剪区间是 0.1.0 至 0.3.0）。出错原因：指引行指向不存在的载体，等于把缺失隐蔽地推给用户。
+
+**改动位置（逐文件、类型与方法）**
+
+1. `src/Modules/ReleaseSummary/Mosaic.ReleaseSummary/ReleaseSummaryComposer.cs`：`Compose:47-58` 改为「逐起点尝试」循环——从最旧版本开始裁掉，直到正文不超过 `TaskConstraints.NotesMaxCharacters` 才返回；`适用范围` 起点取裁剪后区间的前一个版本（`previousVersion:52`），裁剪标记为 `trimmed:53`；只有当前版本自身就超限时返回 `Failure`（`:58`）。新增 `ComposeText:61-89` 承载原拼接逻辑，并在裁剪时于 `适用范围` 之后追加一行指引（`:70-73`，单版本无括号、多版本括号列区间）。
+2. `src/Modules/ReleaseSummary/Mosaic.ReleaseSummary/ReleaseManifest.cs`：`Validate:81-82` 的 `200` / `20000` 换成 `TaskConstraints.TitleMaxCharacters` / `TaskConstraints.NotesMaxCharacters`；`:7` 新增 `using Mosaic.Tasks.Contracts;`。逐起点 `Compose` 的校验循环（`:74-84`）不变，裁剪逻辑使其自动通过。
+3. `build/release-content.ps1`：`Get-SummaryText:41-67` 增加 `$Trimmed` 参数与指引行（`:45-52`）；`Get-RuneCount` 前的整段检查改为 `:167-188`——标题上限单独检查，再对每个 `$from` 用内层 `for ($start …)` 裁剪（空正文检查、`$rangePrevious`、`$trimmed`、`(Get-RuneCount $candidate) -le 20000` 即 `break`），全部起点都无解才 `throw`。
+4. `scripts/release_content_verify.py`：`summary_text:35-53` 增加 `trimmed` 参数与指引行；新增 `compose_range:115-129` 镜像运行时裁剪，`for frm in range(len(chain))` 循环（`:131-132`）替换原整段检查。
+5. `tests/Mosaic.ReleaseSummary.Tests/ReleaseSummaryTests.cs`（新增 3 个用例，`:91-138`）：`Overlong_range_drops_the_oldest_release_and_points_at_release_notes`（裁 1 个版本、指引行位置与内容）、`Overlong_range_with_multiple_trimmed_releases_lists_the_trimmed_span`（裁 2 个版本、区间措辞）、`Single_release_body_over_the_notes_limit_fails_instead_of_truncating_text`（单版本超限必须失败而不是截断）；`:1` 新增 `using System.Text;`。
+6. `docs/releases/v0.2.0.md`、`docs/releases/v0.4.0.md`（新增）：按运行时生成格式（`# Mosaic <版本>` + `Mosaic <版本> · 更新日期` + `适用范围` + 分类编号列表）从 `build/release-content.json` 的冻结条目写出；`v0.2.0.md` 末尾指向 `v0.1.0.md` 以保留首个版本的完整说明。至此 61 个已发布版本均有 `docs/releases/v<版本>.md`。
+7. `docs/releases/changelog.md`：新增 0.19.0 条目，含附件同步与本次裁剪机制。
+
+**对已有安装的影响与验收项**
+
+1. 无数据迁移、无设置键变化、无安装布局变化：裁剪只影响生成的更新简要文本，任务与附件数据不受影响。
+2. 升级用户的可见变化：回执停留在 0.4.0 及以前时，最旧的一段明细被裁掉，正文改为「适用范围：0.4.0 → 0.19.0」+ 一行指引；更早的回执裁剪区间相应缩短。验收（真实链复算，61 个 release，含 0.18.14 与 0.19.0 的全部条目）：未裁剪全链 21,062 rune；`frm=0` → 裁掉 0.1.0–0.4.0 后 19,964 rune、`适用范围：0.4.0 → 0.19.0`、指引行「更早版本（0.1.0 至 0.4.0）的变更见 docs/releases/ 下对应版本的发布说明。」；`frm=1`/`frm=2`/`frm=3`（回执 0.2.0 / 0.3.0 / 0.4.0）→ 19,964 / 19,964 / 19,956 rune，指引区间分别为 0.2.0–0.4.0、0.3.0–0.4.0、单个 0.4.0；`frm=4`（回执 0.5.0）→ 19,912 rune、`适用范围：0.4.0 → 0.19.0`、不裁剪；`frm=59`（回执 0.18.13）→ 1,160 rune；`frm=60`（回执 0.18.14）→ 889 rune、首次使用 → 886 rune。
+3. 单版本正文超过 20000 rune 时仍明确失败（错误消息含「备注上限」），不做静默截断；该分支与「空正文」失败分支一样保留原「待重试」语义。
+4. 候选正文恰好落在上限内时不裁剪，正文与 0.18.13 完全一致——验收：`Mosaic.ReleaseSummary.Tests` 的 `Shipped_manifest_announces_every_version_after_the_last_receipt` 与 `Committed_release_source_matches_program_and_frozen_index` 用真实 61 条发布源跑通。
+5. 发布说明完整性验收：`docs/releases/` 对 61 个 release 逐一存在 `v<版本>.md`（Python 核对输出 `missing notes files []`），指引行的承诺可核对为真。
+
+- 回滚方式：`git revert <本次提交>` 并回退 `Directory.Build.props:12` 至 `0.18.13`、`server/Directory.Build.props:12` 至 `0.1.1`；已升级的服务端库可直接继续运行（迁移 3 只新增表，旧代码不读取它），如需彻底清理执行 `DROP TABLE attachments; DELETE FROM schema_migrations WHERE version = 3;`（先备份数据目录）。客户端回滚后 `sync.includeAttachments` 键留在设置库中不被读取，无副作用；附件目录与文件保留，可手工删除。
+
+**同轮修复：已发布 0.18.14 的回执从发布链中丢失**
+
+**根因位置（按问题顺序）**
+
+1. 开发 0.19.0 时把链尾的 `mosaic-0.18.14` 整条替换成了 `mosaic-0.19.0`，并把 `mosaic-0.19.0.previousReleaseId` 指回 `mosaic-0.18.13`；`build/published-release-index.json` 里也没有 0.18.14 的索引条目。触发条件：用户装过正式发布的 0.18.14（用 `msiexec /a` 提取该 MSI 内的 `Programs/Mosaic/release-manifest.json`，实测 `current = mosaic-0.18.14`、共 60 条、`previousReleaseId = mosaic-0.18.13`），随后升级到 0.19.0。出错原因：`ReleaseSummaryComposer.Compose:20-23` 要求每个公告回执都在 `byId` 中命中，未命中即返回「无法识别已有公告回执 …，已保留待重试」；0.18.14 已从清单消失，用户永远收不到 0.19.0 的更新简要，回执卡在 0.18.14 且每次启动重试。
+2. 该状态同时违反发布链的自洽规则：`build/published-release-index.json` 冻结的是「已经真实发布」的集合，而 0.18.14 在索引之外已经发布了正式 Release 与 MSI，链上却找不到它，裁剪指引与发布说明也随之缺了一环。
+
+**改动位置（逐文件、类型与方法）**
+
+1. `build/release-content.json`：在 `mosaic-0.18.13` 之后插回 `mosaic-0.18.14` 条目（`added` 0 条、`improved` 2 条、`fixed` 1 条，`releasedOn` 2026-11-24，内容取自该已发布 MSI 内清单，重算内容指纹 `41480A27905B5217AEBBA8B6DF4EE36B594C9D5B9E336DFA48D54EEADC6B79C5`）；`mosaic-0.19.0.previousReleaseId` 改为 `mosaic-0.18.14`，其 `contentSha256` 重算为 `977CF1C8405BCBA945B692083402A62F5D65DC70DB47F1680B35A525FE41620F`。
+2. `build/published-release-index.json`：在 0.18.13 之后插入 `mosaic-0.18.14` 索引条目（60 → 61 条），0.19.0 条目的 `contentSha256` 同步为新指纹（该条目尚未提交，索引不可变规则不适用）。
+3. `docs/releases/v0.18.14.md`（新增）：补齐这个已发布版本的发布说明，格式与运行时「首次使用」生成一致（`# Mosaic 0.18.14` + `Mosaic 0.18.14 · 更新日期 2026-11-24` + `适用范围：首次使用 → 0.18.14` + 三个分类的编号列表），与 GitHub Release 正文一致。
+4. `tests/Mosaic.ReleaseSummary.Tests/ReleaseSummaryTests.cs:190-213`（新增用例 `Every_published_release_receipt_is_recognized_by_the_shipped_manifest`）：遍历 `build/published-release-index.json` 的每一个回执，断言 `Compose` 成功、非当前版本必须生成非空正文，并显式断言索引中存在 `mosaic-0.18.14`；任何已发布回执再次丢失都会在这里先失败。
+5. `docs/releases/changelog.md:5`：0.19.0 条目结尾「包含 0.18.13 的全部内容。」改为「包含 0.18.14 的全部内容。」。
+
+**对已有安装的影响与验收项**
+
+1. 装过 0.18.14 的用户升级到 0.19.0 后回执被识别，收到只含 0.19.0 的更新简要（889 rune）；装过 0.18.13 的用户收到覆盖 0.18.14 + 0.19.0 的正文（1,160 rune）；更早的回执按上一节的裁剪规则生成。
+2. 无数据迁移、无设置键变化、无安装布局变化；已有 `Data/`、`Config/`、任务、附件与回执全部原样保留，只是清单能重新解析。
+3. 验收命令：`python scripts/release_content_verify.py` → `Release content verified: 0.19.0, mosaic-0.19.0, 61 indexed releases.`；`dotnet test tests/Mosaic.ReleaseSummary.Tests/Mosaic.ReleaseSummary.Tests.csproj` → 21/21（含新用例）。
+4. 回滚方式：回退这两个 json 文件与测试到本提交前，0.18.14 的回执会重新变成「无法识别」，因此除非同时回退 0.18.14 的发布，否则不要单独回滚此项。
+
 ## 0.18.12：速览行复用、筛选同步与会话行本地化（2026-11-24）
 
 本轮处理速览与账户页的八项审查结论：第 3、4、5、7、8 项落码修复，第 1 项（同一「分离到小窗」动作三种入口三种结果）与第 2 项（附件计数失败静默落空、任务夹徽标消失）按指示不改；第 6 项复核后确认已由 0.18.11 的伴随视图架构重构消除（`PresenceSurface.cs` 已无 `LoadFilter`/`filterPreferencePath`，构造函数为 4 参数），本轮无代码改动。数据结构、设置键与安装布局均未变。

@@ -50,6 +50,7 @@ public sealed class AttachmentCleanupTests
         public Task<OperationResult<string?>> FindStoredPathAsync(Guid attachmentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<string?>.Success(Paths.TryGetValue(attachmentId, out var path) ? path : null));
         public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<OperationResult<IReadOnlyList<TaskAttachmentDto>>> ListAllAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult> InsertAsync(TaskAttachmentDto attachment, string storedPath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskAttachmentDto?>> FindAsync(Guid attachmentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<long>> CountByTaskAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

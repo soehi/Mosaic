@@ -1,10 +1,10 @@
-# Mosaic 服务端（0.1.1）
+# Mosaic 服务端（0.1.2）
 
 Mosaic 的可选自建账号与同步服务端：邮箱验证码注册/登录、密码与令牌、Device Flow 浏览器授权、任务与可移植设置的备份/恢复、增量同步。桌面客户端未登录时仍可完全离线使用。
 
 - 运行时：.NET 10 / ASP.NET Core，单进程 + SQLite（WAL）。
 - 部署：Linux `linux-x64` 自包含包，或 Docker 镜像。
-- 协议：`/v1/auth/*`、`/v1/device/*`、`/v1/backups/*`、`/v1/sync/changes*`，字段定义见下文。
+- 协议：`/v1/auth/*`、`/v1/device/*`、`/v1/backups/*`、`/v1/attachments/*`、`/v1/sync/changes*`，字段定义见下文。
 - 规划文档：`../docs/auth-sync-server-plan.md`；实施记录：`../docs/server-implementation-status.md`。
 
 ```
@@ -47,7 +47,9 @@ dotnet test Mosaic.Server.sln
 | `MOSAIC_TRUSTED_PROXIES` | 空 | 逗号分隔的反向代理 IP；设置后启用 `X-Forwarded-For/Proto` |
 | `MOSAIC_BACKUP_QUOTA_BYTES` | `52428800` | 每用户备份总配额（50 MiB） |
 | `MOSAIC_BACKUP_RETENTION` | `20` | 每用户保留快照数，超出删除最旧的 |
-| `MOSAIC_MAX_BODY_BYTES` | `16777216` | 请求体上限（Kestrel） |
+| `MOSAIC_MAX_BODY_BYTES` | `16777216` | 请求体上限（Kestrel，JSON 接口）；附件上传按请求单独放宽到 `MOSAIC_ATTACHMENT_MAX_BYTES` |
+| `MOSAIC_ATTACHMENT_QUOTA_BYTES` | `1073741824` | 每用户任务附件总配额（1 GiB） |
+| `MOSAIC_ATTACHMENT_MAX_BYTES` | `52428800` | 单个附件上限（50 MiB），必须 ≤ 配额 |
 | `MOSAIC_ACCESS_TOKEN_SECONDS` | `900` | 访问令牌有效期（15 分钟） |
 | `MOSAIC_REFRESH_TOKEN_SECONDS` | `1209600` | 刷新令牌有效期（14 天） |
 | `MOSAIC_EMAIL_CODE_TTL_SECONDS` | `600` | 验证码有效期（10 分钟） |
@@ -128,6 +130,7 @@ WantedBy=multi-user.target
 ## 数据、密钥与迁移
 
 - 数据库：`<数据目录>/mosaic-server.sqlite3`（WAL 模式，`busy_timeout` 15s）。
+- 任务附件：`<数据目录>/attachments/<用户 ID（32 位无连字符）>/<附件 ID（32 位无连字符）><扩展名>`；`attachments` 表是权威清单。删除账户时行级联删除，目录在事务提交后清理（失败只浪费磁盘，不影响一致性）。
 - 主密钥：`<数据目录>/master.key`（Unix 权限 0600）。**丢失主密钥后现有数据库中的 SMTP 密码与设备授权密文无法恢复，但用户密码哈希不受影响。** 现有数据库缺少 `master.key` 时服务端拒绝启动，避免写出不兼容数据。
 - 备份数据目录即可完成完整备份；恢复时请连同 `master.key` 一起恢复。
 - 迁移在启动时自动执行，记录于 `schema_migrations`。升级只追加新迁移；数据库版本高于服务端支持版本时拒绝启动。
@@ -224,6 +227,27 @@ WantedBy=multi-user.target
 2. 条目按 `kind`、`key` Ordinal 排序，拼成 `{"items":[...]}`；
 3. 对 UTF-8 字节求 SHA-256，小写十六进制。
 
+### 任务附件
+
+附件由客户端**主动上传**（不随增量同步自动推送）；服务端只保存二进制内容与元数据清单，任务的 revision 仍由任务同步通道管理。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/v1/attachments` | 清单 `{items:[{id,taskId,fileName,sizeBytes,sha256,createdAt,updatedAt}], usageBytes, quotaBytes, maxBytes}` |
+| PUT | `/v1/attachments/{attachmentId}?taskId=<guid>&fileName=<name>` | 请求体为原始字节（`application/octet-stream`）；`201` 新建，`200` 内容相同重放；`X-Mosaic-Sha256` 可选 |
+| GET | `/v1/attachments/{attachmentId}` | 下载原始字节，`Content-Disposition` 使用清单中的文件名 |
+| DELETE | `/v1/attachments/{attachmentId}` | `204`；不存在同样 `204`（幂等） |
+
+- `attachmentId`、`taskId` 必须是 Guid；`fileName` 会去掉首尾空白并拒绝控制字符、`Path.GetInvalidFileNameChars()`、`.`/`..` 与超过 260 个字符，否则 `400 attachment.invalid`。
+- 磁盘文件名只由 `attachmentId` 与白名单校验后的扩展名（2–17 位字母数字）组成，客户端文件名永远不会进入路径。
+- 上传先流式写入临时文件并同时计算 SHA-256：`Content-Length` 或实际字节超过 `MOSAIC_ATTACHMENT_MAX_BYTES` 返回 `413 attachment.too_large`；带了 `X-Mosaic-Sha256` 但与小写十六进制不符返回 `400 attachment.hash_mismatch`，临时文件随即删除。
+- 同一用户、同一 `attachmentId`、相同 `taskId`/`fileName`/大小/哈希且磁盘文件仍在 → `200 {duplicate:true}`，不重写。相同 ID 但内容不同 → 覆盖并删除旧扩展名文件（客户端 ID 只生成一次，正常不会发生）。
+- 不同用户使用相同 `attachmentId` → `409 attachment.conflict`，不泄露对方是否持有该附件。
+- 配额按用户累计（`SUM(size_bytes)`，覆盖前先扣除自身旧值），超出返回 `413 attachment.quota_exceeded`。
+- 写入顺序：临时文件 → 数据库行提交 → 原子 `File.Move` 到最终路径。`File.Move` 失败返回 `500 attachment.storage_failed`，此时行在、文件不在；客户端按原内容重传即可修复（清单下载会因文件缺失返回 `404 attachment.not_found`）。
+- 全局 `MOSAIC_MAX_BODY_BYTES`（16 MiB）不适用于附件 PUT：该请求在执行时把 `IHttpMaxRequestBodySizeFeature` 提升到 `MOSAIC_ATTACHMENT_MAX_BYTES`，因此 50 MiB 附件可正常上传；反向代理（Nginx `client_max_body_size`、Caddy 默认无限制）仍需同步放宽。
+- 下载当前为整体响应，不支持 `Range`；客户端导入后自行校验 SHA-256。
+
 ### 增量同步
 
 | 方法 | 路径 | 说明 |
@@ -319,6 +343,13 @@ WantedBy=multi-user.target
 | 409 | `backup.conflict` | 备份写入遇到并发冲突，客户端可原样重试（内容相同会去重） |
 | 413 | `backup.quota_exceeded` | 超过每用户备份配额 |
 | 500 | `backup.corrupt` | 读取时重新校验哈希失败 |
+| 400 | `attachment.invalid` | 附件 ID/`taskId` 不是 Guid、`fileName` 非法或 `X-Mosaic-Sha256` 不是 64 位十六进制 |
+| 400 | `attachment.hash_mismatch` | 客户端声明的 `X-Mosaic-Sha256` 与实际内容不一致 |
+| 404 | `attachment.not_found` | 附件不存在、不属于当前用户，或清单中的行缺少磁盘文件 |
+| 409 | `attachment.conflict` | 附件 ID 已被其他用户占用，或同一 ID 与已存在内容的归属冲突 |
+| 413 | `attachment.too_large` | 单个附件超过 `MOSAIC_ATTACHMENT_MAX_BYTES` |
+| 413 | `attachment.quota_exceeded` | 超过每用户附件配额 `MOSAIC_ATTACHMENT_QUOTA_BYTES` |
+| 500 | `attachment.storage_failed` | 数据库行已提交但落盘失败，客户端原样重传即可修复 |
 | 400 | `sync.invalid` | 推送/拉取参数非法，含非白名单 `setting` 键与非法游标（后者带 `details.requiresSnapshot=true`） |
 | 409 | `sync.conflict` | `baseServerRevision` 与服务器当前版本不符，响应附带 `details.current` |
 | 410 | `sync.cursor_invalid` | 游标早于已清理的历史水位，响应附带 `details.requiresSnapshot=true` 与 `details.floor`；客户端应先恢复最新备份快照 |
@@ -355,7 +386,7 @@ WantedBy=multi-user.target
 dotnet test Mosaic.Server.sln
 ```
 
-82 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410 与非法游标的 400（均带 requiresSnapshot）、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2）、重启后数据与会话可用、`/device` 页面的重置入口与共用授权码区块。
+91 个测试用例（含 Theory 展开）覆盖：密码参数与常量时间校验、邮箱规范化、验证码过期/重放/五次锁定/重发节流/IP 与地址限流、账号枚举一致性、并发注册只成功一次、刷新令牌轮换与重用检测、登出/重置撤销、Device Flow 全流程与一次性领取、`slow_down`、`verificationUriComplete`、设备信息查询、会话列表/单会话撤销/全部撤销（含保留当前）、账户删除的密码与验证码两条路径及审计去标识、备份往返/去重/隔离/配额/哈希校验/白名单/serverRevision 与 cursor、同步游标/冲突/tombstone/幂等/用户隔离/设置白名单/历史清理后的 410 与非法游标的 400（均带 requiresSnapshot）、任务附件清单/PUT 写序与重复重放/哈希校验/非法 ID/单件超限/配额/下载/幂等删除/跨用户冲突/账户删除清理目录、管理接口加密存储、日志不含秘密、迁移幂等（含迁移 2 与 3）、重启后数据与会话可用、`/device` 页面的重置入口与共用授权码区块。
 
 已验证：Windows 上 `dotnet build`/`dotnet test` 全部通过；`dotnet publish -r linux-x64 --self-contained` 产物生成；本地 Kestrel 冒烟（健康检查、策略、设备页、未配置 SMTP 的统一 503）。
 
@@ -363,4 +394,4 @@ dotnet test Mosaic.Server.sln
 
 ## 版本
 
-服务端独立版本号（当前 `0.1.1`），与桌面客户端版本无强绑定；协议版本为 `/v1`。新增字段属兼容变更，删除或改义字段需升 `/v2`。
+服务端独立版本号（当前 `0.1.2`），与桌面客户端版本无强绑定；协议版本为 `/v1`。新增字段属兼容变更，删除或改义字段需升 `/v2`。
