@@ -362,7 +362,31 @@
 
 ### 上线步骤（Coolify 路线）
 
-1. 让代码进入源仓库 `main`：`git push https://git.bansonic.top/azzz/Mosaic.git fix/peek-detach-0.18.8:main`（需可写凭据；成功时 `refs/heads/main` 从 `b5d7d60` 变为 `2255b2f`）。
+1. 让代码进入源仓库 `main`：`git push https://git.bansonic.top/azzz/Mosaic.git fix/peek-detach-0.18.8:main`（需可写凭据；成功时 `refs/heads/main` 从 `b5d7d60` 快进到 `cded44b`，已验证 `b5d7d60` 是当前 HEAD 的祖先）。
 2. 触发构建：`curl -X POST "https://coolify.bansonic.top/api/v1/deploy?uuid=gykt2qbykphjomgnffily3ng&force=false" -H "Authorization: Bearer [TOKEN]"`，或等 Gitea push webhook 自动触发。
 3. 核验：轮询 `/health` 至 `"version":"0.1.2`；`GET /v1/attachments/<guid>` 应为 `401`（不再是 `404`）；容器日志里 `schema_migrations` 应出现 `3 attachments`。
 4. 回滚：面板对上一份成功部署重新 Deploy；数据卷不动，0.1.1 读含 `attachments` 表的库不报错。
+
+## 0.1.2（其五）：两次"已推送"未落地的根因（本机无 Gitea 远端）（2026-11-24）
+
+### 根因位置
+
+`D:\Code\Mosaic\.git\config` 的远端只有 `origin = git@github.com:soehi/Mosaic.git`，**没有配置 Gitea 远端**。因此在仓库里执行裸 `git push` 或 `git push origin` 只会更新 GitHub，`https://git.bansonic.top/azzz/Mosaic.git` 的 `refs/heads/main` 完全收不到东西——这正是用户连续两次"已推送"后 `git ls-remote` 仍是 `b5d7d60dc362ea45d89e70dc3b0161a5ce7faea6`、Coolify 部署历史仍只有 `ppwcacyjv3aldo9h2uhyk01l`（commit `b5d7d60`）的原因。GitHub 侧当时也只到 `2255b2fa2a9674c467c2eec6d1fa36a10d197393`，`origin/main` 停在 `9e1d70c26df21062f1c60dbfbdf1e342ccb066e7`，所以连 GitHub 的 `main` 也没有 0.1.2。
+
+### 改动位置
+
+- `server/README.md`「### Coolify（线上实际部署方式）」：新增**上线前置**段（源仓库只有 Gitea、本 checkout 只有 `origin`、正确的 `git push https://git.bansonic.top/...` 与 `git remote add gitea` 两种写法、推完先 `git ls-remote` 核验再 Deploy）。
+- `docs/server-implementation-status.md:365`：上线步骤 1 的目标哈希由 `2255b2f` 更正为 `cded44b`（当前 HEAD，快进终点）。
+- 本条（其五）。
+
+### 本机验证
+
+1. `git remote -v` → 仅 `origin git@github.com:soehi/Mosaic.git`（fetch/push）。
+2. `git ls-remote https://git.bansonic.top/azzz/Mosaic.git refs/heads/main` → `b5d7d60…`（未变）；`.git/FETCH_HEAD` 里最后一次 Gitea 交互是 `975e4d0`（`feat/archived-navigation`），与 `main` 无关。
+3. `GET /api/v1/deployments/applications/gykt2qbykphjomgnffily3ng` → 无新条目；`ppwcacyjv3aldo9h2uhyk01l` 仍 `in_progress`，日志停在拉 `mcr.microsoft.com/dotnet/sdk:10.0`（197.32 MB，已下 ~96 MB，约 0.13 MB/s）。
+4. `gh repo view soehi/Mosaic --json visibility` → `PUBLIC`；`git push origin fix/peek-detach-0.18.8` 成功（`2255b2f..cded44b`），`git ls-remote origin` 已见 `cded44b`。
+
+### 未完成 / 被拒动作
+
+- 把 Coolify 应用的 `git_repository` 从内嵌 Gitea 令牌地址改指公开 GitHub 仓库（`PATCH /api/v1/applications/...`）被 auto mode 分类器以 `[Remote Repoint]` 拒绝；`git remote add gitea …` 亦被同一原因拒绝。二者均未执行，应用源仍为 `https://azzz:<TOKEN>@git.bansonic.top/azzz/Mosaic.git`、分支 `main`。
+- 因此 0.1.2 仍未上线：阻塞点单一，就是「提交进入 Gitea `main`」这一步需要用户侧完成。

@@ -101,6 +101,25 @@ docker run -d --name mosaic-server -p 8080:8080 `
 - 回滚：在面板里对上一份成功部署重新 Deploy（重建镜像），数据卷不动。迁移只追加，0.1.2 的迁移 3 是纯增量 DDL，用 0.1.1 镜像读取含 `attachments` 表的库不会失败。
 - 反向代理上传上限：实测 51 MiB 请求体可达应用（`PUT /v1/attachments/<guid>` 返回 404/401 而非 413），满足 `MOSAIC_ATTACHMENT_MAX_BYTES=50m` 的默认值。
 
+**上线前置：提交必须在 Gitea `main` 上。** Coolify 只拉 `https://git.bansonic.top/azzz/Mosaic.git`；本仓库 checkout 只配了 `origin`（`git@github.com:soehi/Mosaic.git`），所以裸 `git push` 或 `git push origin` 只更新 GitHub，Gitea `main` 不会变——此时点 Deploy 只会重建旧版本（曾因此连续两次"已推送"却仍在构建 `b5d7d60`）。推送要显式写到 Gitea：
+
+```powershell
+git push https://git.bansonic.top/azzz/Mosaic.git <本地分支>:main
+```
+
+或在本地加一个远端后复用：
+
+```powershell
+git remote add gitea https://git.bansonic.top/azzz/Mosaic.git
+git push gitea <本地分支>:main
+```
+
+推完先核验再构建，哈希没变就不要点 Deploy：
+
+```powershell
+git ls-remote https://git.bansonic.top/azzz/Mosaic.git refs/heads/main
+```
+
 下面两个小节（自包含包 + systemd）适用于自建主机安装，不适用于 Coolify 部署。
 
 ### Linux 自包含包
