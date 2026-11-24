@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Mosaic.Contracts;
 using Mosaic.Storage.Contracts;
 using Mosaic.Tasks.Contracts;

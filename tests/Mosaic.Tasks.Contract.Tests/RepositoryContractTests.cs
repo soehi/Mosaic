@@ -1,4 +1,4 @@
-﻿using Mosaic.Contracts;
+using Mosaic.Contracts;
 using Mosaic.Storage.Sqlite;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Persistence.Contracts;

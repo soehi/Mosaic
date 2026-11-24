@@ -1,4 +1,4 @@
-﻿using Mosaic.Contracts;
+using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Tasks.Core.Internal;

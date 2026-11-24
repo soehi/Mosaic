@@ -1,4 +1,4 @@
-﻿Mosaic.Auth.Contracts.AuthAccountDto
+Mosaic.Auth.Contracts.AuthAccountDto
 Mosaic.Auth.Contracts.AuthEmailCodePurpose
 Mosaic.Auth.Contracts.AuthErrorCodes
 Mosaic.Auth.Contracts.AuthPolicyDto

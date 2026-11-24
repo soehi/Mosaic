@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
 using Mosaic.Tasks.Contracts;
