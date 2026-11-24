@@ -53,6 +53,48 @@ internal sealed partial class SettingsService
         finally { _operations.Release(); }
     }
 
+    public async Task<OperationResult> SaveModulePreferenceAsync(
+        string moduleId, string settingId, object? value, CancellationToken cancellationToken = default)
+    {
+        await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_stopping) return OperationResult.Failure(Closed());
+            var definition = Find(settingId);
+            if (definition is null || definition.ModuleId != moduleId || definition.ShowInSettings ||
+                definition.Persistence != SettingPersistence.UserSettings)
+                return OperationResult.Failure(new(ErrorCodes.InvalidRequest, "不是该模块可独立保存的本机偏好。", settingId));
+            var result = await ProposeChangesCoreAsync(
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [settingId] = value },
+                cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess) return OperationResult.Failure(result.Error!);
+            if (result.Value.FirstOrDefault(item => item.Key == settingId).Value is { } error)
+                return OperationResult.Failure(error);
+            _session?.UpdateSavedPreference(definition, value);
+            return OperationResult.Success();
+        }
+        finally { _operations.Release(); }
+    }
+
+    public async Task<OperationResult> InitializeSettingAsync(
+        SettingInitialization initialization, CancellationToken cancellationToken = default)
+    {
+        await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_stopping) return OperationResult.Failure(Closed());
+            var definition = Find(initialization.SettingId);
+            if (definition is null || definition.Persistence != SettingPersistence.UserSettings)
+                return OperationResult.Failure(new(ErrorCodes.InvalidRequest, "不是可初始化的用户设置。", initialization.SettingId));
+            var value = SettingValueNormalizer.Normalize(definition, initialization.Value);
+            if (Validate(definition, value) is { } error) return OperationResult.Failure(error);
+            var result = await repository.InitializeAsync(
+                initialization with { Value = value }, cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        finally { _operations.Release(); }
+    }
+
     public async Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default)
     {
         var result = await ResetWithResultAsync(moduleId, cancellationToken).ConfigureAwait(false);
@@ -165,6 +207,13 @@ internal sealed partial class SettingsService
         private bool _hasPreview;
         internal bool Unconfirmed;
         public IReadOnlyDictionary<string, object?> SavedValues => new ReadOnlyDictionary<string, object?>(Copy(_saved));
+        internal void UpdateSavedPreference(SettingDefinition definition, object? value)
+        {
+            var normalized = SettingValueNormalizer.Normalize(definition, value);
+            _saved[definition.Id] = normalized;
+            _draft.Remove(definition.Id);
+            BaseRuntime = Copy(owner._running);
+        }
         internal void CancelPreview() { try { _applying?.Cancel(); } catch (ObjectDisposedException) { } }
         internal void Remove(HashSet<string> ids)
         {

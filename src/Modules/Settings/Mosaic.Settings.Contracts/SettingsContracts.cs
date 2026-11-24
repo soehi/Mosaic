@@ -327,6 +327,13 @@ public interface ISettingsApi
 public interface ISettingsCore : ISettingsApi
 {
     IDisposable Register(ISettingSource source);
+    // Hidden, module-owned local preferences can change independently of a settings edit session.
+    Task<OperationResult> SaveModulePreferenceAsync(string moduleId, string settingId, object? value,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult.Failure(new(ErrorCodes.CapabilityUnavailable, "模块偏好保存不可用。")));
+    Task<OperationResult> InitializeSettingAsync(SettingInitialization initialization,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(OperationResult.Failure(new(ErrorCodes.CapabilityUnavailable, "设置初始化不可用。")));
     Task<OperationResult> PrepareSourceStopAsync(string moduleId, CancellationToken cancellationToken = default) => Task.FromResult(OperationResult.Success());
 }
 

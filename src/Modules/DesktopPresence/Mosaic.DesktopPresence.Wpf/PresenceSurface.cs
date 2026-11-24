@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,13 +9,15 @@ using Mosaic.DesktopPresence.Contracts;
 using Mosaic.DesktopPresence.Core;
 using Mosaic.Presentation.Contracts;
 using Mosaic.Presentation.Wpf;
+using Mosaic.Settings.Contracts;
 
 namespace Mosaic.DesktopPresence.Wpf;
 
-internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFactory factory, IDiagnosticSink diagnostics,
-    string? filterPreferencePath) : IDesktopPresenceSurface
+internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFactory factory,
+    ISettingsCore settings, IDiagnosticSink diagnostics) : IDesktopPresenceSurface
 {
-    private string? _lastFilter = LoadFilter(filterPreferencePath, diagnostics);
+    private string? _lastFilter;
+    private Task _preferenceSave = Task.CompletedTask;
     private Window? _edge;
     private Window? _popup;
     private ICompanionViewSession? _session;
@@ -47,15 +48,73 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         return Math.Max(0, side - PresenceSettings.ReadInt(values, "desktop.edge.tabSize", 32));
     }
 
-    internal void UpdateSettings(IReadOnlyDictionary<string, object?> values)
+    // 这些定义会改变弹窗外框或承载视图的结构，必须重建 ICompanionViewSession。
+    private static readonly string[] PopupSessionSettingIds =
+    [
+        "desktop.popup.filter", "desktop.popup.filterSwitch", "desktop.popup.maxItems",
+        "desktop.popup.openColor", "desktop.popup.completedColor", "desktop.popup.rowGap",
+        "desktop.popup.rowPaddingY", "desktop.popup.titleFontSize", "desktop.popup.titleMaxLines",
+        "desktop.popup.completionToggle", "desktop.popup.padding", "desktop.popup.cornerRadius",
+        "desktop.popup.showHints"
+    ];
+
+    // 这些定义只影响窗口位置与尺寸，重新测量即可，无需重建会话。
+    private static readonly string[] LayoutSettingIds =
+    [
+        "desktop.edge.monitor", "desktop.edge.anchor", "desktop.edge.tabSize",
+        "desktop.edge.visibleDepth", "desktop.edge.offset", "desktop.edge.topmost",
+        "desktop.popup.width", "desktop.popup.maxHeight", "desktop.popup.fitContent"
+    ];
+
+    internal async Task UpdateSettingsAsync(IReadOnlyDictionary<string, object?> values)
     {
+        var previous = _values;
         _values = new Dictionary<string, object?>(values);
+        // 只接受有效筛选值；"Unset" 表示尚无最近选择，此时回退到默认筛选。
+        var lastFilter = Read("desktop.popup.lastFilter", "Unset");
+        _lastFilter = IsFilter(lastFilter) ? lastFilter : null;
         _hover.Stop(); _dismiss.Stop();
-        PositionWindows();
-        if (_popup is not null && Api is { } api) _ = RefreshAsync(api);
+        var first = previous.Count == 0;
+        if (first || LayoutSettingIds.Any(id => !Equals(previous.GetValueOrDefault(id), values.GetValueOrDefault(id))))
+            PositionWindows();
+        if (Api is { } api && (first || PopupSessionSettingIds.Any(id =>
+                !Equals(previous.GetValueOrDefault(id), values.GetValueOrDefault(id)))))
+            ReportResult(await api.RequestRefreshAsync());
     }
 
-    private async Task RefreshAsync(IDesktopPresenceApi api) => ShowResult(await api.RequestRefreshAsync());
+    private static bool IsFilter(string? filter) => filter is "All" or "Open" or "Completed";
+
+    private async void SessionFilterChanged(object? sender, string filter)
+    {
+        if (!ReferenceEquals(sender, _session) || !IsFilter(filter) || _stopped) return;
+        _lastFilter = filter;
+        var previous = _preferenceSave;
+        _preferenceSave = SaveFilterAsync(previous, filter);
+        try { await _preferenceSave; }
+        catch (Exception exception) { Report(exception); }
+    }
+
+    // 只订阅一次：实现了显式可选接口的会话走可选接口，其余实现回退到基础接口的默认事件。
+    private void AttachFilterChanged(ICompanionViewSession session, bool subscribe)
+    {
+        if (session is ICompanionFilterSelection selection)
+        {
+            if (subscribe) selection.FilterChanged += SessionFilterChanged;
+            else selection.FilterChanged -= SessionFilterChanged;
+            return;
+        }
+        if (subscribe) session.FilterChanged += SessionFilterChanged;
+        else session.FilterChanged -= SessionFilterChanged;
+    }
+
+    private async Task SaveFilterAsync(Task previous, string filter)
+    {
+        try { await previous; } catch { }
+        var result = await settings.SaveModulePreferenceAsync(
+            "desktop-presence", "desktop.popup.lastFilter", filter);
+        if (!result.IsSuccess)
+            throw new InvalidOperationException($"desktop.presence.filter.save: {result.Error!.Message}");
+    }
 
     public Task ShowEdgeAsync(CancellationToken cancellationToken)
     {
@@ -175,7 +234,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _sessionLayoutHandler = (_, _) => QueueMeasure(generation);
         _session.LayoutInvalidated += _sessionLayoutHandler;
         _session.DismissRequested += SessionDismissRequested;
-        if (showFilterSwitch) _session.FilterChanged += SessionFilterChanged;
+        if (showFilterSwitch) AttachFilterChanged(_session, subscribe: true);
         _popup = CreateWindow("Presence.Title", "PresencePopup");
         var popupView = new PresencePopupView(_session.View, RestoreAsync, ExitAsync, DismissAsync,
             Read("desktop.popup.autoHide", true), Read("desktop.popup.padding", 16), Read("desktop.popup.cornerRadius", 12),
@@ -231,51 +290,6 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         }));
     }
 
-    private static bool IsFilter(string? filter) => filter is "All" or "Open" or "Completed";
-
-    private static string? LoadFilter(string? path, IDiagnosticSink diagnostics)
-    {
-        if (path is null) return null;
-        try
-        {
-            var filter = File.ReadAllText(path).Trim();
-            return IsFilter(filter) ? filter : null;
-        }
-        catch (IOException exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return null;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            diagnostics.Report("desktop.presence.filter.read", exception);
-            return null;
-        }
-    }
-
-    private void SessionFilterChanged(object? sender, string filter)
-    {
-        if (!ReferenceEquals(sender, _session) || !IsFilter(filter)) return;
-        _lastFilter = filter;
-        if (filterPreferencePath is null) return;
-        // Write beside the destination so a partial write cannot replace the previous selection.
-        var temporary = $"{filterPreferencePath}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(filterPreferencePath)!);
-            File.WriteAllText(temporary, filter);
-            File.Move(temporary, filterPreferencePath, overwrite: true);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            diagnostics.Report("desktop.presence.filter.write", exception);
-            try { File.Delete(temporary); }
-            catch (Exception cleanupException) when (cleanupException is IOException or UnauthorizedAccessException)
-            {
-                diagnostics.Report("desktop.presence.filter.cleanup", cleanupException);
-            }
-        }
-    }
-
     public async Task ClosePopupAsync()
     {
         _hover.Stop(); _dismiss.Stop(); _pointer.Stop();
@@ -288,7 +302,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         {
             if (_sessionLayoutHandler is not null) session.LayoutInvalidated -= _sessionLayoutHandler;
             session.DismissRequested -= SessionDismissRequested;
-            session.FilterChanged -= SessionFilterChanged;
+            AttachFilterChanged(session, subscribe: false);
         }
         _sessionLayoutHandler = null;
         var cancellation = _sessionCancellation; _sessionCancellation = null;
@@ -331,6 +345,12 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         _stopped = true;
         Exception? closeFailure = null;
         try { await ClosePopupAsync(); } catch (Exception exception) { closeFailure = exception; }
+        // 在途偏好写入只能在这里等待：关闭弹窗发生在控制器请求串行化内部，
+        // 若在那里等待设置写入，而设置写入又同步回调本模块的 ApplyAsync，
+        // 就会与 Settings 的操作锁互等。停止阶段没有新的设置回调，等待是安全的。
+        try { await _preferenceSave; }
+        catch (Exception exception) { Report(exception); }
+        _preferenceSave = Task.CompletedTask;
         _hover.Stop(); _dismiss.Stop(); _pointer.Stop();
         _hover.Tick -= HoverElapsed; _dismiss.Tick -= DismissElapsed; _pointer.Tick -= PointerTick;
         if (_observing)
@@ -411,5 +431,12 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             MessageBox.Show(Text("Presence.Failed"), Text("Presence.Title"));
     }
     private void ShowResult(OperationResult result) { if (!result.IsSuccess && Api?.State != DesktopPresenceState.Exiting) MessageBox.Show(result.Error!.Message, Text("Presence.Title")); }
+    // 设置应用期间的刷新失败不能弹窗阻塞设置操作（ApplyAsync 正在 Settings 的操作锁内），只上报诊断。
+    private void ReportResult(OperationResult result)
+    {
+        if (result.IsSuccess) return;
+        diagnostics.Report(Guid.NewGuid().ToString("N"),
+            new InvalidOperationException($"desktop.presence.refresh: {result.Error!.Message}"));
+    }
     private void Report(Exception exception) => diagnostics.Report(Guid.NewGuid().ToString("N"), exception);
 }

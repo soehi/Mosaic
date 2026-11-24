@@ -4,7 +4,7 @@ using Mosaic.Presentation.Contracts;
 
 namespace Mosaic.DesktopPresence.Wpf;
 
-internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object?>> apply, Func<IReadOnlyDictionary<string, object?>, double> maximumOffset, IUiDispatcher dispatcher) : ISettingSource
+internal sealed class PresenceSettings(Func<IReadOnlyDictionary<string, object?>, Task> apply, Func<IReadOnlyDictionary<string, object?>, double> maximumOffset, IUiDispatcher dispatcher) : ISettingSource
 {
     public string ModuleId => "desktop-presence";
     public IReadOnlyList<SettingDefinition> Definitions { get; } =
@@ -15,6 +15,8 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         Define("desktop.popup.filter", "速览默认筛选", "在速览中选择筛选前或隐藏筛选切换时使用", "All", ["All", "Open", "Completed"], normal: true),
         Define("desktop.popup.completionToggle", "显示完成按钮", "在速览中标记完成或恢复未完成", true, normal: true),
         Define("desktop.popup.filterSwitch", "显示筛选切换", "在速览中切换筛选，下次打开时恢复上次选择", true, normal: true),
+        // "Unset" 是显式哨兵：表示还没有最近选择，运行时回退到 desktop.popup.filter 的默认值。
+        DefinePreference("desktop.popup.lastFilter", "速览最近筛选", "隐藏筛选切换时不使用的本机最近选择", "Unset", ["Unset", "All", "Open", "Completed"]),
         Define("desktop.edge.monitor", "目标显示器", "主屏或主窗口上次所在的显示器", "Primary", ["Primary", "LastMainWindow"]),
         Define("desktop.edge.anchor", "边缘方向", "右侧靠上或顶部靠右", "RightEdgeTop", ["RightEdgeTop", "TopEdgeRight"]),
         Define("desktop.edge.tabSize", "入口尺寸", "方形入口的边长（DIP）", 32, min: 20, max: 64),
@@ -50,6 +52,13 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
             DescriptionKey: DisplayNames[id] + ".Description",
             Options: options?.Select(option => new SettingOption(option, PresenceValueKey(option))).ToArray());
 
+    private static SettingDefinition DefinePreference(string id, string name, string description, string value, string[] options) =>
+        new(id, "desktop-presence", name, description, SettingValueKind.Enum, value, null, null, options,
+            SettingsGroup.DesktopPresence, SettingCategory.Advanced, SettingApplyMode.Immediate, SettingPersistence.UserSettings,
+            DisplayNameKey: DisplayNames[id], DescriptionKey: DisplayNames[id] + ".Description",
+            Options: options.Select(option => new SettingOption(option, PresenceValueKey(option))).ToArray(),
+            ShowInSettings: false);
+
     private static readonly IReadOnlyDictionary<string, string> DisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["desktop.closeBehavior"] = "Settings.Setting.Desktop.CloseBehavior",
@@ -58,6 +67,7 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         ["desktop.popup.filter"] = "Settings.Setting.Desktop.PopupFilter",
         ["desktop.popup.completionToggle"] = "Settings.Setting.Desktop.PopupCompletionToggle",
         ["desktop.popup.filterSwitch"] = "Settings.Setting.Desktop.PopupFilterSwitch",
+        ["desktop.popup.lastFilter"] = "Settings.Setting.Desktop.PopupLastFilter",
         ["desktop.edge.monitor"] = "Settings.Setting.Desktop.EdgeMonitor",
         ["desktop.edge.anchor"] = "Settings.Setting.Desktop.EdgeAnchor",
         ["desktop.edge.tabSize"] = "Settings.Setting.Desktop.EdgeTabSize",
@@ -110,10 +120,14 @@ internal sealed class PresenceSettings(Action<IReadOnlyDictionary<string, object
         }
         return OperationResult.Success();
     }
-    public Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
+    public async Task ApplyAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return dispatcher.InvokeAsync(() => apply(values));
+        // 先在 UI 线程启动应用，再等待应用完成（含弹窗重建/刷新），
+        // 否则设置提交会在界面状态尚未落地时就宣告成功。
+        Task? applying = null;
+        await dispatcher.InvokeAsync(() => applying = apply(values)).ConfigureAwait(false);
+        if (applying is not null) await applying.ConfigureAwait(false);
     }
     internal static int ReadInt(IReadOnlyDictionary<string, object?> values, string id, int fallback) =>
         values.TryGetValue(id, out var value) && value is not null ? Convert.ToInt32(value) : fallback;

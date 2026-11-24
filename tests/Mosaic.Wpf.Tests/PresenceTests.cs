@@ -49,12 +49,27 @@ public sealed class PresenceTests
     private sealed class Repository : ISettingRepository
     {
         private readonly Dictionary<string, object?> _values = [];
+        private readonly HashSet<string> _migrations = [];
+        internal int PendingInitializeFailures;
+        internal int Initializations;
         public Task<OperationResult<IReadOnlyDictionary<string, object?>>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<IReadOnlyDictionary<string, object?>>.Success(new Dictionary<string, object?>(_values)));
         public Task<OperationResult> SaveAsync(IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
         { foreach (var item in values) _values[item.Key] = item.Value; return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult> DeleteAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
         { foreach (var id in ids) _values.Remove(id); return Task.FromResult(OperationResult.Success()); }
+        // 与 SQLite 实现一致：迁移 ID 只生效一次，已有值不覆盖，失败可重试。
+        public Task<OperationResult> InitializeAsync(SettingInitialization initialization, CancellationToken cancellationToken = default)
+        {
+            Initializations++;
+            if (PendingInitializeFailures > 0)
+            {
+                PendingInitializeFailures--;
+                return Task.FromResult(OperationResult.Failure(new(ErrorCodes.StorageUnavailable, "初始化暂时不可用")));
+            }
+            if (_migrations.Add(initialization.MigrationId)) _values.TryAdd(initialization.SettingId, initialization.Value);
+            return Task.FromResult(OperationResult.Success());
+        }
     }
     private sealed class EmptyFactory : ICompanionViewFactory
     {
@@ -451,8 +466,14 @@ public sealed class PresenceTests
         await using var module = new DesktopPresenceModule(new(new Host(), new EmptyFactory(), settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
         await module.ActivateAsync();
         var definitions = (await settings.Api.ListDefinitionsAsync()).Value;
-        Assert.Equal(28, definitions.Count);
+        Assert.Equal(29, definitions.Count);
+        Assert.Equal(28, definitions.Count(item => item.ShowInSettings));
         Assert.DoesNotContain(definitions, item => item.Id == legacyStatusText);
+        var lastFilter = Assert.Single(definitions, item => item.Id == "desktop.popup.lastFilter");
+        Assert.False(lastFilter.ShowInSettings);
+        Assert.Equal(SettingPreviewMode.None, lastFilter.PreviewMode);
+        Assert.Equal("Unset", lastFilter.DefaultValue);
+        Assert.Equal(["Unset", "All", "Open", "Completed"], lastFilter.Options!.Select(option => option.Value));
         var values = (await settings.Api.GetValuesAsync()).Value;
         Assert.DoesNotContain(legacyStatusText, values.Keys);
         Assert.Equal(16, values["desktop.popup.titleFontSize"]);
@@ -473,6 +494,11 @@ public sealed class PresenceTests
         var saved = await settings.Api.ProposeChangesAsync(new Dictionary<string, object?> { ["desktop.closeBehavior"] = "Exit" });
         Assert.Empty(saved.Value);
         Assert.Equal(DesktopCloseBehavior.Exit, module.Api.CloseBehavior);
+        // 独立偏好通道只允许模块写入自己的隐藏本机设置。
+        Assert.False((await settings.Api.SaveModulePreferenceAsync("desktop-presence", "desktop.popup.filter", "Open")).IsSuccess);
+        Assert.False((await settings.Api.SaveModulePreferenceAsync("tasks", "desktop.popup.lastFilter", "Open")).IsSuccess);
+        Assert.True((await settings.Api.SaveModulePreferenceAsync("desktop-presence", "desktop.popup.lastFilter", "Open")).IsSuccess);
+        Assert.Equal("Open", (await settings.Api.GetValuesAsync()).Value["desktop.popup.lastFilter"]);
         var ui = new SettingsUiModule(new(settings.Api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
         await ui.ActivateAsync(); var page = Assert.Single(ui.Views).Factory.Create();
         await page.Controller.InitializeAsync();
@@ -484,10 +510,35 @@ public sealed class PresenceTests
             combo.DataContext.GetType().GetProperty("Id")!.GetValue(combo.DataContext) as string == "desktop.edge.activation");
         Assert.Equal("SingleClick", activation.SelectedValue);
         model.GetType().GetProperty("ShowAdvanced")!.SetValue(model, true);
-        Assert.Equal(definitions.Count, ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
+        Assert.Equal(definitions.Count(item => item.ShowInSettings),
+            ((IList)model.GetType().GetProperty("VisibleRows")!.GetValue(model)!).Count);
         await page.Controller.DisposeAsync(); await ui.DisposeAsync();
         await module.StopAsync();
         Assert.Empty((await settings.Api.ListDefinitionsAsync()).Value);
+    });
+
+    [Fact]
+    public Task Presence_localization_has_a_single_authoritative_key_set_for_every_definition() => Sta.Run(async () =>
+    {
+        await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();
+        await using var module = new DesktopPresenceModule(new(new Host(), new Factory(), settings.Api,
+            new UiDispatcher(Dispatcher.CurrentDispatcher), new Diagnostics()));
+        await module.ActivateAsync();
+        var definitions = (await settings.Api.ListDefinitionsAsync()).Value;
+        foreach (var language in new[] { MosaicLanguage.Chinese, MosaicLanguage.English })
+        {
+            var dictionary = PresenceLocalization.Dictionary(language);
+            foreach (var definition in definitions)
+            {
+                Assert.True(dictionary.Contains(definition.DisplayNameKey!), $"{language}: {definition.DisplayNameKey}");
+                Assert.True(dictionary.Contains(definition.DescriptionKey!), $"{language}: {definition.DescriptionKey}");
+                foreach (var option in definition.Options ?? [])
+                    Assert.True(dictionary.Contains(option.DisplayNameKey), $"{language}: {option.DisplayNameKey}");
+            }
+            // 每个定义恰好两条文案键：既不能缺，也不能像旧实现那样同时生成小写点分键和 PascalCase 键。
+            Assert.Equal(definitions.Count * 2, dictionary.Keys.Cast<object>()
+                .Count(key => key is string text && text.StartsWith("Settings.Setting.", StringComparison.Ordinal)));
+        }
     });
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
@@ -522,11 +573,21 @@ public sealed class PresenceTests
         Assert.False(factory.Sessions.Last().Options.ShowCompletionToggle); Assert.False(factory.Sessions.Last().Options.ShowFilterSwitch);
         await preview.Value.DiscardAsync();
         Assert.True(factory.Sessions.Last().Options.ShowCompletionToggle); Assert.True(factory.Sessions.Last().Options.ShowFilterSwitch);
+        // 预览切换筛选条会重建弹窗，之后的可见性以当前窗口为准。
+        var current = Assert.IsType<Window>(WindowField("_popup"));
+        Assert.True(current.IsVisible);
+        // 最近筛选是独立的隐藏本机偏好：单独保存不应重建弹窗或关闭它。
+        var sessionCount = factory.Sessions.Count;
+        Assert.True((await settings.Api.SaveModulePreferenceAsync("desktop-presence", "desktop.popup.lastFilter", "Open")).IsSuccess);
+        Assert.Equal(sessionCount, factory.Sessions.Count);
+        Assert.True(current.IsVisible);
+        Assert.Equal("Open", (await settings.Api.GetValuesAsync()).Value["desktop.popup.lastFilter"]);
+        await preview.Value.DisposeAsync();
         var beforeRefresh = factory.Sessions.Count;
         Assert.True((await module.Api.RequestRefreshAsync()).IsSuccess);
         Assert.True(factory.Sessions[0].Closed); Assert.True(factory.Sessions[0].Disposed);
         Assert.Equal(beforeRefresh + 1, factory.Sessions.Count);
-        Assert.False(popup.IsVisible);
+        Assert.False(current.IsVisible);
         await module.Api.RequestRestoreAsync();
         Assert.False(edge.IsVisible); Assert.Null(WindowField("_popup"));
         Assert.All(factory.Sessions, session => Assert.True(session.Disposed));
@@ -535,12 +596,13 @@ public sealed class PresenceTests
     });
 
     [Fact]
-    public Task Peek_remembers_user_filter_across_reopen_and_restart_and_preserves_the_configured_fallback() => Sta.Run(async () =>
+    public Task Peek_remembers_user_filter_across_reopen_restart_and_legacy_migration() => Sta.Run(async () =>
     {
         var directory = Directory.CreateTempSubdirectory("mosaic-peek-filter-");
         try
         {
-            var preferencePath = Path.Combine(directory.FullName, "Config", "task-peek-filter.txt");
+            var legacyPath = Path.Combine(directory.FullName, "Config", "task-peek-filter.txt");
+            var repository = new Repository();
             var queries = new List<TaskFilter>();
             var api = new Api
             {
@@ -554,10 +616,17 @@ public sealed class PresenceTests
             var diagnostics = new Diagnostics();
             await using var tasks = new TasksUiModule(new(api, dispatcher, new Dialogs(), diagnostics));
             await tasks.ActivateAsync();
-            await using var settings = new SettingsModule(new(new Repository()));
-            await settings.ActivateAsync();
-            DesktopPresenceModule CreatePresence() => new(new(new Host(), tasks.CompanionFactory, settings.Api,
-                dispatcher, diagnostics, preferencePath));
+
+            async Task<(SettingsModule Settings, DesktopPresenceModule Presence)> StartAsync(Repository store)
+            {
+                var settings = new SettingsModule(new(store));
+                await settings.ActivateAsync();
+                var presence = new DesktopPresenceModule(new(new Host(), tasks.CompanionFactory, settings.Api,
+                    dispatcher, diagnostics,
+                    () => File.Exists(legacyPath) ? File.ReadAllText(legacyPath) : null));
+                await presence.ActivateAsync();
+                return (settings, presence);
+            }
 
             async Task<FrameworkElement> OpenAsync(DesktopPresenceModule presence, TaskFilter expected, bool showSwitch = true)
             {
@@ -575,57 +644,143 @@ public sealed class PresenceTests
                 return view;
             }
 
-            async Task ConfigureAsync(Dictionary<string, object?> changes)
+            async Task ConfigureAsync(SettingsModule settings, Dictionary<string, object?> changes)
             {
                 var result = await settings.Api.ProposeChangesAsync(changes);
                 Assert.True(result.IsSuccess, result.Error?.Message);
                 Assert.Empty(result.Value);
             }
 
-            await using (var presence = CreatePresence())
+            // 独立偏好保存是异步的（模块在设置操作内部回调 UI），轮询到仓储可读为止。
+            async Task AssertSavedAsync(Repository store, string expected)
             {
-                await presence.ActivateAsync();
-                await ConfigureAsync(new() { ["desktop.popup.filter"] = "Completed", ["desktop.popup.autoHide"] = false });
-                Assert.True((await presence.Api.RequestParkAsync()).IsSuccess);
-                var view = await OpenAsync(presence, TaskFilter.Completed);
-                Assert.False(File.Exists(preferencePath));
+                for (var attempt = 0; attempt < 200; attempt++)
+                {
+                    if (Equals((await store.LoadAsync()).Value.GetValueOrDefault("desktop.popup.lastFilter"), expected)) return;
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                }
+                Assert.Equal(expected, (await store.LoadAsync()).Value.GetValueOrDefault("desktop.popup.lastFilter"));
+            }
+
+            var (firstSettings, firstPresence) = await StartAsync(repository);
+            await using (firstSettings)
+            await using (firstPresence)
+            {
+                await ConfigureAsync(firstSettings, new() { ["desktop.popup.filter"] = "Completed", ["desktop.popup.autoHide"] = false });
+                Assert.True((await firstPresence.Api.RequestParkAsync()).IsSuccess);
+                var view = await OpenAsync(firstPresence, TaskFilter.Completed);
+                Assert.False(File.Exists(legacyPath));
+                Assert.Equal("Unset", (await firstSettings.Api.GetValuesAsync()).Value["desktop.popup.lastFilter"]);
 
                 foreach (var choice in new[] { TaskFilter.All, TaskFilter.Open, TaskFilter.Completed })
                 {
                     Filter(view, choice.ToString()).IsChecked = true;
                     await Drain();
                     Assert.Equal(choice, queries.Last());
-                    Assert.Equal(choice.ToString(), File.ReadAllText(preferencePath));
-                    Assert.True((await presence.Api.RequestDismissAsync()).IsSuccess);
-                    view = await OpenAsync(presence, choice);
+                    await AssertSavedAsync(repository, choice.ToString());
+                    Assert.True((await firstPresence.Api.RequestDismissAsync()).IsSuccess);
+                    view = await OpenAsync(firstPresence, choice);
                 }
 
-                Assert.True((await presence.Api.RequestDismissAsync()).IsSuccess);
-                await ConfigureAsync(new() { ["desktop.popup.filter"] = "Open", ["desktop.popup.filterSwitch"] = false });
-                await OpenAsync(presence, TaskFilter.Open, showSwitch: false);
-                Assert.Equal("Completed", File.ReadAllText(preferencePath));
-                Assert.True((await presence.Api.RequestDismissAsync()).IsSuccess);
-                await ConfigureAsync(new() { ["desktop.popup.filterSwitch"] = true });
-                await OpenAsync(presence, TaskFilter.Completed);
+                // 编辑会话活动期间切换筛选仍走独立保存；随后提交草稿不能把最近选择写回旧值。
+                await using (var edit = (await firstSettings.Api.BeginEditSessionAsync()).Value)
+                {
+                    Assert.True((await edit.PreviewAsync(new Dictionary<string, object?>
+                    {
+                        ["desktop.popup.width"] = 400
+                    }, 1)).IsSuccess);
+                    Filter(view, "Open").IsChecked = true;
+                    await Drain();
+                    await AssertSavedAsync(repository, "Open");
+                    Assert.True((await edit.CommitAsync(1)).IsSuccess);
+                }
+                await Drain();
+                Assert.Equal("Open", (await repository.LoadAsync()).Value["desktop.popup.lastFilter"]);
+
+                // 隐藏筛选切换时使用默认筛选，但仍保留最近选择供再次显示时恢复。
+                Assert.True((await firstPresence.Api.RequestDismissAsync()).IsSuccess);
+                await ConfigureAsync(firstSettings, new() { ["desktop.popup.filter"] = "All", ["desktop.popup.filterSwitch"] = false });
+                await OpenAsync(firstPresence, TaskFilter.All, showSwitch: false);
+                Assert.Equal("Open", (await repository.LoadAsync()).Value["desktop.popup.lastFilter"]);
+                Assert.True((await firstPresence.Api.RequestDismissAsync()).IsSuccess);
+                await ConfigureAsync(firstSettings, new() { ["desktop.popup.filterSwitch"] = true });
+                await OpenAsync(firstPresence, TaskFilter.Open);
             }
 
-            await using (var restarted = CreatePresence())
+            // 重启：同一仓储重新装配，最近选择不依赖私有文本路径。
+            var (restartedSettings, restartedPresence) = await StartAsync(repository);
+            await using (restartedSettings)
+            await using (restartedPresence)
             {
-                await restarted.ActivateAsync();
-                Assert.True((await restarted.Api.RequestParkAsync()).IsSuccess);
-                await OpenAsync(restarted, TaskFilter.Completed);
+                Assert.True((await restartedPresence.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(restartedPresence, TaskFilter.Open);
             }
 
-            File.WriteAllText(preferencePath, "Invalid");
-            await using (var invalidPreference = CreatePresence())
+            // 旧安装迁移：文件存在且设置里尚无值时导入最近选择。
+            directory.Delete(recursive: true);
+            Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+            File.WriteAllText(legacyPath, "Open");
+            var migratedRepository = new Repository();
+            var (migratedSettings, migratedPresence) = await StartAsync(migratedRepository);
+            await using (migratedSettings)
+            await using (migratedPresence)
             {
-                await invalidPreference.ActivateAsync();
-                Assert.True((await invalidPreference.Api.RequestParkAsync()).IsSuccess);
-                await OpenAsync(invalidPreference, TaskFilter.Open);
-                Assert.Equal("Invalid", File.ReadAllText(preferencePath));
+                Assert.Equal("Open", (await migratedRepository.LoadAsync()).Value["desktop.popup.lastFilter"]);
+                await ConfigureAsync(migratedSettings, new() { ["desktop.popup.filter"] = "Completed", ["desktop.popup.autoHide"] = false });
+                Assert.True((await migratedPresence.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(migratedPresence, TaskFilter.Open);
+                Assert.Equal("Open", File.ReadAllText(legacyPath));
+            }
+
+            // 重复迁移幂等：已有新值优先，旧文件既不覆盖也不删除。
+            var keptRepository = new Repository();
+            await keptRepository.SaveAsync(new Dictionary<string, object?> { ["desktop.popup.lastFilter"] = "All" });
+            var (keptSettings, keptPresence) = await StartAsync(keptRepository);
+            await using (keptSettings)
+            await using (keptPresence)
+            {
+                Assert.Equal("All", (await keptRepository.LoadAsync()).Value["desktop.popup.lastFilter"]);
+                Assert.Equal("Open", File.ReadAllText(legacyPath));
+            }
+
+            // 非法旧值忽略，保留文件。
+            File.WriteAllText(legacyPath, "Invalid");
+            var invalidRepository = new Repository();
+            var (invalidSettings, invalidPresence) = await StartAsync(invalidRepository);
+            await using (invalidSettings)
+            await using (invalidPresence)
+            {
+                Assert.Equal(0, invalidRepository.Initializations);
+                Assert.Equal("Unset", (await invalidSettings.Api.GetValuesAsync()).Value["desktop.popup.lastFilter"]);
+                await ConfigureAsync(invalidSettings, new() { ["desktop.popup.filter"] = "Open", ["desktop.popup.autoHide"] = false });
+                Assert.True((await invalidPresence.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(invalidPresence, TaskFilter.Open);
+                Assert.Equal("Invalid", File.ReadAllText(legacyPath));
+            }
+
+            // 迁移失败不阻断启动，使用默认值；下一次启动可重试并成功。
+            File.WriteAllText(legacyPath, "Completed");
+            var failingRepository = new Repository { PendingInitializeFailures = 1 };
+            var (failingSettings, failingPresence) = await StartAsync(failingRepository);
+            await using (failingSettings)
+            await using (failingPresence)
+            {
+                Assert.Equal("Unset", (await failingSettings.Api.GetValuesAsync()).Value["desktop.popup.lastFilter"]);
+                await ConfigureAsync(failingSettings, new() { ["desktop.popup.filter"] = "All", ["desktop.popup.autoHide"] = false });
+                Assert.True((await failingPresence.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(failingPresence, TaskFilter.All);
+                Assert.Equal("Completed", File.ReadAllText(legacyPath));
+            }
+            var (retriedSettings, retriedPresence) = await StartAsync(failingRepository);
+            await using (retriedSettings)
+            await using (retriedPresence)
+            {
+                Assert.Equal("Completed", (await failingRepository.LoadAsync()).Value["desktop.popup.lastFilter"]);
+                Assert.True((await retriedPresence.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(retriedPresence, TaskFilter.Completed);
             }
         }
-        finally { directory.Delete(recursive: true); }
+        finally { if (Directory.Exists(directory.FullName)) directory.Delete(recursive: true); }
     });
 
     [Fact]

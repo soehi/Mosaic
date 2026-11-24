@@ -1,5 +1,69 @@
 # Mosaic：实施与验证记录
 
+## 0.18.11 源码更新 · 速览筛选归属设置库与设置页布局（2026-11-24）
+
+**根因位置**
+
+1. 速览最近筛选是设置模块之外的私有文件。0.18.10 的 `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs` 构造函数接收 `filterPreferencePath`：`LoadFilter` 读取 `<数据根>/Config/task-peek-filter.txt`，`SessionFilterChanged` 用临时文件加 `File.Move` 写同一路径。`DesktopPresenceModule.cs` 的 `DesktopPresenceDependencies.FilterPreferencePath` 提供路径，`src/Mosaic.Desktop/BuiltInModuleCatalog.cs:147` 从 `src/Mosaic.Desktop/AppConfiguration.cs:485` 的 `AppPaths.PeekFilterPreference` 取得。触发条件：用户在速览中切换筛选。后果：该值不在设置快照里，备份、恢复、重置与设置编辑会话都看不到它；文件缺失时只能回退默认筛选，无法表达「尚未选择」；文件系统失败只落诊断。
+2. 设置应用不可等待、范围过宽。`src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSettings.cs` 的 `ApplyAsync` 直接返回 `dispatcher.InvokeAsync(() => apply(values))`，而应用委托是同步 `void`：`DesktopPresenceModule` 的 `_settings` 只调用 `_surface.UpdateSettings(values)`，弹窗重建与 `RefreshAsync` 均为 fire-and-forget。`PresenceSurface.UpdateSettings` 每次都 `PositionWindows()` 并刷新弹窗，即使改的是关闭行为或悬停延迟。刷新失败经 `ShowResult` 在 `SettingsService` 的操作锁内弹 `MessageBox`。
+3. 驻留设置文案存在两套键。`src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceLocalization.cs` 的前 18 项用 `Settings.Setting.desktop.*` 小写点分键注册，`PresenceSettings.DisplayNames` 全部按 `Settings.Setting.Desktop.<PascalCase>` 查找，后 10 项才用正确前缀。触发条件：打开设置 → 驻留与边缘，前 18 行显示原始键名并缺少说明；新增的 `desktop.popup.lastFilter` 也没有对应文案。
+4. 模块贡献页仍显示通用「高级设置」栏。`src/Modules/Settings/Mosaic.Settings.Wpf/Internal/SettingsViewModel.cs:374` 只有 `HasSettingsSectionContent => SelectedPage is null`，`src/Modules/Settings/Mosaic.Settings.Wpf/Views/SettingsView.xaml` 的 `ModeBar` 没有可见性绑定；0.18.9 为保证坐标稳定把该栏固定在顶部。触发条件：切换到「账户与备份」「维护」。
+5. 筛选变化通知没有显式可选契约。`src/Mosaic.Presentation.Contracts/PresentationContracts.cs` 的 `ICompanionViewSession.FilterChanged` 是默认实现事件，宿主无法区分实现是否支持筛选；给基础接口加成员会破坏所有伴随视图实现，也无法在不动 `CompanionViewOptions` 的前提下扩展。
+
+**改动位置**
+
+1. `src/Mosaic.Presentation.Contracts/PresentationContracts.cs:40` 新增可选接口 `ICompanionFilterSelection`（`event EventHandler<string>? FilterChanged`）；`CompanionViewOptions` 的 10 个构造参数与 `ICompanionViewSession` 未改动。
+2. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs:51` 的 `TaskPeekViewModel` 实现 `ICompanionFilterSelection`，复用第 63 行已有的 `FilterChanged` 与 `SelectFilterAsync` 触发点。
+3. `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs`：
+   - 第 15-18 行构造函数改为 `(IDesktopWindowHost, ICompanionViewFactory, ISettingsCore, IDiagnosticSink)`，删除 `filterPreferencePath`、`LoadFilter` 与临时文件写入。
+   - 第 52 行 `PopupSessionSettingIds` 与第 62 行 `LayoutSettingIds` 区分「需要重建会话」与「只需重新测量」的设置。
+   - 第 69 行 `UpdateSettingsAsync` 从 `desktop.popup.lastFilter` 读取最近筛选，`Unset` 或非法值视为无最近选择；只在首帧或相关设置变化时 `PositionWindows()` 与 `RequestRefreshAsync()`。
+   - 第 87 行 `SessionFilterChanged` 串行化偏好写入；第 110 行 `SaveFilterAsync` 经 `ISettingsCore.SaveModulePreferenceAsync("desktop-presence", "desktop.popup.lastFilter", filter)`，失败抛错并上报诊断。
+   - 第 98 行 `AttachFilterChanged` 优先订阅 `ICompanionFilterSelection`，未实现时回退基础接口事件；`ShowPopupAsync` 与 `ClosePopupAsync` 成对订阅/退订。
+   - 第 342 行 `StopAsync` 在停止阶段等待在途偏好写入；`ClosePopupAsync` 不等待，避免与设置操作锁互等。
+   - 第 435 行 `ReportResult` 把刷新失败写入诊断，设置提交路径不再弹对话框。
+4. `PresenceSettings.cs:19` 新增隐藏偏好 `desktop.popup.lastFilter`（`ShowInSettings=false`、`Advanced` 分组、`Immediate`、`UserSettings`，取值 `Unset`/`All`/`Open`/`Completed`）；第 55 行新增 `DefinePreference`；第 62 行 `DisplayNames` 补充 `desktop.popup.lastFilter` 的显示名键；第 123 行 `ApplyAsync` 先在 UI 线程启动应用并等待其完成。
+5. `DesktopPresenceModule.cs:11-13` 依赖改为 `Func<string?>? ReadLegacyFilter`；第 32-38 行应用委托改为 async 并等待 `UpdateSettingsAsync`；第 58-76 行启动时读取旧值并按迁移 ID 导入。
+6. `PresenceLocalization.cs:9` 改为单一 `SettingNames` 表（29 项），循环生成显示名与说明；第 71 行增加 `Unset` 值文案。
+7. `src/Mosaic.Desktop/BuiltInModuleCatalog.cs:147-148` 传入读取旧文件的委托；`AppConfiguration.cs:485` 的 `PeekFilterPreference` 仅保留为旧文件位置。
+8. `src/Modules/Settings/Mosaic.Settings.Contracts/SettingsContracts.cs:331` 与第 334 行为 `ISettingsCore` 增加带默认实现的 `SaveModulePreferenceAsync` 与 `InitializeSettingAsync`，未实现时返回 `CapabilityUnavailable`。
+9. `src/Modules/Settings/Mosaic.Settings.Core/Internal/SettingsEditing.cs:56` 的 `SaveModulePreferenceAsync` 校验定义属于该模块、`ShowInSettings=false`、`Persistence=UserSettings`，经 `ProposeChangesCoreAsync` 保存并应用全部来源，再调用 `EditSession.UpdateSavedPreference` 同步 `_saved` 并移除同键草稿；第 79 行 `InitializeSettingAsync` 归一化、校验后调用 `ISettingRepository.InitializeAsync`；第 210 行 `UpdateSavedPreference`。
+10. `src/Modules/Settings/Mosaic.Settings.Core/Internal/GuardedSettingsApi.cs:50` 与第 61 行把两个新入口纳入模块执行租约与异常映射。
+11. `SettingsViewModel.cs:374` 与第 377 行新增 `HasSettingsSectionContent` 与 `ModeBarVisibility`，第 680 行在页面切换后通知；`SettingsView.xaml:109` 绑定 `ModeBarVisibility`，用 `Hidden` 而非 `Collapsed` 保留占位高度。
+12. `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/Mosaic.DesktopPresence.Wpf.csproj:3` 对 `Mosaic.Wpf.Tests` 开放内部类型，供本地化一致性测试直接检查内部表。
+13. `build/public-api.txt:83` 登记 `Mosaic.Presentation.Contracts.ICompanionFilterSelection`。
+
+**迁移逻辑**
+
+- 迁移 ID `desktop.popup.lastFilter.v1`，目标 `desktop.popup.lastFilter`。启动时 `DesktopPresenceModule.ActivateAsync` 读取旧文件（委托由 `BuiltInModuleCatalog` 提供），只接受 `All`、`Open`、`Completed`，其他内容不触发初始化。`SettingsService.InitializeSettingAsync` 拒绝非 `UserSettings` 定义，归一化并校验后调用 `ISettingRepository.InitializeAsync`；SQLite 实现在事务内 `INSERT OR IGNORE` 并记录迁移 ID，因此设置库已有值时保留已有值，同一迁移 ID 只生效一次。失败（设置库不可用）只写诊断，不阻断启动，本次使用 `Unset`（回退默认筛选），下次启动以同一 ID 重试。旧文件不删除、不修改。
+- 全新安装：定义为 `Unset`，运行时 `_lastFilter == null`，显示筛选条时使用 `desktop.popup.filter` 的默认值。
+- 已有安装：升级后第一次启动导入旧选择，随后可删除 `Config/task-peek-filter.txt`，删除后不影响设置库中的值。回退到 0.18.10 时，设置库中多出的 `desktop.popup.lastFilter` 行被现行定义列表过滤掉（`SettingsService.GetValuesAsync` 按注册定义返回），旧文件仍在，0.18.10 继续按原路径读取。
+
+**迁移验收项**
+
+1. 升级前把 `task-peek-filter.txt` 写为 `Open`，启动一次后 `GetValuesAsync()` 返回 `desktop.popup.lastFilter=Open`。
+2. 再次启动不重复初始化（仓储初始化计数不增、值不变）；删除旧文件后值仍为 `Open`。
+3. 设置库已有 `Completed` 而旧文件为 `Open` 时保留 `Completed`。
+4. 旧文件为非法内容时不执行初始化，值为 `Unset`，显示筛选条时使用 `All`。
+5. 注入一次初始化失败后应用仍启动、值为 `Unset`；下次启动以同一迁移 ID 重试成功。
+6. 隐藏筛选条时使用 `desktop.popup.filter`（`All`），保留的 `Open` 不被改写。
+
+**测试与验证**
+
+- `tests/Mosaic.Wpf.Tests/PresenceTests.cs:599` 的 `Peek_remembers_user_filter_across_reopen_restart_and_legacy_migration` 覆盖上式 1–6：真实驻留宿主与速览单选按钮、重开、宿主重建、独立保存与编辑会话不互相覆盖、隐藏/显示筛选条、迁移幂等、已有值优先、非法值、失败重试与旧文件保留。
+- `tests/Mosaic.Wpf.Tests/PresenceTests.cs:460` 的 `Settings_register_28_rows_project_6_normal_validate_save_and_revoke` 断言 29 个定义、28 个可见行，隐藏偏好 `ShowInSettings=false`、`PreviewMode.None`、默认 `Unset` 与四项取值，以及独立通道的正/反向写入。
+- `tests/Mosaic.Wpf.Tests/PresenceTests.cs:521` 的 `Presence_localization_has_a_single_authoritative_key_set_for_every_definition` 逐一断言每个定义与选项的中英文显示名、说明存在，且 `Settings.Setting.` 前缀键数恰为定义数的两倍。
+- `tests/Mosaic.Wpf.Tests/PresenceTests.cs:554` 的 `Surface_creates_refreshes_and_releases_edge_popup_and_sessions` 验证隐藏偏好保存不重建弹窗、值进入设置快照，停止后释放弹窗。
+- `tests/Mosaic.Wpf.Tests/PresentationTests.cs:1401` 的 `Settings_header_and_sections_stay_aligned_when_switching_to_contributed_pages` 断言贡献页模式栏为 `Hidden`、仍有实际高度，导航与内容容器顶部坐标与常规分区一致。
+- `Mosaic.Architecture.Tests` 4 项通过，含公开 API 清单与项目边界校验。
+- `build/test.ps1 -Configuration Release`：0 警告、0 错误。16 个测试工程共 486 项，485 项通过、1 项失败：`Mosaic.Desktop.SmokeTests.DesktopTests.Floating_configuration_migration_updates_effective_layer_once`（`tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs:530`）在整项目并行运行时读到另一进程写成缩进加 CRLF 的 `appsettings.json`，与紧凑 JSON 的期望不符；该用例用 `-method` 单独复跑时 6 个场景全部通过。该用例与本次改动的文件无交集（配置写回未改动），按既有并行冒烟不稳定处理。日志位于 `artifacts/verify-0.18.11-tests.log`。
+
+**发布文件**
+
+`Directory.Build.props`、`build/release-content.json`、`build/published-release-index.json`、`build/release-manifest.json` 与 `docs/releases/v0.18.11.md` 更新至 0.18.11，`contentSha256` 为 `6F0E556A7E24940AA8D2E7704B7D8C1D2B8721C87477E5D0DD5F97C4ED7BD4BA`。`README.md` 在工作区存在未提交的重写，本次未纳入提交，其版本引用已同步到 0.18.11，待随该重写一并提交。
+
+安装包：`powershell -NoProfile -ExecutionPolicy Bypass -File build/package.ps1 -ProductVersion 0.18.11` 通过（0 警告、0 错误），产物 `artifacts/installer/0.18.11/Mosaic-0.18.11-win-x64.msi`，大小 52,558,074 字节，SHA-256 为 `BAAF20C8D04C3580E7540EF911C84A6D6D3F07177CB40A18406C508F9A0391DB`。脚本校验通过：开始菜单与桌面快捷方式、`INSTALLFOLDER` 工作目录、启动清理注册项、维护与升级路由、对话框、负载清单与 470 个 cabinet 成员的 SHA-256 逐一比对。该 MSI 基于最终 `build/release-manifest.json`（含本节指纹）重建；日志位于 `artifacts/verify-0.18.11-package.log`。
+
 ## 0.18.10 源码更新 · 账户与备份排版及速览筛选记忆
 
 - 账户页根因位于 `src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml` 的会话卡片。无结果时，`ShowSessionsLoading` 与 `ShowSessionList` 都为 `false`，标题下缺少状态反馈；刷新时 `AccountViewModel.ShowSessionList` 隐藏已有行。会话和云端备份按钮混用带不同尺寸与外边距的样式。云端刷新在独立账户视图中还会受链接样式的主题资源解析影响，删除区说明与操作的字号和间距也不一致。

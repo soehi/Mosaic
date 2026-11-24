@@ -144,7 +144,8 @@ internal static class BuiltInModuleCatalog
             var module = new DesktopPresenceModule(new(context.WindowHost,
                 context.CompanionFactory ?? throw new InvalidOperationException("Task companion capability was not assembled."),
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings capability was not assembled."),
-                context.Dispatcher, context.Diagnostics, context.Paths.PeekFilterPreference));
+                context.Dispatcher, context.Diagnostics,
+                () => File.Exists(context.Paths.PeekFilterPreference) ? File.ReadAllText(context.Paths.PeekFilterPreference) : null));
             context.Presence = module.Api;
             return module;
         }),

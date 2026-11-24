@@ -1452,7 +1452,9 @@ public sealed class PresentationTests
                 Assert.Equal(navigationTop, navigation.TranslatePoint(new Point(), view).Y);
                 Assert.Equal(contentTop, content.TranslatePoint(new Point(), view).Y);
                 Assert.Equal(Visibility.Visible, subtitle.Visibility);
-                Assert.Equal(Visibility.Visible, modeBar.Visibility);
+                // 模块贡献页隐藏通用「高级设置」栏，但保留占位高度，导航与内容坐标不变。
+                Assert.Equal(hasPage ? Visibility.Hidden : Visibility.Visible, modeBar.Visibility);
+                Assert.True(modeBar.ActualHeight > 0);
             }
         }
         finally { await page.Controller.DisposeAsync(); }

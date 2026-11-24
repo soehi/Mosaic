@@ -47,6 +47,28 @@ internal sealed class GuardedSettingsApi(ISettingsCore inner, IModuleExecutionGa
         }
     }
 
+    public async Task<OperationResult> SaveModulePreferenceAsync(
+        string moduleId, string settingId, object? value, CancellationToken cancellationToken = default)
+    {
+        if (!TryEnter(out var lease)) return UnavailableReset();
+        using (lease)
+        {
+            try { return await inner.SaveModulePreferenceAsync(moduleId, settingId, value, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { return ReportReset(exception); }
+        }
+    }
+
+    public async Task<OperationResult> InitializeSettingAsync(
+        SettingInitialization initialization, CancellationToken cancellationToken = default)
+    {
+        if (!TryEnter(out var lease)) return UnavailableReset();
+        using (lease)
+        {
+            try { return await inner.InitializeSettingAsync(initialization, cancellationToken).ConfigureAwait(false); }
+            catch (Exception exception) { return ReportReset(exception); }
+        }
+    }
+
     public async Task<OperationResult> ResetAsync(string? moduleId = null, CancellationToken cancellationToken = default)
     {
         if (!TryEnter(out var lease)) return UnavailableReset();

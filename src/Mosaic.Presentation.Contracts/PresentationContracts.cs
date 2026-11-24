@@ -35,6 +35,12 @@ public interface ICompanionViewSession : IAsyncDisposable
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task CloseAsync();
 }
+// 显式可选能力：宿主优先通过它订阅筛选变化，未实现时回退到 ICompanionViewSession.FilterChanged。
+// 基础接口的同名事件保留默认实现，避免要求所有伴随视图实现新增成员。
+public interface ICompanionFilterSelection
+{
+    event EventHandler<string>? FilterChanged;
+}
 public interface INavigationGuard { Task<bool> CanLeaveAsync(); }
 public interface IPageController : INavigationGuard, IAsyncDisposable { Task InitializeAsync(); }
 

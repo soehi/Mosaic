@@ -1,3 +1,4 @@
+using System.IO;
 using Mosaic.Contracts;
 using Mosaic.DesktopPresence.Contracts;
 using Mosaic.DesktopPresence.Core;
@@ -8,7 +9,8 @@ using Mosaic.Settings.Contracts;
 namespace Mosaic.DesktopPresence.Wpf;
 
 public sealed record DesktopPresenceDependencies(IDesktopWindowHost Host, ICompanionViewFactory CompanionFactory,
-    ISettingsCore Settings, IUiDispatcher Dispatcher, IDiagnosticSink Diagnostics, string? FilterPreferencePath = null);
+    ISettingsCore Settings, IUiDispatcher Dispatcher, IDiagnosticSink Diagnostics,
+    Func<string?>? ReadLegacyFilter = null);
 
 public sealed class DesktopPresenceModule : IModuleActivation
 {
@@ -27,14 +29,14 @@ public sealed class DesktopPresenceModule : IModuleActivation
     public DesktopPresenceModule(DesktopPresenceDependencies dependencies)
     {
         _dependencies = dependencies;
-        _surface = new(dependencies.Host, dependencies.CompanionFactory, dependencies.Diagnostics, dependencies.FilterPreferencePath);
+        _surface = new(dependencies.Host, dependencies.CompanionFactory, dependencies.Settings, dependencies.Diagnostics);
         _controller = new(dependencies.Host, _surface, dependencies.Diagnostics);
         _surface.Api = _controller;
-        _settings = new(values =>
+        _settings = new(async values =>
         {
             _controller.Configure(Enum.Parse<DesktopCloseBehavior>(PresenceSettings.ReadString(values, "desktop.closeBehavior", "Reside")));
             _controller.ConfigureShowTiming(ShowTiming(values));
-            _surface.UpdateSettings(values);
+            await _surface.UpdateSettingsAsync(values);
         }, _surface.MaximumOffset, dependencies.Dispatcher);
     }
 
@@ -53,6 +55,26 @@ public sealed class DesktopPresenceModule : IModuleActivation
     {
         _localization = MosaicLocalizationManager.Register("desktop-presence", PresenceLocalization.Dictionary);
         _registration = _dependencies.Settings.Register(_settings);
+        if (_dependencies.ReadLegacyFilter is { } readLegacyFilter)
+        {
+            string? legacyFilter;
+            try { legacyFilter = readLegacyFilter()?.Trim(); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                _dependencies.Diagnostics.Report("desktop.presence.filter.read", exception);
+                legacyFilter = null;
+            }
+            if (legacyFilter is "All" or "Open" or "Completed")
+            {
+                // 迁移失败不能阻断启动：旧值文件保留，下次启动会以同一迁移 ID 重试；
+                // 本次使用注册定义的默认值（Unset → 回退默认筛选）。
+                var migrated = await _dependencies.Settings.InitializeSettingAsync(
+                    new("desktop.popup.lastFilter.v1", "desktop.popup.lastFilter", legacyFilter), cancellationToken);
+                if (!migrated.IsSuccess)
+                    _dependencies.Diagnostics.Report("desktop.presence.filter.migrate",
+                        new InvalidOperationException(migrated.Error!.Message));
+            }
+        }
         var values = await _dependencies.Settings.GetValuesAsync(cancellationToken);
         if (!values.IsSuccess) throw new InvalidOperationException(values.Error!.Message);
         // Previously valid offsets are clamped at runtime when a monitor has been removed or resized.

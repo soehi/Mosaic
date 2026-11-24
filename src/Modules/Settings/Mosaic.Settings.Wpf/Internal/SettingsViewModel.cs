@@ -372,6 +372,10 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
     public ViewPage? SelectedPageView => _selectedPageView;
     public bool HasSelectedPage => SelectedPageView is not null;
     public bool HasSettingsSectionContent => SelectedPage is null;
+    // 模块贡献页（例如账户）不显示通用「高级设置」栏；用 Hidden 而非 Collapsed，
+    // 保留模式栏占用的高度，避免切换分区时导航与内容区上下跳动。
+    public System.Windows.Visibility ModeBarVisibility =>
+        HasSettingsSectionContent ? System.Windows.Visibility.Visible : System.Windows.Visibility.Hidden;
     public SettingsSection SelectedSection
     {
         get => _selectedSection;
@@ -673,6 +677,7 @@ internal sealed partial class SettingsViewModel : ObservableObject, IPageControl
         OnPropertyChanged(nameof(SelectedPage));
         OnPropertyChanged(nameof(HasSelectedPage));
         OnPropertyChanged(nameof(HasSettingsSectionContent));
+        OnPropertyChanged(nameof(ModeBarVisibility));
     }
     private void RefreshSections()
     {

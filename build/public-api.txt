@@ -80,6 +80,7 @@ Mosaic.Maintenance.Wpf.Views.MaintenanceView
 Mosaic.Presentation.Contracts.CompanionViewOptions
 Mosaic.Presentation.Contracts.FloatingContentDragKind
 Mosaic.Presentation.Contracts.FloatingContentLayoutOptions
+Mosaic.Presentation.Contracts.ICompanionFilterSelection
 Mosaic.Presentation.Contracts.ICompanionInteraction
 Mosaic.Presentation.Contracts.ICompanionNavigation
 Mosaic.Presentation.Contracts.ICompanionViewFactory

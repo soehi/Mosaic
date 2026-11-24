@@ -106,6 +106,7 @@
                        Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
         </StackPanel>
         <Border x:Name="ModeBar" Grid.Row="1" Padding="14,8" Margin="0,0,0,20" CornerRadius="10"
+                Visibility="{Binding ModeBarVisibility}"
                 Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}">
             <DockPanel LastChildFill="True">
                 <CheckBox DockPanel.Dock="Right" Style="{StaticResource Switch}" IsChecked="{Binding ShowAdvanced}"

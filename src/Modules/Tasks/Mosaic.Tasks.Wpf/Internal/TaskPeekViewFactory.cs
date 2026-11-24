@@ -48,7 +48,7 @@ internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string 
     public double MaximumTitleHeight => LineHeight * Options.TitleMaxLines;
 }
 
-internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavigation, ICompanionInteraction
+internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilterSelection, ICompanionNavigation, ICompanionInteraction
 {
     private bool _dragActive;
     private readonly HashSet<Guid> _pending = [];
