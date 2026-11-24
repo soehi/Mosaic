@@ -307,7 +307,7 @@
 
 ### 根因位置
 
-线上实例 `https://mosaic.bansonic.top`（DNS → `47.112.187.172`，nginx 反代 → `127.0.0.1:5080`）在 2026-11-24T13:01Z 的 `/health` 返回 `"version":"0.1.1"`，即线上仍在运行 0.1.2（其二）之前的构建，`attachments` 表与 `/v1/attachments` 端点不存在。
+线上实例 `https://mosaic.bansonic.top`（DNS → `47.112.187.172`）在 2026-11-24T13:01Z 的 `/health` 返回 `"version":"0.1.1"`，即线上仍在运行 0.1.2（其二）之前的构建，`attachments` 表与 `/v1/attachments` 端点不存在。线上实际由 Coolify 4.5.3 以 docker compose 方式托管（见「0.1.2（其四）」），不是宿主机 systemd 安装。
 
 升级通道缺失：`server/README.md` 的部署章节（原「把输出目录拷到服务器后」段落）与 `server/publish-linux.ps1:31-37` 只打印启动命令，没有任何停服、备份、目录替换、健康检查与回滚步骤；仓库没有 `.github/` 工作流（`gh workflow list` 为空），也没有 Coolify/脚本化部署资产。按现有文档升级只能人工 `rsync`，容易漏掉 `<数据目录>/master.key` 与 `<数据目录>/attachments/` 的备份，也没有「版本号与迁移版本是否到位」的判定标准。
 
@@ -333,15 +333,36 @@
 
 ### 线上替换的访问前提
 
-替换线上实例需要对 `bansonic.top`（`47.112.187.172`）的 SSH 访问。本次探测：`ssh -o BatchMode=yes root@bansonic.top` 返回 `Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)`，默认 `~/.ssh/id_rsa` 未被接受；仓库与本地均无部署脚本、CI 或凭据。在拿到可用登录方式（用户名 + 端口 + 密钥或口令）或由操作者在面板上执行脚本之前，线上保持 0.1.1。
+自建主机路线需要 `bansonic.top`（`47.112.187.172`）的 SSH 访问，实测 `ssh -o BatchMode=yes root@bansonic.top` 返回 `Permission denied`。但线上实际是 Coolify 托管（见「0.1.2（其四）」），本小节与 `upgrade-linux.sh` 只对自建 systemd 安装有意义。
 
-### 线上替换步骤（拿到访问后执行）
+## 0.1.2（其四）：线上部署形态复核为 Coolify 容器（2026-11-24）
 
-1. 上传 `Mosaic.Server-0.1.2-linux-x64.tar.gz`、`SHA256SUMS` 与 `server/deploy/upgrade-linux.sh` 到服务器任意目录（例如 `/root/mosaic-upgrade/`）：
+### 根因位置
 
-   ```bash
-   scp -P [PORT] server/artifacts/Mosaic.Server-0.1.2-linux-x64.tar.gz server/artifacts/SHA256SUMS server/deploy/upgrade-linux.sh [USER]@bansonic.top:/root/mosaic-upgrade/
-   ```
-2. `cd /root/mosaic-upgrade && sudo sh upgrade-linux.sh Mosaic.Server-0.1.2-linux-x64.tar.gz SHA256SUMS`。
-3. 核验：`curl -fsS https://mosaic.bansonic.top/health` 应含 `"version":"0.1.2`；`sqlite3 <数据目录>/mosaic-server.sqlite3 "select * from schema_migrations"` 应含 `3|attachments`；`nginx -T | grep client_max_body_size` 应 ≥ `50m`。
-4. 失败回滚：脚本自动完成；手工回滚按脚本结尾打印的三步（停服 → 换回 `<程序目录>.previous-<STAMP>` → 启动），数据回滚见「升级（原地替换）」小节。
+前一条（其三）把线上形态判定为「宿主机 systemd + nginx → `127.0.0.1:5080`」，并据此交付 `upgrade-linux.sh` 与 SSH 上线脚本 `deploy-online.sh`。实测该判定错误：`47.112.187.172` 上运行 Coolify 4.5.3（`https://coolify.bansonic.top`），应用 `mosaic-server` 的 `build_pack = dockercompose`、`docker_compose_location = /docker-compose.yaml`、`base_directory = /`、`git_repository = <Gitea>/azzz/Mosaic.git`、`git_branch = main`、`git_commit_sha = HEAD`、`environment_id = 17`。容器监听 `8080`，卷 `mosaic-data:/data`。因此：宿主机上没有 `mosaic-server.service`，`upgrade-linux.sh` 的 `systemctl cat` 首步即失败；线上边缘响应头为 `Server: nginx`（Coolify 前面的反代），不是原来假设的 nginx→5080 直连。
+
+线上仍为 0.1.1 的直接原因是 **Gitea `main` 停在 `b5d7d60`**：`git ls-remote https://git.bansonic.top/azzz/Mosaic.git refs/heads/main` = `b5d7d60dc362ea45d89e70dc3b0161a5ce7faea6`，而含 0.1.2 的提交 `2255b2f` 只在本地 `fix/peek-detach-0.18.8` 上（Gitea 仅有 `main`、`feat/archived-navigation`；GitHub `origin/main` 亦为 `9e1d70c`）。Coolify 按 `main` 的 `HEAD` 构建，所以面板/API 触发的部署只会重建 0.1.1。
+
+### 改动位置
+
+- `server/README.md`：「## 部署」下新增「### Coolify（线上实际部署方式）」（触发构建、版本取自 `main` 的 `Directory.Build.props`、版本核验、回滚、实测 51 MiB 上传可达）；「### 升级（原地替换）」标题改为「### 升级（原地替换，仅自建 systemd 主机）」并加一句指向 Coolify 小节。
+- `docs/server-implementation-status.md:310`：线上形态描述改为 Coolify 托管；「线上替换的访问前提」改为只对自建安装成立的说明；新增本条（其四）。
+
+### 本机验证
+
+1. `GET https://coolify.bansonic.top/api/v1/applications/gykt2qbykphjomgnffily3ng` → `build_pack=dockercompose`、`git_branch=main`、`git_commit_sha=HEAD`、`status=running:healthy`。
+2. `GET .../api/v1/deployments/applications/gykt2qbykphjomgnffily3ng` → 历史部署 commit 与 Gitea 各分支 head 一一对应，无 `2255b2f`。
+3. 边缘上传上限：`PUT /v1/attachments/<32 位零>` 送 2 MiB / 20 MiB / 51 MiB 请求体，均 `sent` 全部字节并返回应用层 `404`（0.1.1 无该路由），无 `413` → 反代 `client_max_body_size` ≥ 51 MiB。
+4. `curl -fsS https://mosaic.bansonic.top/health` → `{"status":"ok","version":"0.1.1"}`；`GET /v1/attachments/<guid>` → `404`。
+
+### 未验证
+
+- 0.1.2 在 Coolify 上的真实构建与启动（取决于 `main` 是否带入 `2255b2f`）。
+- 容器内 `attachments/` 目录在非 root `app` 用户下对 `mosaic-data` 卷的写权限；卷是新建还是既有卷（`MOSAIC_MASTER_KEY` 未变，库与密文可继续用）。
+
+### 上线步骤（Coolify 路线）
+
+1. 让代码进入源仓库 `main`：`git push https://git.bansonic.top/azzz/Mosaic.git fix/peek-detach-0.18.8:main`（需可写凭据；成功时 `refs/heads/main` 从 `b5d7d60` 变为 `2255b2f`）。
+2. 触发构建：`curl -X POST "https://coolify.bansonic.top/api/v1/deploy?uuid=gykt2qbykphjomgnffily3ng&force=false" -H "Authorization: Bearer [TOKEN]"`，或等 Gitea push webhook 自动触发。
+3. 核验：轮询 `/health` 至 `"version":"0.1.2`；`GET /v1/attachments/<guid>` 应为 `401`（不再是 `404`）；容器日志里 `schema_migrations` 应出现 `3 attachments`。
+4. 回滚：面板对上一份成功部署重新 Deploy；数据卷不动，0.1.1 读含 `attachments` 表的库不报错。

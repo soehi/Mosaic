@@ -91,6 +91,18 @@ docker run -d --name mosaic-server -p 8080:8080 `
 
 镜像以非 root（`app`）运行，数据卷挂在 `/data`，`HEALTHCHECK` 调用 `Mosaic.Server.dll --healthcheck`（默认探测 `http://127.0.0.1:8080/health`，可用 `MOSAIC_HEALTHCHECK_URL` 覆盖）。
 
+### Coolify（线上实际部署方式）
+
+线上 `https://mosaic.bansonic.top` 由 Coolify 4.5.3 托管，应用名 `mosaic-server`，构建包为 `dockercompose`：Coolify 从源仓库拉取仓库根的 `docker-compose.yaml`，按 `./server` 的 `Dockerfile` 构建镜像，容器监听 `8080`，数据卷 `mosaic-data:/data` 跨重建保留。
+
+- 触发构建：Coolify 面板「Deploy」，或 `POST /api/v1/deploy?uuid=<APP_UUID>&force=false`（`Authorization: Bearer <API_TOKEN>`）。
+- 构建的是源仓库 **`main` 分支最新提交**；版本号取自该提交里的 `server/Directory.Build.props`。代码没进 `main` 时，面板怎么点都只会重建旧版本。
+- 版本核验：`curl -fsS https://mosaic.bansonic.top/health` 的 `version` 必须等于 `server/Directory.Build.props` 的 `Version`。
+- 回滚：在面板里对上一份成功部署重新 Deploy（重建镜像），数据卷不动。迁移只追加，0.1.2 的迁移 3 是纯增量 DDL，用 0.1.1 镜像读取含 `attachments` 表的库不会失败。
+- 反向代理上传上限：实测 51 MiB 请求体可达应用（`PUT /v1/attachments/<guid>` 返回 404/401 而非 413），满足 `MOSAIC_ATTACHMENT_MAX_BYTES=50m` 的默认值。
+
+下面两个小节（自包含包 + systemd）适用于自建主机安装，不适用于 Coolify 部署。
+
 ### Linux 自包含包
 
 ```powershell
@@ -127,7 +139,9 @@ WantedBy=multi-user.target
 
 反向代理（Caddy/Nginx）负责 HTTPS；设置 `MOSAIC_PUBLIC_URL=https://...` 与 `MOSAIC_TRUSTED_PROXIES=<代理 IP>`，这样设备授权页链接与按 IP 限流都正确。
 
-### 升级（原地替换）
+### 升级（原地替换，仅自建 systemd 主机）
+
+Coolify 部署不走本小节，见上文「Coolify（线上实际部署方式）」。
 
 发布包按 `<版本>` 打成单个 tar.gz（341 个文件，约 47 MB）。在服务器上以 root 执行：
 

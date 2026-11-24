@@ -13,8 +13,13 @@
 #   MOSAIC_REMOTE_DIR     上传暂存目录        （默认 /root/mosaic-upgrade）
 #   MOSAIC_VER            发布包版本          （默认 0.1.2）
 #   MOSAIC_PKG            发布包路径          （默认 <repo>/server/artifacts/Mosaic.Server-<ver>-linux-x64.tar.gz）
-#   MOSAIC_PUBLIC_HEALTH  线上健康检查地址    （默认 https://bansonic.top/health）
+#   MOSAIC_PUBLIC_URL     线上站点根地址      （默认 https://mosaic.bansonic.top）
+#   MOSAIC_PUBLIC_HEALTH  线上健康检查地址    （默认 $MOSAIC_PUBLIC_URL/health）
 #   MOSAIC_TTY=1          为远端命令分配 tty（sudo 需要交互输入口令时用）
+#
+# 注意：脚本走 SSH + systemd，只适用于自建主机安装。线上 mosaic.bansonic.top 是 Coolify
+# 4.5.3 的 docker compose 应用（无 mosaic-server.service），请改用 Coolify 面板或
+# POST /api/v1/deploy?uuid=<APP_UUID>&force=false 触发构建，见 server/README.md「Coolify」小节。
 set -eu
 
 HOST=${MOSAIC_HOST:-bansonic.top}
@@ -23,7 +28,8 @@ PORT=${MOSAIC_PORT:-22}
 KEY=${MOSAIC_KEY:-}
 REMOTE_DIR=${MOSAIC_REMOTE_DIR:-/root/mosaic-upgrade}
 VER=${MOSAIC_VER:-0.1.2}
-PUBLIC_HEALTH=${MOSAIC_PUBLIC_HEALTH:-https://bansonic.top/health}
+PUBLIC_URL=${MOSAIC_PUBLIC_URL:-https://mosaic.bansonic.top}
+PUBLIC_HEALTH=${MOSAIC_PUBLIC_HEALTH:-$PUBLIC_URL/health}
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PKG=${MOSAIC_PKG:-$ROOT/artifacts/Mosaic.Server-$VER-linux-x64.tar.gz}
@@ -91,7 +97,7 @@ else
     die "公网 /health 未返回 $VER：$HEALTH"
 fi
 
-CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 5 https://bansonic.top/v1/attachments 2>/dev/null || echo 000)
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$PUBLIC_URL/v1/attachments" 2>/dev/null || echo 000)
 echo "/v1/attachments 状态码：$CODE（期望 401；404 表示新路由未生效）"
 [ "$CODE" = "401" ] || echo "警告：状态码不是 401，请检查反代是否指到本服务。"
 
@@ -102,5 +108,5 @@ cat <<EOF
   systemctl stop mosaic-server
   mv /opt/mosaic-server /opt/mosaic-server.failed && mv /opt/mosaic-server.previous-<STAMP> /opt/mosaic-server
   systemctl start mosaic-server
-数据回滚用备份目录 $REMOTE_DIR 对应脚本输出的 /var/backups/mosaic-server/<STAMP>/。
+数据回滚用脚本输出的 /var/backups/mosaic-server/<STAMP>/（可用 MOSAIC_BACKUP_ROOT 覆盖）。
 EOF
