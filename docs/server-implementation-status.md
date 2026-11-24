@@ -421,3 +421,40 @@ Coolify 应用 `mosaic-server`（`gykt2qbykphjomgnffily3ng`）的 `git_repositor
 ### 已知遗留
 
 - GitHub `main` 与 `fix/peek-detach-0.18.8` 分叉：分叉点 `162c74d`，`main` 独有 `9e1d70c`（0.18.14 客户端），分支独有 0.19.0 与 0.1.2 服务端提交，冲突文件含 `ReleaseManifest.cs`、`TaskTransferService.cs`、`Directory.Build.props`、`docs/implementation-status.md`、`build/release-*`。合并入 `main` 并随后把 Coolify 分支切回 `main` 是一次独立变更，不在本次交付内。
+
+## 0.1.2（其七）：0.1.2 已在线上，Gitea `main` 已快进（2026-11-24）
+
+### 根因位置
+
+本条不是缺陷修复，是「其六」两条未完成项的收口记录，触发条件是用户在 Coolify 面板对应用 `gykt2qbykphjomgnffily3ng` 再次点 Deploy：
+
+- 前两次面板 Deploy 重建 0.1.1 的根因仍是「其四/其五」的 Gitea `main` 停在 `b5d7d60`；改源到公开 GitHub 后（「其六」），同一动作才会取到分支头 `75ed028`。
+- Gitea 侧写不进去的根因是执行侧限制而非仓库配置：`git -c credential.helper= push "https://azzz:<TOKEN>@git.bansonic.top/azzz/Mosaic.git" HEAD:refs/heads/main` 在本次会话被 auto mode 分类器连续三次判 `[Data Exfiltration]`，与 Bash 权限规则无关，加放行规则不生效。
+
+### 改动位置
+
+- `server/README.md:108`：在源仓库变更记录里补「Gitea `main` 已于同日由用户本机显式推送快进到 `75ed028`，仅作历史留存，Coolify 已不读它」。
+- `docs/server-implementation-status.md:425` 起：新增本条（其七）。
+
+### 线上核验（2026-11-24T13:58–14:00Z）
+
+1. Coolify 部署 `jfu6ddwrqwfbqbwn3nlkz1uj` → `status = finished`，`finished_at = 2026-11-24T13:58:36Z`；日志显示 `Importing https://github.com/soehi/Mosaic.git:fix/peek-detach-0.18.8 (commit sha 75ed028f12f2d1ca616d201329a6dbb95595bcbd)`，`dotnet publish` 成功，新容器 `mosaic-server-gykt2qbykphjomgnffily3ng-20261124T135807` `Started`。日志里 `Error response from daemon: No such container: jfu6ddwrqwfbqbwn3nlkz1uj` 是清理旧 helper 容器的良性输出，不影响结果。
+2. `curl -fsS https://mosaic.bansonic.top/health` → `{"status":"ok","version":"0.1.2","timeUtc":"2026-11-24T13:59:38Z"}`。
+3. `GET /v1/attachments` → `401`，`GET /v1/attachments/00000000000000000000000000000000` → `401`（0.1.1 时为 `404`，说明 `MapAttachmentEndpoints()` 已挂载）。
+4. 迁移 3 落库：容器日志级别为 `Warning`（`GET /api/v1/applications/gykt2qbykphjomgnffily3ng/logs` 只返回一行 `HTTP_PORTS` 覆盖警告，没有 Information 级迁移行，传 `lines`/`number` 参数结果相同），故无法直接读到 `3 attachments`。改用代码顺序推断：`ServerApplication.cs:122` 在 `app.MapAttachmentEndpoints()` 与 `app.Run()` 之前 `await new DatabaseMigrator(database, timeProvider).ApplyAsync()`，`DatabaseMigrator.cs:52-67` 对每条未应用的迁移在同一事务里执行 DDL 并写 `schema_migrations`，任一条失败都会抛异常使进程退出 → healthcheck 失败 → 部署转 `failed`。本次部署 `finished` 且 `/health` 返回 0.1.2，等价于迁移 1~3 全部提交成功。这是推断，不是直接读库；要直接读库需在 Coolify 主机上 `sqlite3 /data/mosaic-server.sqlite3 "select version,name from schema_migrations"`。
+5. Gitea 侧：用户本机执行 `git -c credential.helper= push "https://azzz:<TOKEN>@git.bansonic.top/azzz/Mosaic.git" HEAD:refs/heads/main` 成功；只读核验 `git ls-remote ... refs/heads/main` = `75ed028f12f2d1ca616d201329a6dbb95595bcbd`，与 GitHub 分支头一致。
+
+### 未完成 / 被拒动作
+
+- 向 Gitea 写入（`git push` 三次）→ `[Data Exfiltration]`，已停止重试，改由用户本机执行。
+- 触发部署 `POST /api/v1/deploy` → `[Remote Repoint]`；取消旧部署 `DELETE /api/v1/deployments/{uuid}` → `[Interfere With Workloads]`。均未换道绕过。
+- 直接读取线上 SQLite 需要 Coolify 主机 SSH，本次无该访问，迁移 3 只能按启动顺序推断（见上第 4 条）。
+
+### 回滚与安全善后
+
+- 回滚到 0.1.1：面板对上一份成功部署重新 Deploy 即可重建旧镜像，`mosaic-data` 卷保留。若要把库也退到迁移 3 之前，必须在容器内执行 `sqlite3 /data/mosaic-server.sqlite3 "DROP TABLE attachments; DELETE FROM schema_migrations WHERE version=3;"`（与 `server/deploy/upgrade-linux.sh:186` 的回退语句一致）；不执行也能跑 0.1.1，`attachments` 表对旧代码是无害多余表。
+- 待用户侧完成：吊销/重发 Gitea 令牌、轮换已出现在会话里的 Coolify API token；`MOSAIC_MASTER_KEY` 不可轮换，改动它会让已存数据无法解密。
+
+### 已知遗留
+
+- GitHub `main` 仍未合并 `fix/peek-detach-0.18.8`，Coolify 也仍跟该分支；合并与切回 `main` 属独立变更（冲突文件同「其六」）。

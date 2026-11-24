@@ -105,7 +105,7 @@ docker run -d --name mosaic-server -p 8080:8080 `
 - 回滚：在面板里对上一份成功部署重新 Deploy（重建镜像），数据卷不动。迁移只追加，0.1.2 的迁移 3 是纯增量 DDL，用 0.1.1 镜像读取含 `attachments` 表的库不会失败。
 - 反向代理上传上限：实测 51 MiB 请求体可达应用（`PUT /v1/attachments/<guid>` 返回 404/401 而非 413），满足 `MOSAIC_ATTACHMENT_MAX_BYTES=50m` 的默认值。
 
-**源仓库变更记录（2026-11-24）。** 应用最初指向私有 Gitea `https://git.bansonic.top/azzz/Mosaic.git`，而本机 checkout 只配了 `origin`（GitHub），裸 `git push` 全部落到 GitHub，Gitea `main` 一直停在 `b5d7d60`——所以连续两次"已推送"后面板点 Deploy 仍在重建 0.1.1。现已改为公开的 `https://github.com/soehi/Mosaic.git`、分支 `fix/peek-detach-0.18.8`，应用配置里明文内嵌的 Gitea 写令牌随之移除。
+**源仓库变更记录（2026-11-24）。** 应用最初指向私有 Gitea `https://git.bansonic.top/azzz/Mosaic.git`，而本机 checkout 只配了 `origin`（GitHub），裸 `git push` 全部落到 GitHub，Gitea `main` 一直停在 `b5d7d60`——所以连续两次"已推送"后面板点 Deploy 仍在重建 0.1.1（Gitea 侧已于同日由用户本机显式推送快进到 `75ed028`，仅作历史留存，Coolify 已不读它）。现已改为公开的 `https://github.com/soehi/Mosaic.git`、分支 `fix/peek-detach-0.18.8`，应用配置里明文内嵌的 Gitea 写令牌随之移除。
 
 这条分支与 GitHub `main` 尚未合并：`main` 多一个 0.18.14 客户端提交（`9e1d70c`），分支多 0.19.0 与 0.1.2 服务端提交。合并并切回 `main` 是一次独立变更，完成前不要让 Coolify 跟 `main`。
 
