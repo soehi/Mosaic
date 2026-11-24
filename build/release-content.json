@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.12",
+  "currentReleaseId": "mosaic-0.18.13",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -952,6 +952,22 @@
         "账户与备份页的会话行不再硬编码中文：缺失的设备名、平台名与「最近活跃」时间随界面语言切换。"
       ],
       "contentSha256": "FC779C56A7A362FFFFBA31890A9EC7D6A8F694EB6A6020E9C18F0A899BF7303B"
+    },
+    {
+      "releaseId": "mosaic-0.18.13",
+      "version": "0.18.13",
+      "releasedOn": "2026-11-24",
+      "previousReleaseId": "mosaic-0.18.12",
+      "added": [
+        "新增 docs/plugins 插件文档体系与版本变更记录。"
+      ],
+      "improved": [
+        "插件教程改为分步体例，四份契约按源码逐条校准。"
+      ],
+      "fixed": [
+        "修正迁移绑定、设置归属与 README 三处描述。"
+      ],
+      "contentSha256": "8B92129E17522E61D95EBFA5C90BE0072DD7EE78DD68FE6EEAE5F5E93B66F32C"
     }
   ]
 }

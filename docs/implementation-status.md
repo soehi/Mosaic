@@ -57,6 +57,92 @@
   5. 已有安装升级后账户页会话、空态与加载提示的显隐与 0.18.11 一致（`ShowSessionsLoading` 仍为 `!HasSessions && SessionsBusy`）。
 - 回滚方式：回退本次提交即可，没有需要撤销的数据迁移；`docs/releases/v0.18.12.md` 与发布索引同属该提交，回退后从 0.18.11 内容继续发布。
 
+## 0.18.13：插件契约与教程按源码校准、README 教程化与版本变更记录（2026-11-24）
+
+本轮交付文档体系：`docs/plugins/` 下的四份契约与插件制作教程入库，根 `README.md` 由版本列表改写为功能导览并加插件文档入口，新增 `docs/releases/changelog.md`。源码行为、配置结构、安装包布局与数据目录均未改动，产品行为与 0.18.12 一致。目标是让「插件规范 / 边界声明 / 框架规范 / UI 规范」四份契约与教程中的每条陈述都能在源码里查到对应行，读者照抄不会写出编译不过或行为错误的插件。
+
+**根因位置（文档陈述与代码不一致，按读者会踩到的顺序）**
+
+1. `docs/plugins/README.md` 原第 9 节把 `ISettingSource.ApplyAsync` 写成 `Task<OperationResult>`。真实声明是 `Task`（`src/Modules/Settings/Mosaic.Settings.Contracts/SettingsContracts.cs:285`）。触发条件：读者照教程实现自己的设置源。出错原因：签名不符编译失败；即使改成 `Task<OperationResult>` 也无法被设置核心调用，因为 `SettingsService` 只捕获异常并把失败转成「已保存，但即时应用失败，重启后生效。」的警告（`src/Modules/Settings/Mosaic.Settings.Core/Internal/SettingsService.cs:225-235`）。
+2. 同节把迁移失败描述成直接抛 `Migrations must be contiguous from version one.` / `Migration checksum or database version is incompatible.`。这两个异常先被 `DatabaseWorker.Enqueue` 捕获（`src/Modules/Storage/Mosaic.Storage.Sqlite/Internal/DatabaseWorker.cs:117-124`），调用方拿到的是 `STORAGE_UNAVAILABLE` +「本机存储暂不可用，请重试。」。触发条件：读者的模块在 `ActivateAsync` 里调用 `MigrateAsync` 且不检查 `IsSuccess`。出错原因：文档描述的异常永远不会到达调用方，模块带着未建表状态启动，首次查询才失败且错误信息与迁移无关。
+3. 同节把备份条件写成「首次建库（没有任何用户表）不建备份；已有表升级前建备份」。真实条件是 `applied.Count > 0 || hasUserTables`（`MigrationRunner.cs:33-46`，文件名 `mosaic.sqlite.backup-<yyyyMMddHHmmssfffffff>.sqlite` 见 `:40`）。触发条件：读者据此推断「全新库永远没有备份文件」，或据此判断备份存在。出错原因：只要该模块记录过迁移（`applied.Count > 0`）就会备份，即使当时没有任何用户表。
+4. `docs/plugins/plugin-spec.md` §4 第 3 条把启动顺序写成「依赖方永远先于被依赖方」。真实实现先访问提供方再 `append` 依赖方（`src/Mosaic.Kernel/ModuleGraph.cs:34-41`），即提供方先启动。触发条件：读者据此排布 `ActivateAsync` 中对外部能力的取用。出错原因：结论与实现相反，任何依赖「被依赖方已启动」的推断都会失效。
+5. 同文件 §7 第 2 条把模块迁移写成「只写 `settings["host.modules"]`」。真实逻辑用 `hasModuleOverride` 分支：存在覆盖层时改覆盖层，否则改顶层 `modules`（`src/Mosaic.Desktop/AppConfiguration.cs:207-249`）。触发条件：用户从未保存过设置（没有 `settings` 段）时执行迁移。出错原因：照文档写法会把改动写进一个不存在或从未生效的层，有效模块列表不变。
+6. `docs/plugins/framework-spec.md` §6 让读者以为程序目录模板包含 `settings` 段。`src/Mosaic.Desktop/appsettings.json` 只有 `configVersion`、`appliedMigrations`、`modules`、`providers`、`storage`；`settings` 由 `HostSettingSource` 在设置页第一次保存时写入。触发条件：读者按模板排查「为什么找不到 settings」。出错原因：把可选段当成默认存在，会误判配置损坏。
+7. `docs/plugins/ui-spec.md` §11 声称「导航、未保存离开、设置保存失败」在 `tests/Mosaic.Desktop.SmokeTests` 覆盖。实际这些用例在 `tests/Mosaic.Wpf.Tests`：`PresentationTests.cs:150`（保存中离开先等待）、`:168`（保存失败保留输入且守卫继续拦截）、`:181`（冲突保留编辑器），`EditingPresentationTests.cs:97`（并发离开共用提示、取消保留预览）、`:126`（回滚失败拒绝离开），即时应用失败但提交成功在 `tests/Mosaic.Settings.Core.Tests/EditingTests.cs:184`。冒烟测试覆盖的是启动、配置迁移、浮窗与速览往返（`tests/Mosaic.Desktop.SmokeTests/DesktopTests.cs`）。触发条件：读者想复现某个交互失败。出错原因：去错工程找用例，或在冒烟测试里新增脆弱的 WPF 交互断言。
+8. 多处行号漂移导致「按链接找不到代码」：`PresenceSurface.cs` 的过滤订阅与刷新（现为 `:220-237`、`:301-306`）、`SettingsPageRegistry.cs` 排序（`:10-13`）、`TaskSettingsSource.cs`（`:15-26`）、`TasksModule.cs`（`:75-91`）、`RepairProviderBindings`（`AppConfiguration.cs:177-205`）、`ModuleRuntime.StartAsync` 的工厂循环（`:31-44`）、`SqlRow` 访问器（`IDatabaseSession.cs:45-47`）、`MigrationRunner` 摘要校验（`:12-32`）、`ShellViewModel` 启动页选择（`:86-89`）。
+9. 版本陈述停留在 0.18.10（`plugin-spec.md:3,9,11,82`、根 `README.md:5`），而 `Directory.Build.props:12` 与 `build/release-manifest.json` 的 `currentReleaseId` 已推进到 0.18.12，本轮再推进到 0.18.13。
+
+**改动位置（逐文件）**
+
+1. `docs/plugins/README.md`
+   - `:10` 版本句改为 0.18.13。
+   - `:298` §6.2 改为：扫描只覆盖 `src`（排除 `bin`/`obj`），命中五个 SQL 关键字即失败（`BoundaryTests.cs:88-98`）；测试工程不在扫描内，但 `MigrateAsync` 调用仍只应由 Sqlite 模块发起；白名单按目录名硬编码为四个现有 `*.Sqlite` 工程。
+   - `:403` 读结果访问器引用改为 `IDatabaseSession.cs:45-47`。
+   - `:404` 迁移段补齐：`MigrateAsync` 返回 `OperationResult`（`IDatabaseSession.cs:71`，迁移定义见 `:50`），连续编号与摘要异常（`MigrationRunner.cs:12-32`），异常经 `DatabaseWorker.Enqueue` 归一为 `STORAGE_UNAVAILABLE`（`DatabaseWorker.cs:117-124`），备份条件按 `applied.Count > 0 || hasUserTables`（`MigrationRunner.cs:33-46`）并给出备份文件名格式。
+   - `:405` 保留 `Microsoft.Data.Sqlite` 只属于 `Mosaic.Storage.Sqlite`（`BoundaryTests.cs:54-57`）；SQL 目录白名单改指 `:94-95`（四个目录名写在 94 行），并补 `:96-97`「只有 `Mosaic.Settings.Sqlite` 能直接操作 `settings` 表」这第二条独立规则——原写法把两条规则合并成 `:94-97`，读者会以为 `settings` 表也适用于那四个目录。
+   - `:452` 工厂调用顺序引用改为 `ModuleRuntime.cs:31-44`。
+   - `:461` `RepairProviderBindings` 引用改为 `AppConfiguration.cs:177-205`。
+   - `:570` 设置归属小节改指 `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskSettingsSource.cs:14-25`（第一轮写的 `:15-26` 在第二轮按源码复核纠正）；`:730` 启动页改为 `ShellViewModel.cs:86-89` 并补「两者都没有时」的提示串。
+   - `:766` `ApplyAsync` 返回 `Task`（`SettingsContracts.cs:285`）、失败抛异常由 `TryApplyAsync` 转警告（`SettingsService.cs:225-235`）、`ISettingsCore.Register` 句柄需释放（`SettingsContracts.cs:329`）；`:768` `TasksModule.cs:75-91` 并补 `_rules.Apply`。
+   - §11「升级迁移验收」：保存后写入 `settings` 层（`HostSettingSource.cs:84-90`）、迁移写回生效层、`MarkMigration` 去重（`AppConfiguration.cs:382-386`）、锚点条件、用户自定义绑定不被覆盖。第一轮把「保存后必写 `settings` 段」与「绑定由 `RepairProviderBindings` 补齐」写成无条件成立，第二轮改为「必须先动过启用模块或能力绑定」「绑定由迁移 `TryAdd` 写入」（见根因 11、12 与改动位置 9）。
+2. `docs/plugins/plugin-spec.md`
+   - `:3,9,11,82` 版本改为 0.18.13。
+   - §4 第 3 条改为「顺序激活，提供方先于依赖方」（`ModuleGraph.cs:34-41`）。
+   - §7 第 2 条改为「改有效模块列表并写回原来那一层」（`AppConfiguration.cs:207-249`）；第一轮仍写「绑定交给 `RepairProviderBindings`」，第二轮推翻并改为「绑定必须随迁移用 `TryAdd` 写入」（见下文根因 10 与改动位置 7）。
+   - `:227` 冒烟测试必须串行，并指向 `tests/Mosaic.Desktop.SmokeTests/GlobalUsings.cs:3-5` 的并行化关闭声明与原因。
+3. `docs/plugins/framework-spec.md`
+   - §6 补：模板无 `settings` 段，该段由 `HostSettingSource` 在首次保存时写入。
+   - §7.2 三条改为：`ISettingSource` 只有 `ModuleId`/`Definitions`/可选 `ValidateAsync`/`ApplyAsync`（`SettingsContracts.cs:278-285`），读取用 `ISettingsCore.GetValuesAsync`、写回走 `ISettingsApi`；注册拒绝三种情况及其逐字消息（`SettingsService.cs:11-34`）；`ApplyAsync` 收到全量 `Immediate` 快照（`:377-380`），异常被 `TryApplyAsync` 捕获（`:225-235`），预览路径只对 `Immediate`+`Reversible`+`UserSettings` 调用并在失败时逆序补偿（`SettingsEditing.cs:146-172`）。
+   - `:249` 备份条件与 `storage.backupRetention`（默认 5，0 关闭；`SqliteModule.cs:28`，范围 0–50）；`:250` 摘要校验范围改为 `MigrationRunner.cs:12-32`，并补 `DatabaseWorker.cs:117-124` 的失败归一。
+4. `docs/plugins/ui-spec.md`
+   - §4 设置页排序引用 `SettingsPageRegistry.cs:10-13`，并说明 `Registration.Dispose` 幂等（`:30-33`）。
+   - §5 补可选成员默认实现（`PresentationContracts.cs:54-73`、`ICompanionFilterSelection :38-43`）。
+   - §6 `PresenceSurface.cs:220-237`、`:301-306`，并写明仅在 `desktop.popup.filterSwitch` 打开时订阅 `FilterChanged`。
+   - §8 主题来源改为 `MosaicThemeManager`（`:79-95`、`:41-51`，合并 `Themes/Palettes/{Light,Dark,HighContrast}.xaml`）。
+   - §11 测试位置改正（见根因 7），并说明 `Sta.Run` 实现在 `tests/Mosaic.Wpf.Tests/Sta.cs:5`、`build/test.ps1` 逐工程串行。
+   - §12 `IsDefault` 多标时取「按 `Order`、`Id` 排序后的第一个」（`ContributionRegistry.cs:82`）。
+5. `docs/plugins/boundary-declaration.md`：矩阵说明（`BoundaryTests.cs:22-44`）、Windows TFM 白名单（`:47-51`）、包约束（`:54-57`）、公开 API 比对（`:59-84`）、设置归属（`:102-130`）与当前测试一致；§3.3 的扫描范围引用由 `:86-99` 改为 `:86-100` 并补测试方法名 `Source_has_no_service_locator_reflection_bypass_or_cross_module_sql`（该方法从 86 行 `[Fact]` 起、到 100 行结束，断言块为 88–98），避免与 §6 失败对照表里的 `:88-98` 读起来像两个不同范围。
+6. 根 `README.md`：由逐版本变更列表改写为「功能导览」式定位说明——`功能导览`（任务、速览、悬浮窗、账户与备份、设置、维护分节）、`插件`（编译期模块说明、五步阅读顺序、最小清单与 `modules`/`providers` 示例、`settings` 段优先级）、`构建与测试`（`build/test.ps1`、`-SkipDesktop`、`build/publish.ps1`、`build/package.ps1`、产物位置）、`文档`（四份插件契约与架构文档入口）；`:124` 由「三层工程」改为教程实际使用的契约、核心、持久化、界面四层；`:5` 版本、`:7` 下载链接、`:65` MSI 文件名与 `:205-209` 版本导航指向 0.18.13。
+
+**根因位置（第二轮：对抗式审计确认的偏差）**
+
+第一轮逐节人工对照后，再用 14 个独立 agent 对 6 份文档做对抗式审计：每个 agent 只拿一份文档与源码，逐条要求给出 `文件:行号` 依据，找不到或结论相反即判为偏差；共核对 605 条陈述，确认 30 条偏差，按读者会踩到的顺序归并为 7 类（编号接上文）：
+
+10. 教程 §7.2 与 `plugin-spec.md` §5.1 第 2 条把依赖绑定整体写成「交给 `RepairProviderBindings` 自动补齐」。该函数在启动链上只跑一次、且位于迁移链**之前**（调用在 `src/Mosaic.Desktop/AppConfiguration.cs:44`，迁移链 `:48-60`），看不到迁移新启用的模块。触发条件：读者照教程在迁移里只 `modules.Add("[PLUGIN-CORE-ID]")` 而不同时写 `providers`。出错原因：迁移执行后 `:64` 的 `ValidateCoreConfiguration(configuration, validateDependencies: true)` 抛 `模块依赖或能力绑定无效：Provider binding is missing or incompatible: …`，配置不写回，每次启动重复失败，且报错不指向迁移。
+11. 教程 §11 验收第 1 条把「保存设置后 `settings.host.modules` 必然出现」当成保存即成立。实际提交只含本次草稿里的键（`src/Modules/Settings/Mosaic.Settings.Core/Internal/SettingsEditing.cs:271`），其中只有 `Persistence == SettingPersistence.HostConfig` 的项才经 `PersistAsync` 落盘（`src/Modules/Settings/Mosaic.Settings.Core/Internal/SettingsService.cs:117-120`、`:147-149` → `src/Mosaic.Desktop/HostSettingSource.cs:84-90`）。触发条件：验收时只改主题、语言这类普通设置再保存。出错原因：配置里不会出现 `settings` 段，后续「迁移写回覆盖层」的验收步骤全部失去前提。
+12. 教程 §11 验收第 2 条声称 `RepairProviderBindings` 会把迁移所需的绑定补出来。同根因 10：它早于迁移链运行，只按当时已启用的模块补全（`AppConfiguration.cs:177-205` 的实现与 `:44` 的调用点）。触发条件与出错原因同第 10 条——照此验收会得出「漏写绑定也不报错」的错误结论，把必然启动失败的迁移判为通过。
+13. 教程 §7.2 的迁移示例只写 `settings["host.modules"]`，漏了 provider 方向的写回条件。`ApplyPresenceMigration` 只在 `providerChanged` 且 `hasModuleOverride || hasProviderOverride` 任一成立时写 `settings["host.providers"]`（`AppConfiguration.cs:232-240`）。触发条件：已有安装的配置文件里存在 `settings.host.modules` 覆盖层（用户保存过「启用模块」）。出错原因：只改 modules 会让新模块跑在旧 provider 映射上，绑定缺失被覆盖层掩盖，直到 `:64` 才失败。
+14. `boundary-declaration.md` §4 原计划按「字典值应写 `Mosaic.Desktop`、应补 `release-summary` 行」修正。核对 `tests/Mosaic.Architecture.Tests/BoundaryTests.cs:104-115` 后确认字典逐字为 `host → Mosaic.Settings.Core`、且没有 `release-summary`；而 `host.*` 定义实际在 `src/Mosaic.Desktop/HostSettingsCatalog.cs`，`release-summary` 声明在 `ReleaseSummaryModule.cs:125`、`:128`。触发条件：读者以为架构测试会兜住新增设置的归属。出错原因：检查正则（`BoundaryTests.cs:116`）要求两个参数都是同一行内的字符串字面量，且只扫含 `SettingValueKind` 的行（`:121`），常量传参、工厂传参与跨行定义都不会被命中——文档按「应然」写就会与测试实际行为不符。改为逐字描述字典内容并列出三条盲区。
+15. 教程设置归属小节引用 `TaskSettingsSource.cs:15-26`，真实定义块为 `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskSettingsSource.cs:14-25`。触发条件：读者按行号找不到定义。出错原因：引用偏移一行，落到定义块之外的类声明行。
+16. 根 `README.md` 三处功能陈述与实现不符：
+    - 数据库位置迁移的前置条件（`README.md:52`、`:88`）写成「校验可写与空间」「目标文件夹为空」。真实校验顺序在 `src/Modules/Storage/Mosaic.Storage.Sqlite/StorageRelocation.cs:42-79`：非空、绝对路径、路径有效、非磁盘根、目标目录已存在、与源目录不同、源库存在、目标目录无同名库、目标磁盘空间足够；**不要求目标文件夹为空**，也不检查「可写」。
+    - 系统要求（`README.md:63`）漏掉 build 门槛。`build/installer/Package.wxs:21` 的 Launch 条件为 `Installed OR (VersionNT64 AND WINDOWSBUILD >= 19041)`，即 64 位 Windows 10 2004 及以上。
+    - 浮窗落点（`README.md:85`）写成「回到上次的位置与模式」。`src/Modules/FloatingWindows/Mosaic.FloatingWindows.Core/FloatingWindowCoordinator.cs:32-37` 的实际优先级是 detach hint 覆盖保存的 `MonitorId`/`X`/`Y`，尺寸、模式与置顶仍取旧记录。
+
+**改动位置（第二轮，逐文件）**
+
+7. `docs/plugins/plugin-spec.md`：`:149` 把 §5.1 第 2 条拆成「已启用模块缺失绑定 → 每次启动自动补齐」与「迁移新启用模块 → 绑定必须随迁移写入」两段；`:187` 在 §7 第 2 条补时序（`AppConfiguration.cs:44` 早于 `:48-60`）、`:64` 的失败消息、`TryAdd` 只补缺失键；`:197` 在 §8「已启用模块的能力未绑定」行加同一限定。
+8. `docs/plugins/framework-spec.md`：`:196` 改为 providers 缺项先修复、按当时已启用模块补全、执行于 `:44`（迁移之前）；`:277` 启动链第 4 步写明迁移新增模块的绑定必须由迁移 `TryAdd` 写入（参照 `AppConfiguration.cs:228-229`、`:368-369`），只加模块不加绑定会在 `:64` 失败。
+9. `docs/plugins/README.md`：`:522` §7.2「五个要点」改写——第 2 条反转绑定归属、第 3 条补 `hasModuleOverride || hasProviderOverride` 的 provider 写回规则（`AppConfiguration.cs:232-240`）、第 4 条补执行顺序；`:901` §11「升级迁移验收」三条限定（第 1 条必须先动过启用模块或能力绑定、第 2 条绑定由迁移 `TryAdd` 写入、第 5 条 `TryAdd` 不覆盖用户绑定）；`:929` 失败对照表补 `AppConfiguration.cs:64` 的触发条件与两种修复路径；`:942` §13 提交清单写明迁移新增模块的绑定必须随迁移写入；`:570` 设置归属小节改指 `TaskSettingsSource.cs:14-25`，并写明正则只扫含 `SettingValueKind` 的行、常量传参不被检查。
+10. `docs/plugins/boundary-declaration.md`：§4 `:116-146` 改为逐字描述 `BoundaryTests.cs:104-115` 的归属字典、`:116-128` 的检查方式与三条已知盲区（`:136-138`），并把「新增插件设置时」的引导句合并到盲区之后。
+11. 根 `README.md`：`:52` 改写迁移校验清单并补 `KeepSource = true`；`:63` 补 `WINDOWSBUILD >= 19041` 门槛与 `Package.wxs:21` 出处；`:85` 改写浮窗落点优先级并引 `FloatingWindowCoordinator.cs:32-37`；`:88` 改为「确认目标磁盘空间、目标目录无同名 `mosaic.sqlite`」。
+12. 发布元数据与变更记录（新增）：`Directory.Build.props:12` 升到 0.18.13；`build/release-content.json` 追加 `mosaic-0.18.13`（`previousReleaseId = mosaic-0.18.12`，三条索引句）并把 `currentReleaseId` 指向它；`build/published-release-index.json` 追加第 59 条；`build/release-manifest.json` 与 `docs/releases/v0.18.13.md` 由 `scripts/release_content_verify.py` 生成，指纹 `8B92129E17522E61D95EBFA5C90BE0072DD7EE78DD68FE6EEAE5F5E93B66F32C`；新增 `docs/releases/changelog.md`（0.18.13 至 0.11.0 逐版本条目）并从根 `README.md:208` 链入。
+
+**迁移逻辑与对已有安装的影响**
+
+- 本轮无源码、配置结构、数据目录、安装升级或模块装配改动，因此没有数据迁移，也没有回退脚本需求。已有安装升级到 0.18.13 后，`Data/`、`Config/`、日志与备份均保持原样；版本号变化只影响安装包的 ProductVersion、内嵌的 `release-manifest.json` 与「更新简要」的适用区间（0.18.13 相对 0.18.12 无产品行为变化，升级后生成的更新简要只包含本轮三条索引句）。
+- 回退方式：回退本次提交（`git revert <commit>` 或把分支重置到 `59efd74`）即恢复 0.18.12 的文档与版本号；`docs/plugins/`、`docs/releases/changelog.md` 与 `docs/releases/v0.18.13.md` 同属该提交，回退后一并移除；发布侧只需保留 `v0.18.12` 为 Latest（旧安装不受影响，因为没有 schema 或配置迁移）。
+- 教程新增的迁移要求只作用于「读者按教程新增自己的模块」这一场景，并已写明验收项（见 `docs/plugins/README.md` §11「升级迁移验收」五条）：迁移改的是有效模块层（有 `settings["host.modules"]` 改它，否则改顶层 `modules`），**迁移新启用模块的绑定必须随迁移用 `Dictionary.TryAdd` 一并写入同一层**——`RepairProviderBindings` 在 `AppConfiguration.cs:44` 只跑一次且早于迁移链（`:48-60`），补不到迁移新启用的模块，漏写会在 `:64` 抛 `模块依赖或能力绑定无效：Provider binding is missing or incompatible: …` 且配置不写回，每次启动重复失败；已有绑定用 `TryAdd` 只补缺失键、不覆盖用户值。已有安装的 `settings.host.modules` 不会被自动追加，必须靠迁移。文档同时要求交付迁移验收项，与 AGENTS.md 的模块装配改动规则对齐。
+
+**验证与未做项**
+
+- 用一次性脚本（位于系统临时目录，未入库）把四份契约文档、插件制作教程与根 `README.md` 里全部 190 处 `文件:行号` 引用解析到仓库实际文件并校验行数范围，0 处越界或缺失；同一脚本遍历根 `README.md` 与 `docs/**/*.md` 共 182 条本地相对链接，本轮改动的 5 份插件文档 0 处失效；`docs/uninstall-and-storage-relocation-plan.md` 另有 8 条 `path:line` 形式链接指向不存在的路径，属本轮范围外的历史文档，未改动。文中已引用的异常消息、枚举值、接口签名、主题键、导航 `Order`（100/110/900）、设置归属正则（`[a-z][a-z0-9.]*` / `[a-z][a-z0-9-]*`）逐条对照源码。
+- 核对方式为两轮：第一轮逐节人工对照源码；第二轮用 14 个独立 agent 做对抗式审计（一人一份文档，逐条要求给出 `文件:行号` 依据，找不到或结论相反即判偏差），共核对 605 条陈述、确认 30 条偏差，即上文根因 10–16，已全部修正；其中 2 条审计意见本身有误（`plugin-spec.md` 例子里 `Tasks.Api`/`tasks.API` 实为两个都不通过、`ui-spec.md` 引用的 `pack://` + `UriKind.Absolute` 与源码 `UriKind.Relative` 不符），复核后未采纳并按源码写法改正。
+- 版本面同步：根 `README.md:5`（当前版本与一句话定位）、`:7`（下载链接 `v0.18.13`）、`:65`（MSI 文件名）、`:205-209`（版本导航列出 0.18.13/0.18.12/0.18.11 与变更记录）；`docs/plugins/` 四份契约与教程的版本句升到 0.18.13；`docs/releases/changelog.md` 补 0.18.13、0.18.12、0.18.11 三条并保留既有历史条目。
+- 构建与测试：`dotnet build Mosaic.sln -c Release -m:1` 0 警告 0 错误；`build/test.ps1 -Configuration Release` 16 个测试工程共 488 项全部通过（含 `Mosaic.Desktop.SmokeTests` 55 项真实进程冒烟与 `Mosaic.Wpf.Tests` 177 项），0 失败、0 跳过，日志在 `artifacts/verify-0.18.13/test.log`。本轮无 C# 改动，构建通过验证的是文档改动没有带入编译期副作用（例如 `.md` 被误纳入编译项）。
+- 发布验收见 0.18.13 发布记录（`docs/releases/v0.18.13.md` 只保留三条索引句，完整根因与改动位置以本节为准——全链「更新简要」正文上限 20000 字符是产品约束：`src/Modules/ReleaseSummary/Mosaic.ReleaseSummary/ReleaseManifest.cs:80` 与 `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskConstraints.cs:6` 的 `NotesMaxCharacters = 20_000`，0.1.0 → 0.18.12 的合并正文已占 19839 字符，0.18.13 只剩 161 字符余量，无法容纳本节全文）。
+
 ## 0.18.11 源码更新 · 速览筛选归属设置库与设置页布局（2026-11-24）
 
 **根因位置**
