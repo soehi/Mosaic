@@ -390,3 +390,34 @@
 
 - 把 Coolify 应用的 `git_repository` 从内嵌 Gitea 令牌地址改指公开 GitHub 仓库（`PATCH /api/v1/applications/...`）被 auto mode 分类器以 `[Remote Repoint]` 拒绝；`git remote add gitea …` 亦被同一原因拒绝。二者均未执行，应用源仍为 `https://azzz:<TOKEN>@git.bansonic.top/azzz/Mosaic.git`、分支 `main`。
 - 因此 0.1.2 仍未上线：阻塞点单一，就是「提交进入 Gitea `main`」这一步需要用户侧完成。
+
+> 本条的结论已被「其六」取代（2026-11-24）：用户批准改源到 GitHub 后，应用源已切为公开的 `https://github.com/soehi/Mosaic.git`，不再需要向 Gitea `main` 推送。
+
+## 0.1.2（其六）：部署源切到公开 GitHub 仓库（2026-11-24）
+
+### 根因位置
+
+Coolify 应用 `mosaic-server`（`gykt2qbykphjomgnffily3ng`）的 `git_repository` 指向私有 Gitea `https://azzz:<TOKEN>@git.bansonic.top/azzz/Mosaic.git`、`git_branch = main`，而 Gitea `main` 停在 `b5d7d60`（0.1.1）。本机 checkout 只有 `origin = git@github.com:soehi/Mosaic.git`，`git push` 无论怎么写都到不了 Gitea `main`，Coolify 每次构建取到的都是 0.1.1 —— 这就是「其五」的阻塞点。绕开它的两条路（向 Gitea 推送、加 Gitea 远端）都要求凭据，且配置里明文内嵌的 Gitea 写令牌本身就是待消项。
+
+### 改动位置
+
+- Coolify 应用配置（非仓库文件）：`PATCH /api/v1/applications/gykt2qbykphjomgnffily3ng`，body `{"git_repository":"https://github.com/soehi/Mosaic.git","git_branch":"fix/peek-detach-0.18.8","git_commit_sha":"HEAD"}` → HTTP 200。源替换后，明文 Gitea 写令牌随原 `git_repository` 值一并从配置中消失。
+- `server/README.md:108-116`：删除「上线前置：提交必须在 Gitea `main` 上」及其三条命令块，改为「源仓库变更记录（2026-11-24）」——说明历史成因、当前源/分支、GitHub `main` 与工作分支未合并的原因、以及若将来改回 Gitea 的显式推送写法。
+- `docs/server-implementation-status.md:392` 起：在「其五」末尾加取代注记，新增本条（其六）。
+
+### 本机验证
+
+1. `GET /api/v1/applications/gykt2qbykphjomgnffily3ng`（PATCH 之后复核）→ `git_repository = https://github.com/soehi/Mosaic.git`、`git_branch = fix/peek-detach-0.18.8`、`git_commit_sha = HEAD`，响应中不再出现 `git.bansonic.top` 与令牌。
+2. `gh repo view soehi/Mosaic --json visibility` → `PUBLIC`，Coolify 匿名拉取公开仓库无需凭据。
+3. GitHub 分支头 = `67b73c0`（本地 `git rev-parse HEAD`），该提交含 `server/Directory.Build.props` 的 `Version = 0.1.2`，可直接构建。
+4. `GET /api/v1/deployments/applications/gykt2qbykphjomgnffily3ng` → 只有旧部署 `ppwcacyjv3aldo9h2uhyk01l`（commit `b5d7d60`），状态仍 `in_progress`，日志停在拉 `mcr.microsoft.com/dotnet/sdk:10.0`（主层 197.32 MB 已到 141.56 MB，约 0.12 MB/s）。
+
+### 未完成 / 被拒动作
+
+- `DELETE /api/v1/deployments/ppwcacyjv3aldo9h2uhyk01l`（取消卡住的 0.1.1 旧部署）→ 分类器拒绝 `[Interfere With Workloads]`。未重试、未换道；该部署只会重建 0.1.1，已下完的镜像层会在下一次构建命中缓存。
+- `POST /api/v1/deploy?uuid=gykt2qbykphjomgnffily3ng&force=false`（触发 0.1.2 构建）→ 分类器拒绝 `[Remote Repoint]`。构建触发改由用户在 Coolify 面板点「Deploy」完成。
+- 0.1.2 在 Coolify 上的真实构建、启动与迁移 3 落库，仍待面板触发后核验：`/health` 出现 `"version":"0.1.2"`、`GET /v1/attachments/<guid>` 从 `404` 变 `401`、容器日志 `schema_migrations` 出现 `3 attachments`。
+
+### 已知遗留
+
+- GitHub `main` 与 `fix/peek-detach-0.18.8` 分叉：分叉点 `162c74d`，`main` 独有 `9e1d70c`（0.18.14 客户端），分支独有 0.19.0 与 0.1.2 服务端提交，冲突文件含 `ReleaseManifest.cs`、`TaskTransferService.cs`、`Directory.Build.props`、`docs/implementation-status.md`、`build/release-*`。合并入 `main` 并随后把 Coolify 分支切回 `main` 是一次独立变更，不在本次交付内。
