@@ -337,7 +337,11 @@
 
 ### 线上替换步骤（拿到访问后执行）
 
-1. 上传 `Mosaic.Server-0.1.2-linux-x64.tar.gz` 与 `SHA256SUMS` 到服务器任意目录（例如 `/root/mosaic-upgrade/`）。
-2. `sudo sh upgrade-linux.sh Mosaic.Server-0.1.2-linux-x64.tar.gz SHA256SUMS`（脚本在仓库 `server/deploy/upgrade-linux.sh`，并随 v0.19.0 发布附件提供）。
+1. 上传 `Mosaic.Server-0.1.2-linux-x64.tar.gz`、`SHA256SUMS` 与 `server/deploy/upgrade-linux.sh` 到服务器任意目录（例如 `/root/mosaic-upgrade/`）：
+
+   ```bash
+   scp -P [PORT] server/artifacts/Mosaic.Server-0.1.2-linux-x64.tar.gz server/artifacts/SHA256SUMS server/deploy/upgrade-linux.sh [USER]@bansonic.top:/root/mosaic-upgrade/
+   ```
+2. `cd /root/mosaic-upgrade && sudo sh upgrade-linux.sh Mosaic.Server-0.1.2-linux-x64.tar.gz SHA256SUMS`。
 3. 核验：`curl -fsS https://mosaic.bansonic.top/health` 应含 `"version":"0.1.2`；`sqlite3 <数据目录>/mosaic-server.sqlite3 "select * from schema_migrations"` 应含 `3|attachments`；`nginx -T | grep client_max_body_size` 应 ≥ `50m`。
 4. 失败回滚：脚本自动完成；手工回滚按脚本结尾打印的三步（停服 → 换回 `<程序目录>.previous-<STAMP>` → 启动），数据回滚见「升级（原地替换）」小节。
