@@ -9,6 +9,8 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
         <internal:LocalDateTimeConverter x:Key="LocalDateTime"/>
+        <internal:LocalizedFallbackConverter x:Key="LocalizedFallback"/>
+        <internal:LocalizedLabelConverter x:Key="LocalizedLabel"/>
         <internal:CurrentSessionTagConverter x:Key="CurrentToTag"/>
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}"/>
@@ -286,12 +288,13 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Margin="0,0,10,0" VerticalAlignment="Center">
                                                 <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
-                                                    <Run Text="{Binding DeviceLabel, TargetNullValue=未知设备}"/><Run
+                                                    <Run Text="{Binding DeviceLabel, Converter={StaticResource LocalizedFallback}, ConverterParameter='Auth.Sessions.UnknownDevice|未知设备'}"/><Run
                                                         Text="{Binding Current, Converter={StaticResource CurrentToTag}}"/>
                                                 </TextBlock>
                                                 <TextBlock FontSize="12" TextTrimming="CharacterEllipsis"
                                                            Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}">
-                                                    <Run Text="{Binding Platform, TargetNullValue=未知平台}"/><Run Text=" · 最近活跃："/><Run
+                                                    <Run Text="{Binding Platform, Converter={StaticResource LocalizedFallback}, ConverterParameter='Auth.Sessions.UnknownPlatform|未知平台'}"/><Run
+                                                        Text="{Binding LastSeenAtUtc, Converter={StaticResource LocalizedLabel}, ConverterParameter='Auth.Sessions.LastSeen| · 最近活跃：'}"/><Run
                                                         Text="{Binding LastSeenAtUtc, Converter={StaticResource LocalDateTime}}"/>
                                                 </TextBlock>
                                             </StackPanel>

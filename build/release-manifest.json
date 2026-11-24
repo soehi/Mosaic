@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.11",
+  "currentReleaseId": "mosaic-0.18.12",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -936,6 +936,22 @@
         "驱动速览筛选变化的通知此前只能通过基础伴随视图接口订阅，宿主无法判断实现是否支持选择；现在提供可选接口 ICompanionFilterSelection，支持时通过它订阅，未实现时自动回退到基础接口的默认事件。CompanionViewOptions 与现有伴随视图实现保持不变。"
       ],
       "contentSha256": "6F0E556A7E24940AA8D2E7704B7D8C1D2B8721C87477E5D0DD5F97C4ED7BD4BA"
+    },
+    {
+      "releaseId": "mosaic-0.18.12",
+      "version": "0.18.12",
+      "releasedOn": "2026-11-24",
+      "previousReleaseId": "mosaic-0.18.11",
+      "added": [],
+      "improved": [
+        "任务速览在刷新或切换筛选时复用已有的行与容器，键盘焦点回到原来的按钮上，不再每次重建整张列表。",
+        "筛选项的选中状态由程序同步时不再被当成一次用户点击，同一次切换只查询一次。"
+      ],
+      "fixed": [
+        "关闭速览后，迟到的完成回调或列表结果不再访问已释放的界面元素，避免偶发的 ObjectDisposedException。",
+        "账户与备份页的会话行不再硬编码中文：缺失的设备名、平台名与「最近活跃」时间随界面语言切换。"
+      ],
+      "contentSha256": "FC779C56A7A362FFFFBA31890A9EC7D6A8F694EB6A6020E9C18F0A899BF7303B"
     }
   ]
 }

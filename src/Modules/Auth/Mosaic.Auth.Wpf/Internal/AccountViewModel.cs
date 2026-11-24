@@ -344,8 +344,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     public bool HasSessions => Sessions.Count > 0;
 
-    public bool ShowSessionList => HasSessions && !SessionsBusy;
-
     public bool ShowSessionsLoading => !HasSessions && SessionsBusy;
 
     public bool SessionsBusy
@@ -355,7 +353,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         {
             if (!SetProperty(ref _sessionsBusy, value)) return;
             RefreshSessionsCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(ShowSessionList));
             OnPropertyChanged(nameof(ShowSessionsLoading));
         }
     }
@@ -586,7 +583,6 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
         _sessions.Clear();
         foreach (var session in sessions) _sessions.Add(session);
         OnPropertyChanged(nameof(HasSessions));
-        OnPropertyChanged(nameof(ShowSessionList));
         OnPropertyChanged(nameof(ShowSessionsLoading));
     }
 
@@ -1126,7 +1122,12 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
 
     // A language switch re-renders every localized string but must not discard text the user has
     // already typed into the server field (including an unsaved custom address).
-    private void OnLanguageChanged(object? sender, EventArgs e) => OnUi(() => OnPropertyChanged(string.Empty));
+    // Session rows bind to plain DTOs, so their converters only re-run when the rows are re-added.
+    private void OnLanguageChanged(object? sender, EventArgs e) => OnUi(() =>
+    {
+        OnPropertyChanged(string.Empty);
+        if (_sessions.Count > 0) ReplaceSessions([.. _sessions]);
+    });
 
     private void OnUi(Action action)
     {

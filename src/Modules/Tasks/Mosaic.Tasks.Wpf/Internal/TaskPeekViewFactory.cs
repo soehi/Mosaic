@@ -24,11 +24,38 @@ internal sealed class TaskPeekViewFactory(TasksUiDependencies dependencies, Func
     }
 }
 
-internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string Status, bool IsCompleted, long AttachmentCount, CompanionViewOptions Options, Brush? CustomColor) : INotifyPropertyChanged
+internal sealed class TaskPeekRow(Guid id, CompanionViewOptions options) : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
+    private long _revision;
+    private string _title = string.Empty;
+    private string _status = string.Empty;
+    private bool _completed;
+    private long _attachmentCount;
+    private Brush? _customColor;
     private bool _busy;
-    public bool IsBusy { get => _busy; set { _busy = value; PropertyChanged?.Invoke(this, new(nameof(CanComplete))); PropertyChanged?.Invoke(this, new(nameof(CompletionName))); PropertyChanged?.Invoke(this, new(nameof(BusyVisibility))); PropertyChanged?.Invoke(this, new(nameof(GlyphVisibility))); } }
+    private string? _completionName;
+    private string? _accessibleName;
+    private string? _attachmentLabel;
+    public Guid Id => id;
+    public CompanionViewOptions Options => options;
+    public long Revision => _revision;
+    public string Title => _title;
+    public string Status => _status;
+    public bool IsCompleted => _completed;
+    public long AttachmentCount => _attachmentCount;
+    public Brush? CustomColor => _customColor;
+    public bool IsBusy
+    {
+        get => _busy;
+        set
+        {
+            if (_busy == value) return;
+            _busy = value;
+            Notify(nameof(IsBusy), nameof(CanComplete), nameof(BusyVisibility), nameof(GlyphVisibility));
+            RefreshText();
+        }
+    }
     public Visibility BusyVisibility => IsBusy ? Visibility.Visible : Visibility.Collapsed;
     public Visibility GlyphVisibility => IsBusy ? Visibility.Collapsed : Visibility.Visible;
     public bool CanComplete => !IsBusy;
@@ -46,6 +73,41 @@ internal sealed record TaskPeekRow(Guid Id, long Revision, string Title, string 
     public double FontSize => Options.TitleFontSize;
     public double LineHeight => Options.TitleFontSize * 1.4;
     public double MaximumTitleHeight => LineHeight * Options.TitleMaxLines;
+
+    /// <summary>Applies the authoritative snapshot to this reusable row, notifying only the fields that changed.</summary>
+    internal void Update(long revision, string title, string status, bool completed, long attachmentCount, Brush? customColor)
+    {
+        if (!string.Equals(_title, title, StringComparison.Ordinal)) { _title = title; Notify(nameof(Title)); }
+        if (!string.Equals(_status, status, StringComparison.Ordinal)) { _status = status; Notify(nameof(Status)); }
+        if (_attachmentCount != attachmentCount) { _attachmentCount = attachmentCount; Notify(nameof(AttachmentCount), nameof(HasAttachments)); }
+        if (_completed != completed) { _completed = completed; Notify(nameof(IsCompleted), nameof(Geometry)); }
+        if (!SameBrush(_customColor, customColor)) { _customColor = customColor; Notify(nameof(CustomColor), nameof(HasCustomColor)); }
+        if (_revision != revision) { _revision = revision; Notify(nameof(Revision)); }
+    }
+
+    /// <summary>Re-evaluates the composed, localized strings after a language, theme or state change.</summary>
+    internal void RefreshText()
+    {
+        NotifyIfChanged(ref _completionName, CompletionName, nameof(CompletionName));
+        NotifyIfChanged(ref _accessibleName, AccessibleName, nameof(AccessibleName));
+        NotifyIfChanged(ref _attachmentLabel, AttachmentLabel, nameof(AttachmentLabel));
+    }
+
+    private static bool SameBrush(Brush? left, Brush? right) =>
+        left is null ? right is null
+        : right is not null && ((left is SolidColorBrush current && right is SolidColorBrush candidate && current.Color == candidate.Color) || ReferenceEquals(left, right));
+
+    private void Notify(params string[] names)
+    {
+        foreach (var name in names) PropertyChanged?.Invoke(this, new(name));
+    }
+
+    private void NotifyIfChanged(ref string? cached, string current, string name)
+    {
+        if (string.Equals(cached, current, StringComparison.Ordinal)) return;
+        cached = current;
+        Notify(name);
+    }
 }
 
 internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilterSelection, ICompanionNavigation, ICompanionInteraction
@@ -95,6 +157,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskPeekView _view = new();
     private IReadOnlyList<TaskItemDto> _items = [];
+    private readonly Dictionary<Guid, TaskPeekRow> _rowsById = [];
+    private TaskPeekRow[] _rows = [];
     private Task _allQueries = Task.CompletedTask;
     private bool _disposed;
     private bool _closed;
@@ -200,8 +264,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         {
             if (_closed || _selectedId is not null) return;
             _view.ListScroll.ScrollToVerticalOffset(_listOffset);
-            var container = _view.Rows.ItemContainerGenerator.ContainerFromItem(_view.Rows.Items.Cast<TaskPeekRow>().FirstOrDefault(row => row.Id == id));
-            if (container is System.Windows.DependencyObject node) FindButton(node)?.Focus();
+            if (_rowsById.GetValueOrDefault(id) is { } row && _view.Rows.ItemContainerGenerator.ContainerFromItem(row) is System.Windows.DependencyObject node)
+                FindButton(node)?.Focus();
         }));
         LayoutInvalidated?.Invoke(this, EventArgs.Empty); return true;
     }
@@ -220,7 +284,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         _selectedFilter = Enum.Parse<TaskFilter>(options.Filter);
         _view.CompleteRequested = CompleteAsync;
         _view.FilterRequested = SelectFilterAsync;
-        _view.DismissFeedback.Click += (_, _) => { _feedbackCancellation?.Cancel(); _view.OperationFeedback.Visibility = Visibility.Collapsed; LayoutInvalidated?.Invoke(this, EventArgs.Empty); };
+        _view.DismissFeedback.Click += DismissFeedback;
         _view.Retry.Click += Retry;
         _view.OpenRequested += OpenDetails;
         _view.CanDetach = () => !_closed && dependencies.Detach?.IsAvailable == true;
@@ -229,7 +293,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         _view.PreviewRequested = (row, hint) => dependencies.Detach?.BeginPlacementPreview(new("tasks-ui", row.Id.ToString("D")), hint);
         _view.PreviewMoved = hint => dependencies.Detach?.UpdatePlacementPreview(hint);
         _view.PreviewEnded = () => dependencies.Detach?.EndPlacementPreview();
-        _view.DragChanged += active => { _dragActive = active; InteractionChanged?.Invoke(this, EventArgs.Empty); };
+        _view.DragChanged += DragChanged;
         _changes = dependencies.Changes?.Subscribe(change => _ = dependencies.Dispatcher.InvokeAsync(() =>
         {
             if (_closed) return;
@@ -244,6 +308,20 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
     private void DragDetached()
     {
         if (!_closed) DismissRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void DragChanged(bool active)
+    {
+        if (_dragActive == active) return;
+        _dragActive = active;
+        InteractionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void DismissFeedback(object? sender, RoutedEventArgs e)
+    {
+        CancelFeedback();
+        _view.OperationFeedback.Visibility = Visibility.Collapsed;
+        LayoutInvalidated?.Invoke(this, EventArgs.Empty);
     }
 
     public FrameworkElement View => _view;
@@ -296,8 +374,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
             var filter = Enum.Parse<TaskFilter>((string)button.Tag);
             button.Content = TaskLocalization.Localize("Tasks.Peek.Filter." + filter, filter.ToString());
             AutomationProperties.SetName(button, (string)button.Content);
-            button.IsChecked = filter == _selectedFilter;
         }
+        _view.SelectFilter(_selectedFilter);
         _view.Summary.Text = _loading || _failed ? TaskLocalization.Localize("Tasks.Peek.Snapshot", "当前任务快照")
             : TaskLocalization.Format("Tasks.Peek.Count", "共 {0} 项 · {1} 项未完成", _items.Count, _items.Count(item => !item.IsCompleted));
         _view.Feedback.Text = _loading ? TaskLocalization.Localize("Tasks.Loading", "正在读取任务…")
@@ -309,7 +387,32 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         _view.Retry.Content = TaskLocalization.Localize("Tasks.Retry", "重试");
         _view.Retry.Visibility = _failed ? Visibility.Visible : Visibility.Collapsed;
         _view.Retry.IsEnabled = !_loading;
-        _view.Rows.ItemsSource = _loading || _failed ? Array.Empty<TaskPeekRow>() : _items.Take(_options.MaxItems).Select(item =>
+        var rows = BuildRows();
+        if (!SameRows(rows))
+        {
+            _rows = rows;
+            _view.Rows.ItemsSource = _rows;
+            _view.UpdateLayout();
+        }
+        foreach (var row in _rows) row.RefreshText();
+        _view.More.Text = TaskLocalization.Format("Tasks.Peek.More", "显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。", _options.MaxItems, _items.Count);
+        _view.More.Visibility = !state && _items.Count > _options.MaxItems ? Visibility.Visible : Visibility.Collapsed;
+        if (!_loading && focusedId is { } id)
+        {
+            _focusId = null; _focusName = null;
+            if (!_closed && _selectedId is null) RestoreFocus(id, focusedName);
+        }
+        LayoutInvalidated?.Invoke(this, EventArgs.Empty);
+    }
+
+    private TaskPeekRow[] BuildRows()
+    {
+        // A reload keeps the existing rows so containers and focus survive; the list is hidden while loading.
+        if (_loading) return _rows;
+        if (_failed) { _rowsById.Clear(); return []; }
+        var rows = new List<TaskPeekRow>(Math.Min(_options.MaxItems, _items.Count));
+        var seen = new HashSet<Guid>();
+        foreach (var item in _items.Take(_options.MaxItems))
         {
             var status = TaskLocalization.Localize(item.IsCompleted ? "Tasks.Peek.Completed" : "Tasks.Peek.Open", item.IsCompleted ? "已完成" : "未完成");
             var title = string.IsNullOrWhiteSpace(item.Title) ? TaskLocalization.Localize("Tasks.Peek.Untitled", "未命名任务") : item.Title;
@@ -317,27 +420,49 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
             Brush? brush = color != "Theme" && !SystemParameters.HighContrast && MosaicThemeManager.Current != MosaicThemeVariant.HighContrast &&
                 color.Length == 7 && color[0] == '#' && color[1..].All(Uri.IsHexDigit)
                 ? new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)) : null;
-            return new TaskPeekRow(item.Id, item.Revision, title, status, item.IsCompleted, item.AttachmentCount, _options, brush)
+            if (!_rowsById.TryGetValue(item.Id, out var row))
             {
-                IsBusy = _pending.Contains(item.Id)
-            };
-        }).ToArray();
-        _view.More.Text = TaskLocalization.Format("Tasks.Peek.More", "显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。", _options.MaxItems, _items.Count);
-        _view.More.Visibility = !state && _items.Count > _options.MaxItems ? Visibility.Visible : Visibility.Collapsed;
-        if (!_loading && focusedId is { } id)
-            _view.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (_closed || _selectedId is not null) return;
-                _view.UpdateLayout();
-                var row = _view.Rows.Items.Cast<TaskPeekRow>().FirstOrDefault(item => item.Id == id);
-                var node = row is null ? null : _view.Rows.ItemContainerGenerator.ContainerFromItem(row);
-                var target = node is null ? null : Buttons(node).FirstOrDefault(button => button.Name == focusedName && button.IsEnabled && button.IsVisible);
-                if (target is not null) target.Focus();
-                else if (_options.ShowFilterSwitch) _view.FilterOptions.Children.OfType<RadioButton>().FirstOrDefault(button => button.IsChecked == true)?.Focus();
-                else Buttons(_view.Rows).FirstOrDefault(button => button.IsEnabled && button.IsVisible)?.Focus();
-                _focusId = null; _focusName = null;
-            }));
-        LayoutInvalidated?.Invoke(this, EventArgs.Empty);
+                row = new TaskPeekRow(item.Id, _options);
+                _rowsById[item.Id] = row;
+            }
+            row.Update(item.Revision, title, status, item.IsCompleted, item.AttachmentCount, brush);
+            var busy = _pending.Contains(item.Id);
+            if (row.IsBusy != busy) row.IsBusy = busy;
+            rows.Add(row);
+            seen.Add(item.Id);
+        }
+        foreach (var stale in _rowsById.Keys.Where(id => !seen.Contains(id)).ToArray()) _rowsById.Remove(stale);
+        return [.. rows];
+    }
+
+    private bool SameRows(IReadOnlyList<TaskPeekRow> rows)
+    {
+        if (rows.Count != _rows.Length) return false;
+        for (var index = 0; index < rows.Count; index++)
+            if (!ReferenceEquals(rows[index], _rows[index])) return false;
+        return true;
+    }
+
+    private void RestoreFocus(Guid id, string? name)
+    {
+        if (!_rowsById.TryGetValue(id, out var row) || _view.Rows.ItemContainerGenerator.ContainerFromItem(row) is not DependencyObject node)
+        {
+            FocusFallback();
+            return;
+        }
+        var target = Buttons(node).FirstOrDefault(button => button.Name == name && button.IsEnabled && button.IsVisible)
+            ?? Buttons(node).FirstOrDefault(button => button.Name == "TaskCard" && button.IsEnabled && button.IsVisible);
+        if (target is not null) target.Focus(); else FocusFallback();
+    }
+
+    private void FocusFallback()
+    {
+        if (_options.ShowFilterSwitch && _view.FilterOptions.Children.OfType<RadioButton>().FirstOrDefault(button => button.IsChecked == true) is { } filter)
+        {
+            filter.Focus();
+            return;
+        }
+        Buttons(_view.Rows).FirstOrDefault(button => button.IsEnabled && button.IsVisible)?.Focus();
     }
     private static IEnumerable<Button> Buttons(DependencyObject node)
     {
@@ -380,14 +505,14 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         }
         finally
         {
-            _pending.Remove(row.Id); row.IsBusy = false;
-            foreach (var current in _view.Rows.Items.OfType<TaskPeekRow>().Where(item => item.Id == row.Id)) current.IsBusy = false;
+            _pending.Remove(row.Id);
+            row.IsBusy = false;
             InteractionChanged?.Invoke(this, EventArgs.Empty);
         }
     }
     private void ShowOperationError(string text)
     {
-        _feedbackCancellation?.Cancel();
+        CancelFeedback();
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _feedbackCancellation = cancellation;
         _view.OperationMessage.Text = text;
@@ -395,6 +520,15 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         _view.OperationFeedback.Visibility = Visibility.Visible;
         LayoutInvalidated?.Invoke(this, EventArgs.Empty);
         _allQueries = Task.WhenAll(_allQueries, HideFeedbackAsync(cancellation));
+    }
+    // The field only ever holds a live token source: HideFeedbackAsync disposes its own instance after
+    // clearing the field, so cancelling through the field cannot touch a disposed source.
+    private void CancelFeedback()
+    {
+        var cancellation = _feedbackCancellation;
+        if (cancellation is null) return;
+        _feedbackCancellation = null;
+        cancellation.Cancel();
     }
     private async Task HideFeedbackAsync(CancellationTokenSource cancellation)
     {
@@ -407,7 +541,9 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
     {
         if (_closed) return Task.CompletedTask;
         _closed = true; ++_generation; ++_detailGeneration; _detailCancellation?.Cancel();
-        _view.CancelDrag(); _changes?.Dispose();
+        _view.CancelDrag(); _changes?.Dispose(); CancelFeedback();
+        _view.DismissFeedback.Click -= DismissFeedback; _view.DragChanged -= DragChanged;
+        _view.CanDetach = null;
         _view.CompleteRequested = null; _view.FilterRequested = null;
         _view.DetachRequested = null; _view.Detached -= DragDetached;
         _view.PreviewRequested = null; _view.PreviewMoved = null; _view.PreviewEnded = null;

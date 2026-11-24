@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using Mosaic.Auth.Contracts;
 using Mosaic.Auth.Wpf.Internal;
@@ -17,6 +18,7 @@ namespace Mosaic.Wpf.Tests;
 // behaviour the shell relies on: offline by default, no network without a server, the four
 // browser-first entries (no desktop registration/password/reset forms), the browser code
 // format, and confirmation before a destructive restore.
+[Collection(UiLocalizationCollection.Name)]
 public sealed class AccountViewModelTests
 {
     private static readonly Uri Server = new("https://sync.example.com/");
@@ -429,7 +431,6 @@ public sealed class AccountViewModelTests
         Assert.Equal(1, signedIn.Auth.ListSessionsCalls);
         Assert.Equal(2, signedIn.ViewModel.Sessions.Count);
         Assert.True(signedIn.ViewModel.HasSessions);
-        Assert.True(signedIn.ViewModel.ShowSessionList);
     });
 
     [Theory]
@@ -440,6 +441,7 @@ public sealed class AccountViewModelTests
         await using var fixture = await new Fixture().StartAsync(signedIn: true);
         var model = fixture.ViewModel;
         await model.InitializeAsync();
+        UiTestApplication.EnsureTheme();
         var view = new AccountView { DataContext = model };
         view.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
@@ -541,6 +543,72 @@ public sealed class AccountViewModelTests
         Assert.True(confirm.ActualHeight >= 36);
         Assert.Same(view.FindResource(MosaicTheme.DangerButtonKey), confirm.Style);
         Assert.Equal(0, fixture.Auth.DeleteAccountCalls);
+    });
+
+    [Fact]
+    public Task Session_rows_follow_the_ui_language_for_missing_device_and_platform() => Run(async () =>
+    {
+        // 会话行绑定的是普通 DTO，语言切换不会重新跑行级 converter：行里缺失的设备/平台占位与
+        // "最近活跃"前缀必须显式重建行才会变成另一种语言，同时不能丢掉本地化资源。
+        var previous = MosaicLocalizationManager.Current;
+        using var registration = MosaicLocalizationManager.Register(
+            "auth-ui-tests", language => AuthLocalizationDictionaries.Dictionary(language == MosaicLanguage.English));
+        try
+        {
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
+            await using var fixture = await new Fixture().StartAsync(signedIn: true);
+            var now = DateTimeOffset.UtcNow;
+            fixture.Auth.SessionsResult = [new("s-1", null, null, now, now, now.AddDays(10), false)];
+            var model = fixture.ViewModel;
+            await model.InitializeAsync();
+            UiTestApplication.EnsureTheme();
+            var view = new AccountView { DataContext = model };
+            view.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative)
+            });
+            view.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Palettes/Light.xaml", UriKind.Relative)
+            });
+            const int width = 600, height = 600;
+            void Arrange()
+            {
+                view.Measure(new Size(width, height));
+                view.Arrange(new Rect(0, 0, width, height));
+                view.UpdateLayout();
+            }
+            static IEnumerable<FrameworkElement> Descendants(DependencyObject parent)
+            {
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+                {
+                    var child = VisualTreeHelper.GetChild(parent, index);
+                    if (child is FrameworkElement element) yield return element;
+                    foreach (var descendant in Descendants(child)) yield return descendant;
+                }
+            }
+            string[] Texts() => Descendants(view).OfType<TextBlock>()
+                .Select(text => text.Inlines.Count > 0
+                    ? string.Concat(text.Inlines.OfType<Run>().Select(run => run.Text))
+                    : text.Text)
+                .Where(text => text.Length > 0)
+                .ToArray();
+
+            Arrange();
+            Assert.Contains(Texts(), text => text.StartsWith("未知设备", StringComparison.Ordinal));
+            Assert.Contains(Texts(), text => text.StartsWith("未知平台 · 最近活跃：", StringComparison.Ordinal));
+
+            MosaicLocalizationManager.SetLanguage(MosaicLanguage.English);
+            Arrange();
+
+            Assert.Contains(Texts(), text => text.StartsWith("Unknown device", StringComparison.Ordinal));
+            Assert.Contains(Texts(), text => text.StartsWith("Unknown platform · Last active:", StringComparison.Ordinal));
+            Assert.DoesNotContain(Texts(), text => text.Contains("未知", StringComparison.Ordinal));
+        }
+        finally
+        {
+            MosaicLocalizationManager.SetLanguage(previous);
+        }
     });
 
     [Fact]

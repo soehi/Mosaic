@@ -386,6 +386,38 @@ public sealed class PresenceTests
     });
 
     [Fact]
+    public Task Peek_reuses_row_containers_when_a_refresh_returns_the_same_items() => Sta.Run(async () =>
+    {
+        // 视图每次刷新都重建行会让焦点和容器身份丢失；同一批任务刷新时必须复用行与容器，
+        // 而且程序同步筛选按钮的选中状态不能反过来再触发一次查询。
+        var item = Item("行复用");
+        var queries = new List<TaskFilter>();
+        var api = new Api
+        {
+            Query = (q, _) =>
+            {
+                queries.Add(q.Filter);
+                return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([item]));
+            }
+        };
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        Button Card() => Descendants(session.View).OfType<Button>().Single(button => button.Name == "TaskCard");
+        var card = Card();
+        var row = card.DataContext;
+
+        Filter(session.View, "Open").RaiseEvent(new RoutedEventArgs(RadioButton.CheckedEvent)); await Drain();
+
+        Assert.Equal(new[] { TaskFilter.All, TaskFilter.Open }, queries);
+        var after = Card();
+        Assert.Same(card, after);
+        Assert.Same(row, after.DataContext);
+        Assert.Contains("行复用", Texts(session.View));
+    });
+
+    [Fact]
     public Task Peek_close_cancels_pending_write_and_discards_late_result() => Sta.Run(async () =>
     {
         var pending = new TaskCompletionSource<OperationResult<TaskItemDto>>(); CancellationToken token = default;

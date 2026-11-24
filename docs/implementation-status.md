@@ -1,5 +1,62 @@
 # Mosaic：实施与验证记录
 
+## 0.18.12：速览行复用、筛选同步与会话行本地化（2026-11-24）
+
+本轮处理速览与账户页的八项审查结论：第 3、4、5、7、8 项落码修复，第 1 项（同一「分离到小窗」动作三种入口三种结果）与第 2 项（附件计数失败静默落空、任务夹徽标消失）按指示不改；第 6 项复核后确认已由 0.18.11 的伴随视图架构重构消除（`PresenceSurface.cs` 已无 `LoadFilter`/`filterPreferencePath`，构造函数为 4 参数），本轮无代码改动。数据结构、设置键与安装布局均未变。
+
+**根因位置（按问题顺序）**
+
+1. 速览每次刷新都重建整行，焦点恢复靠猜。原 `UpdateView` 无条件执行 `_view.Rows.ItemsSource = _items.Take(...).Select(item => new TaskPeekRow(...)).ToArray()`（`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs:312`，HEAD），随后在 `BeginInvoke` 里按 Id 从 `Items.Cast<TaskPeekRow>()` 找到行、再从容器里按按钮名找控件（`:328-336`，HEAD）。触发条件：切换筛选、收到任务变更通知、完成操作后的重新读取。出错原因：`ItemsSource` 换成新集合必然销毁全部容器，滚动位置与键盘焦点一起丢失；`BeginInvoke` 排队期间若又有一次刷新，旧行已不在 `Items` 里，查找落空后静默不回焦。行对象是 `record`（`:27`，HEAD），属性不可变，只能整行替换，无法只更新变化字段。
+2. 筛选按钮的 `Checked` 同时承担用户点击与程序同步。`FilterClicked` 没有区分事件来源（`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs:21-27`，HEAD），而 `UpdateView` 直接写 `button.IsChecked = filter == _selectedFilter`（`TaskPeekViewFactory.cs:299`，HEAD）。触发条件：每次视图刷新同步选中态；键盘方向键在组内移动。出错原因：程序化赋值同样触发 `Checked`，被当成用户点击再走一遍 `SelectFilterAsync`（同值早退掩盖了大部分情况，但拖拽取消等副作用照常执行）；方向键切换只触发 `Checked` 不触发 `Click`，与鼠标路径行为不一致。
+3. 关闭速览后，延迟回调仍会碰已释放的界面。关闭反馈的匿名 lambda 直接 `_feedbackCancellation?.Cancel()`（`TaskPeekViewFactory.cs:223`，HEAD），`ShowOperationError` 也先取消同一字段（`:388-390`，HEAD），而反馈计时器的 `finally` 已经 `Dispose()` 了它的 `CancellationTokenSource`；拖拽 lambda 每次无条件发 `InteractionChanged`（`:232`，HEAD），`CloseAsync` 也没有退订这些匿名处理器。触发条件：关闭速览后 6 秒反馈计时到点、完成操作返回、拖拽结束。出错原因：字段生命周期与 `Dispose` 未绑定，取消已释放的源抛 `ObjectDisposedException`；事件继续持有已关闭的 VM，关闭后仍可能触发界面操作。
+4. 会话行硬编码中文（`src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml:289-295`，HEAD）：`TargetNullValue=未知设备`、`TargetNullValue=未知平台`、`<Run Text=" · 最近活跃："/>`，语言切换处理只有 `OnPropertyChanged(string.Empty)`（`src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs:1129`，HEAD）。触发条件：界面语言切到英文，或会话缺少设备名/平台名。出错原因：`TargetNullValue` 是编译期常量，切换语言不会重算；会话行绑定源是普通 `AuthSessionInfoDto`，`PropertyChanged(string.Empty)` 只刷新以 ViewModel 为源的绑定，行级 converter 不会再跑。
+5. 会话列表的显示条件在三处重复推导：`ShowSessionList => HasSessions && !SessionsBusy`（`AccountViewModel.cs:347`，HEAD）、`SessionsBusy` 的 setter 通知（`:358`，HEAD）、`ReplaceSessions` 里的通知（`:589`，HEAD），而 XAML 只绑定 `ShowSessionsLoading` 与 `HasSessions`（`AccountView.xaml:274-277`），`ShowSessionList` 零引用。触发条件：刷新会话、空态与加载态切换。出错原因：同一状态由三处各自推导，新增状态时容易让列表与加载提示同时出现或同时消失；属性没有消费者，改动时容易被误当成有效契约。
+
+**改动位置（逐文件、类型与方法）**
+
+1. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs`
+   - `TaskPeekRow`（`:27-112`）：由不可变 `record` 改为可复用的 `sealed class`，字段改为可变私有属性；`Update(long, string, string, bool, long, Brush?)`（`:76-85`）只对变化的字段发通知，`RefreshText()`（`:87-93`）合并 `CompletionName`/`AccessibleName`/`AttachmentLabel` 三个本地化组合串；`IsBusy` setter 增加同值早退。
+   - `_rowsById` 与 `_rows`（`:160-161`）：行身份缓存与当前列表快照。
+   - `UpdateView()`（`:366-406`）：改为 `BuildRows()` + `SameRows()`，仅在行的数量或身份变化时重设 `ItemsSource` 并 `UpdateLayout()`，否则只对现有行调用 `RefreshText()`；焦点恢复改为同步执行，且仅在未关闭、未进入详情页时进行。
+   - `BuildRows()`（`:408-436`）：加载中沿用旧行以保留容器；失败时清空缓存；按 Id 复用行并清理已消失的 Id。
+   - `SameRows()`（`:438-444`）与 `RestoreFocus()`（`:446-456`）、`FocusFallback()`（`:458-466`）：按容器取行，优先恢复同名按钮，其次 `TaskCard`，都不可用时退回当前筛选按钮。
+   - `CloseAsync()`（`:540-548`）：退订 `DismissFeedback` 与 `DragChanged`，并清空 `_view.CanDetach`。
+   - `CancelFeedback()`（`:526-532`）只取消仍存活的通知源并立即置空；`ShowOperationError()`（`:513-523`）首行调用它；`DismissFeedback`（`:320-325`）与 `DragChanged`（`:313-318`）改为具名处理器，后者同值不再发 `InteractionChanged`。
+   - `SubmitCompletionAsync()`（`:489-512`）的 `finally` 只移除 pending 与忙碌标记。
+2. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs`
+   - `FilterClicked`（`:21-26`）增加 `_syncingFilters` 早退；新增 `SelectFilter(TaskFilter)`（`:28-37`）以程序方式同步三个单选按钮且不触发筛选请求；新字段 `_syncingFilters`（`:48`）。
+3. `src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountConverters.cs`（已有文件，本轮新增两个转换器）
+   - `LocalDateTimeConverter`（`:8-21`）：UTC 时间按本地时区输出 `yyyy-MM-dd HH:mm`（内容未变）。
+   - `LocalizedFallbackConverter`（`:23-31`）：有文本用文本，否则按 `ResourceKey|默认文案` 取本地化值。
+   - `LocalizedLabelConverter`（`:33-51`）：忽略绑定值，只渲染参数指向的本地化文案。
+   - `CurrentSessionTagConverter`（`:53-62`）：仅当前会话渲染「本设备」标签，且随语言切换（内容未变）。
+4. `src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml`
+   - `:11-14` 注册四个转换器；`:289-299` 的会话卡模板改为转换器组合，`未知设备`、`未知平台` 与「最近活跃」前缀全部来自资源键。
+5. `src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml:104-106` 与 `en.xaml:75-77`
+   - 新增 `Auth.Sessions.UnknownDevice`、`Auth.Sessions.UnknownPlatform`、`Auth.Sessions.LastSeen`。`LastSeen` 用 `xml:space="preserve"` 保留前导空格：XAML 会裁掉元素文本首尾空白，`&#32;` 同样被裁，不写该属性时渲染成「未知平台· 最近活跃：」。
+6. `src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`
+   - 删除 `ShowSessionList` 及 `SessionsBusy` setter、`ReplaceSessions` 里的对应通知；`ReplaceSessions`（`:581-587`）只通知 `HasSessions` 与 `ShowSessionsLoading`。
+   - `OnLanguageChanged`（`:1126-1130`）：在 `PropertyChanged(string.Empty)` 之后，会话非空时以 `ReplaceSessions([.. _sessions])` 重建行，使行级转换器重跑；服务地址输入框等用户草稿不受影响。
+7. 测试
+   - `tests/Mosaic.Wpf.Tests/PresenceTests.cs:389`：`Peek_reuses_row_containers_when_a_refresh_returns_the_same_items`，断言切换筛选后 `TaskCard` 实例与行对象不变、且查询序列恰为 `All → Open`。
+   - `tests/Mosaic.Wpf.Tests/AccountViewModelTests.cs:549`：`Session_rows_follow_the_ui_language_for_missing_device_and_platform`，断言中文与英文下缺失设备/平台与「最近活跃」文案，并断言英文下不再出现「未知」。
+   - `tests/Mosaic.Wpf.Tests/UiTestApplication.cs`（新增）：统一创建带 `Theme.xaml` 的进程级 `Application`，供在构造 `AccountView` 时解析 `StaticResource`。
+   - `tests/Mosaic.Wpf.Tests/UiLocalizationCollection.cs`（新增）：语言状态是进程级全局量，把 `AccountViewModelTests`（`:21`）与 `TaskAttachmentLocalizationTests`（`:9`）放进同一个非并行集合；`AccountViewModelTests` 两处建视图前调用 `EnsureTheme()`（`:444`、`:564`）。
+   - `tests/Mosaic.Wpf.Tests/PreviewCaptureTests.cs:28`：改用 `UiTestApplication.EnsureTheme()`，避免与其它测试重复创建 `Application`。
+8. 发布元数据
+   - `Directory.Build.props:12` 升到 0.18.12；`build/release-content.json` 新增 `mosaic-0.18.12` 并把 `currentReleaseId` 指向它；`build/published-release-index.json` 追加第 58 条；`build/release-manifest.json` 与 `docs/releases/v0.18.12.md` 由 `scripts/release_content_verify.py` 生成。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：本次不改数据库 schema、不改设置键、不改模块装配、不改安装包布局，不需要数据迁移。已有安装升级后 `Data/`、`Config/` 与 `task-peek-filter.txt` 导入结果均保持不变；新版只改变视图层的行复用与文案来源。
+- 验收项：
+  1. 切换筛选后行的 `TaskCard` 容器与 `DataContext` 不变，查询只发一次（新增用例）。
+  2. 完成操作或外部变更后列表按新数据增删行，键盘焦点回到同一行的同名按钮，找不到时退回 `TaskCard` 或当前筛选按钮。
+  3. 关闭速览后 6 秒内、以及完成后返回时，不出现 `ObjectDisposedException`，诊断日志无新增记录。
+  4. 英文界面下会话行显示 `Unknown device`、`Unknown platform · Last active:`；中文界面显示 `未知设备`、`未知平台 · 最近活跃：`（新增用例）。
+  5. 已有安装升级后账户页会话、空态与加载提示的显隐与 0.18.11 一致（`ShowSessionsLoading` 仍为 `!HasSessions && SessionsBusy`）。
+- 回滚方式：回退本次提交即可，没有需要撤销的数据迁移；`docs/releases/v0.18.12.md` 与发布索引同属该提交，回退后从 0.18.11 内容继续发布。
+
 ## 0.18.11 源码更新 · 速览筛选归属设置库与设置页布局（2026-11-24）
 
 **根因位置**

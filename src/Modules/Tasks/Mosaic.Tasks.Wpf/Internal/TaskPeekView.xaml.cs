@@ -20,8 +20,20 @@ internal partial class TaskPeekView : UserControl
     }
     private async void FilterClicked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         CancelDrag();
         if (sender is RadioButton { Tag: string tag } && FilterRequested is { } filter) await filter(Enum.Parse<Mosaic.Tasks.Contracts.TaskFilter>(tag));
+    }
+    /// <summary>Mirrors the selected filter onto the radios without treating it as a user click.</summary>
+    internal void SelectFilter(Mosaic.Tasks.Contracts.TaskFilter filter)
+    {
+        _syncingFilters = true;
+        try
+        {
+            foreach (var button in FilterOptions.Children.OfType<RadioButton>())
+                button.IsChecked = string.Equals((string)button.Tag, filter.ToString(), StringComparison.Ordinal);
+        }
+        finally { _syncingFilters = false; }
     }
     internal Func<TaskPeekRow, FloatingPlacementHint?, CancellationToken, Task<bool>>? DetachRequested;
     internal event Action? Detached;
@@ -33,7 +45,7 @@ internal partial class TaskPeekView : UserControl
     private FrameworkElement? _candidate;
     private Point _start;
     private Point _grab;
-    private bool _dragging, _suppressClick, _previewing;
+    private bool _dragging, _suppressClick, _previewing, _syncingFilters;
     private DragHintAdorner? _preview;
     private KeyEventHandler? _escapeHandler;
     private CancellationTokenSource? _opening;

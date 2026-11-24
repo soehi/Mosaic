@@ -6,6 +6,7 @@ using Mosaic.Tasks.Wpf.Internal;
 
 namespace Mosaic.Wpf.Tests;
 
+[Collection(UiLocalizationCollection.Name)]
 public sealed class TaskAttachmentLocalizationTests
 {
     private static readonly string[] ErrorKeys =

@@ -101,6 +101,9 @@
     <sys:String x:Key="Auth.Sessions.Loading">正在加载会话…</sys:String>
     <sys:String x:Key="Auth.Sessions.Empty">没有可显示的会话。</sys:String>
     <sys:String x:Key="Auth.Sessions.CurrentTag">（本设备）</sys:String>
+    <sys:String x:Key="Auth.Sessions.UnknownDevice">未知设备</sys:String>
+    <sys:String x:Key="Auth.Sessions.UnknownPlatform">未知平台</sys:String>
+    <sys:String x:Key="Auth.Sessions.LastSeen" xml:space="preserve"> · 最近活跃：</sys:String>
     <sys:String x:Key="Auth.Sessions.Revoke">撤销</sys:String>
     <sys:String x:Key="Auth.Sessions.Revoked">会话已撤销。</sys:String>
     <sys:String x:Key="Auth.Sessions.Refresh">刷新会话</sys:String>

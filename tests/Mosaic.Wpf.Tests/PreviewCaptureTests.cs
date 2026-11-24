@@ -25,8 +25,7 @@ public sealed class PreviewCaptureTests
         var root = FindRepositoryRoot();
         var output = Path.Combine(root, "artifacts", "ui-preview");
         Directory.CreateDirectory(output);
-        var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        application.Resources.MergedDictionaries.Add(LoadTheme());
+        UiTestApplication.EnsureTheme();
 
         await CaptureShell(output, 1504, 1012, "shell-wide.png");
         await CaptureShell(output, 1100, 720, "shell-1100-rail.png");

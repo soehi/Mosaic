@@ -72,6 +72,9 @@
     <sys:String x:Key="Auth.Sessions.Loading">Loading sessions…</sys:String>
     <sys:String x:Key="Auth.Sessions.Empty">No sessions to display.</sys:String>
     <sys:String x:Key="Auth.Sessions.CurrentTag"> (this device)</sys:String>
+    <sys:String x:Key="Auth.Sessions.UnknownDevice">Unknown device</sys:String>
+    <sys:String x:Key="Auth.Sessions.UnknownPlatform">Unknown platform</sys:String>
+    <sys:String x:Key="Auth.Sessions.LastSeen" xml:space="preserve"> · Last active:</sys:String>
     <sys:String x:Key="Auth.Sessions.Revoke">Revoke</sys:String>
     <sys:String x:Key="Auth.Sessions.Revoked">Session revoked.</sys:String>
     <sys:String x:Key="Auth.Sessions.Refresh">Refresh sessions</sys:String>
