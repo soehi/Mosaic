@@ -99,6 +99,7 @@
     <sys:String x:Key="Auth.Error.Validation">输入内容无效，请检查后重试。</sys:String>
     <sys:String x:Key="Auth.Sessions.Title">已登录会话</sys:String>
     <sys:String x:Key="Auth.Sessions.Loading">正在加载会话…</sys:String>
+    <sys:String x:Key="Auth.Sessions.Empty">没有可显示的会话。</sys:String>
     <sys:String x:Key="Auth.Sessions.CurrentTag">（本设备）</sys:String>
     <sys:String x:Key="Auth.Sessions.Revoke">撤销</sys:String>
     <sys:String x:Key="Auth.Sessions.Revoked">会话已撤销。</sys:String>

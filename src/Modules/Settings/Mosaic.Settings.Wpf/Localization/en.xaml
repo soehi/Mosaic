@@ -220,8 +220,8 @@
     <sys:String x:Key="Settings.Setting.Desktop.CloseBehavior.Description">Reside in the background or exit; exiting also closes the edge tab</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeActivation">Edge activation</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeActivation.Description">Open the task peek by hover, single click or double click</sys:String>
-    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter">Peek task filter</sys:String>
-    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter.Description">Show only the filtered task snapshot in the popup</sys:String>
+    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter">Default overview filter</sys:String>
+    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter.Description">Used until you choose a filter in the overview or when the filter switch is hidden</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeMonitor">Target monitor</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeMonitor.Description">Primary monitor or the monitor of the last main window</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeAnchor">Edge anchor</sys:String>

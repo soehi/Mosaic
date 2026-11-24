@@ -59,6 +59,20 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="EmptySessions" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding HasSessions}" Value="False"/>
+                        <Condition Binding="{Binding SessionsBusy}" Value="False"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Visible"/>
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
@@ -237,84 +251,87 @@
                         <WrapPanel>
                             <Button Content="{DynamicResource Auth.Sync.Upload}" Command="{Binding UploadCommand}"
                                     Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                    MinWidth="120" MinHeight="38" Margin="0,0,10,8"
+                                    Padding="12,7" MinHeight="36" Margin="0,0,8,4"
                                     AutomationProperties.AutomationId="UploadBackupButton"/>
                             <Button Content="{DynamicResource Auth.Sync.Download}" Command="{Binding DownloadCommand}"
                                     Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                    MinWidth="120" MinHeight="38" Margin="0,0,10,8"
+                                    Padding="12,7" MinHeight="36" Margin="0,0,8,4"
                                     AutomationProperties.AutomationId="DownloadBackupButton"/>
                             <Button Content="{DynamicResource Auth.Sync.Refresh}" Command="{Binding RefreshLatestCommand}"
-                                    Style="{StaticResource LinkButton}"/>
+                                    Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                    Padding="12,7" MinHeight="36" Margin="0,0,0,4"
+                                    AutomationProperties.AutomationId="RefreshBackupButton"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource Card}">
-                    <StackPanel>
+                    <StackPanel AutomationProperties.AutomationId="AccountSessionsSection">
                         <TextBlock Text="{DynamicResource Auth.Sessions.Title}"
                                    Style="{DynamicResource {x:Static theme:MosaicTheme.BodyTextKey}}"
-                                   FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                        <StackPanel Visibility="{Binding ShowSessionsLoading, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="{DynamicResource Auth.Sessions.Loading}" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
-                        </StackPanel>
-                        <StackPanel Visibility="{Binding ShowSessionList, Converter={StaticResource BoolVisibility}}">
-                            <ItemsControl ItemsSource="{Binding Sessions}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Padding="10,8" Margin="0,0,0,6" CornerRadius="6"
-                                                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0">
-                                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
-                                                        <Run Text="{Binding DeviceLabel, TargetNullValue=未知设备}"/><Run
-                                                            Text="{Binding Current, Converter={StaticResource CurrentToTag}}"/>
-                                                    </TextBlock>
-                                                    <TextBlock FontSize="12" TextTrimming="CharacterEllipsis"
-                                                               Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}">
-                                                        <Run Text="{Binding Platform, TargetNullValue=未知平台}"/><Run Text=" · 最近活跃："/><Run
-                                                            Text="{Binding LastSeenAtUtc, Converter={StaticResource LocalDateTime}}"/>
-                                                    </TextBlock>
-                                                </StackPanel>
-                                                <Button Grid.Column="1" Content="{DynamicResource Auth.Sessions.Revoke}"
-                                                        Command="{Binding DataContext.RevokeSessionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                        CommandParameter="{Binding Id}"
-                                                        Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                                        MinHeight="32" VerticalAlignment="Center"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                        <WrapPanel Margin="0,6,0,0">
+                                   FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock Text="{DynamicResource Auth.Sessions.Loading}" TextWrapping="Wrap"
+                                   Visibility="{Binding ShowSessionsLoading, Converter={StaticResource BoolVisibility}}"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
+                        <TextBlock Text="{DynamicResource Auth.Sessions.Empty}" Style="{StaticResource EmptySessions}"/>
+                        <ItemsControl ItemsSource="{Binding Sessions}" Visibility="{Binding HasSessions, Converter={StaticResource BoolVisibility}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Padding="12,8" Margin="0,0,0,6" CornerRadius="6"
+                                            Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,10,0" VerticalAlignment="Center">
+                                                <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding DeviceLabel, TargetNullValue=未知设备}"/><Run
+                                                        Text="{Binding Current, Converter={StaticResource CurrentToTag}}"/>
+                                                </TextBlock>
+                                                <TextBlock FontSize="12" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}">
+                                                    <Run Text="{Binding Platform, TargetNullValue=未知平台}"/><Run Text=" · 最近活跃："/><Run
+                                                        Text="{Binding LastSeenAtUtc, Converter={StaticResource LocalDateTime}}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="{DynamicResource Auth.Sessions.Revoke}"
+                                                    Command="{Binding DataContext.RevokeSessionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding Id}"
+                                                    Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                                    VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <WrapPanel Margin="0,12,0,0">
                             <Button Content="{DynamicResource Auth.Sessions.Refresh}" Command="{Binding RefreshSessionsCommand}"
-                                    Style="{StaticResource LinkButton}" Margin="0,0,12,0"/>
+                                    Padding="12,7" MinHeight="36" Margin="0,0,8,4"
+                                    AutomationProperties.AutomationId="RefreshSessionsButton"/>
                             <Button Content="{DynamicResource Auth.Sessions.RevokeOthers}" Command="{Binding RevokeAllSessionsCommand}"
-                                    Style="{StaticResource LinkButton}"/>
+                                    Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                    Padding="12,7" MinHeight="36" Margin="0,0,0,4"
+                                    AutomationProperties.AutomationId="RevokeOtherSessionsButton"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource Card}">
-                    <StackPanel>
+                    <StackPanel AutomationProperties.AutomationId="AccountDeleteSection">
                         <TextBlock Text="{DynamicResource Auth.Delete.Title}"
                                    Style="{DynamicResource {x:Static theme:MosaicTheme.BodyTextKey}}"
                                    FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                         <TextBlock Text="{DynamicResource Auth.Delete.Description}" TextWrapping="Wrap"
-                                   FontSize="12" Margin="0,0,0,12"
-                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextMutedBrushKey}}"/>
+                                   Margin="0,0,0,12"
+                                   Foreground="{DynamicResource {x:Static theme:MosaicTheme.TextSecondaryBrushKey}}"/>
                         <Button Content="{DynamicResource Auth.Delete.Action}" Command="{Binding ShowDeleteDialogCommand}"
-                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                MinWidth="120" MinHeight="38" HorizontalAlignment="Left"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
+                                Padding="12,7" MinHeight="36" HorizontalAlignment="Left"
                                 AutomationProperties.AutomationId="DeleteAccountButton"/>
                         <Border Visibility="{Binding DeleteDialogVisible, Converter={StaticResource BoolVisibility}}"
                                 Margin="0,12,0,0" Padding="14" CornerRadius="6"
-                                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceBrushKey}}">
+                                Background="{DynamicResource {x:Static theme:MosaicTheme.SurfaceMutedBrushKey}}">
                             <StackPanel>
                                 <TextBlock Text="{DynamicResource Auth.Delete.Verify}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,10"/>
                                 <WrapPanel Margin="0,0,0,10">
@@ -339,12 +356,12 @@
                                 </Grid>
                                 <WrapPanel Margin="0,12,0,0">
                                     <Button Content="{DynamicResource Auth.Delete.Confirm}" Command="{Binding ConfirmDeleteCommand}"
-                                            Style="{DynamicResource {x:Static theme:MosaicTheme.AccentButtonKey}}"
-                                            MinWidth="120" MinHeight="38" Margin="0,0,10,0"
+                                            Style="{DynamicResource {x:Static theme:MosaicTheme.DangerButtonKey}}"
+                                            Padding="12,7" MinHeight="36" Margin="0,0,8,4"
                                             AutomationProperties.AutomationId="ConfirmDeleteAccountButton"/>
                                     <Button Content="{DynamicResource Auth.Delete.Cancel}" Command="{Binding CancelDeleteCommand}"
                                             Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
-                                            MinWidth="90" MinHeight="38"/>
+                                            Padding="12,7" MinHeight="36" Margin="0,0,0,4"/>
                                 </WrapPanel>
                             </StackPanel>
                         </Border>

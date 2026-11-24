@@ -8,7 +8,7 @@ using Mosaic.Settings.Contracts;
 namespace Mosaic.DesktopPresence.Wpf;
 
 public sealed record DesktopPresenceDependencies(IDesktopWindowHost Host, ICompanionViewFactory CompanionFactory,
-    ISettingsCore Settings, IUiDispatcher Dispatcher, IDiagnosticSink Diagnostics);
+    ISettingsCore Settings, IUiDispatcher Dispatcher, IDiagnosticSink Diagnostics, string? FilterPreferencePath = null);
 
 public sealed class DesktopPresenceModule : IModuleActivation
 {
@@ -27,7 +27,7 @@ public sealed class DesktopPresenceModule : IModuleActivation
     public DesktopPresenceModule(DesktopPresenceDependencies dependencies)
     {
         _dependencies = dependencies;
-        _surface = new(dependencies.Host, dependencies.CompanionFactory, dependencies.Diagnostics);
+        _surface = new(dependencies.Host, dependencies.CompanionFactory, dependencies.Diagnostics, dependencies.FilterPreferencePath);
         _controller = new(dependencies.Host, _surface, dependencies.Diagnostics);
         _surface.Api = _controller;
         _settings = new(values =>

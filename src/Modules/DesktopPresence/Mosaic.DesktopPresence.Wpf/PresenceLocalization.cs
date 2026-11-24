@@ -27,7 +27,7 @@ internal static class PresenceLocalization
             ("desktop.closeBehavior", "关闭主窗口", "Closing the main window", "驻留后台保留草稿；选择退出将结束进程", "Keep drafts in the background, or exit the application"),
             ("desktop.edge.showTiming", "任务速览入口显示时机", "Entry visibility timing", "主窗口关闭后出现；也可选择最小化时出现或一直显示", "Show after the main window is hidden; optionally when minimized or always"),
             ("desktop.edge.activation", "入口触发方式", "Edge activation", "通过悬停、单击或双击打开任务速览", "Open the overview by hovering, clicking or double-clicking"),
-            ("desktop.popup.filter", "摘要任务筛选", "Overview filter", "只展示符合筛选条件的只读任务快照", "Show a read-only snapshot matching this filter"),
+            ("desktop.popup.filter", "速览默认筛选", "Default overview filter", "在速览中选择筛选前或隐藏筛选切换时使用", "Used until you choose a filter in the overview or when the filter switch is hidden"),
             ("desktop.edge.monitor", "目标显示器", "Target monitor", "使用主显示器或主窗口上次所在的显示器", "Use the primary monitor or the last main-window monitor"),
             ("desktop.edge.anchor", "边缘方向", "Edge position", "右边缘靠上或上边缘靠右", "Near the top of the right edge or right of the top edge"),
             ("desktop.edge.tabSize", "入口尺寸", "Entry size", "方形入口的边长（DIP）", "Square edge-entry size in DIP"),
@@ -51,7 +51,7 @@ internal static class PresenceLocalization
         foreach (var (key, zh, english, description, enDescription) in new[]
         {
             ("PopupCompletionToggle", "显示完成按钮", "Show completion button", "在速览中标记完成或恢复未完成", "Complete or reopen tasks in the overview"),
-            ("PopupFilterSwitch", "显示筛选切换", "Show filter switch", "筛选仅影响当前速览，不更改默认值", "Filter this overview without changing the default"),
+            ("PopupFilterSwitch", "显示筛选切换", "Show filter switch", "在速览中切换筛选，下次打开时恢复上次选择", "Choose a filter in the overview and resume it next time"),
             ("FitContent", "按内容收缩", "Fit popup to content", "少量任务使用自然高度，仍受最大高度限制", "Use natural height for short lists, within the maximum height"),
             ("PopupPadding", "面板内边距", "Popup padding", "外框统一内边距（DIP）", "Single outer content padding in DIP"),
             ("PopupCornerRadius", "面板圆角", "Popup corner radius", "任务速览外框圆角（DIP）", "Overview frame corner radius in DIP"),

@@ -482,6 +482,7 @@ internal sealed record AppPaths(string Root)
 {
     internal string ConfigDirectory => Path.Combine(Root, "Config");
     internal string ConfigPath => Path.Combine(ConfigDirectory, "appsettings.json");
+    internal string PeekFilterPreference => Path.Combine(ConfigDirectory, "task-peek-filter.txt");
     internal string Logs => Path.Combine(Root, "Logs");
     // DPAPI-protected credentials for optional sign-in. Never read by settings or backups.
     internal string AuthSecrets => Path.Combine(Root, "Auth", "credentials.dat");

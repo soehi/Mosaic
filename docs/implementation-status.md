@@ -1,6 +1,18 @@
 # Mosaic：实施与验证记录
 
-## 0.18.9 源码更新 · 任务列表与速览
+## 0.18.10 源码更新 · 账户与备份排版及速览筛选记忆
+
+- 账户页根因位于 `src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml` 的会话卡片。无结果时，`ShowSessionsLoading` 与 `ShowSessionList` 都为 `false`，标题下缺少状态反馈；刷新时 `AccountViewModel.ShowSessionList` 隐藏已有行。会话和云端备份按钮混用带不同尺寸与外边距的样式。云端刷新在独立账户视图中还会受链接样式的主题资源解析影响，删除区说明与操作的字号和间距也不一致。
+- `AccountView.xaml:62`、`AccountView.xaml:251`、`AccountView.xaml:269` 和 `AccountView.xaml:321` 分别增加空状态、对齐备份操作、调整会话卡片和删除卡片。会话刷新时保留现有行，备份和会话操作按钮等高并在窄宽度下左对齐换行。删除说明使用正常字号，入口和确认按钮使用主题危险操作样式。`src/Modules/Auth/Mosaic.Auth.Wpf/Localization/zh.xaml:102` 与 `Localization/en.xaml:73` 补齐会话空状态文案。
+- 速览根因位于 `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs` 的 `ShowPopupAsync`。每次展开都用 `desktop.popup.filter` 创建新会话，`TaskPeekViewModel.SelectFilterAsync` 之前只改变当前会话的筛选，收起后所选值随会话销毁。
+- `src/Mosaic.Presentation.Contracts/PresentationContracts.cs` 的 `ICompanionViewSession.FilterChanged` 提供筛选变化通知，`src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs` 的 `TaskPeekViewModel.SelectFilterAsync` 在用户更改选项时触发。`PresenceSurface.ShowPopupAsync`、`SessionFilterChanged`、`LoadFilter` 和 `ClosePopupAsync` 分别负责恢复、保存、校验和解绑。`DesktopPresenceModule.cs` 的 `DesktopPresenceDependencies` 接收偏好文件路径，`src/Mosaic.Desktop/AppConfiguration.cs` 的 `AppPaths.PeekFilterPreference` 和 `BuiltInModuleCatalog.cs` 的驻留模块装配提供路径。
+- `PresenceSettings.cs` 的 `desktop.popup.filter` 与 `desktop.popup.filterSwitch`、`PresenceLocalization.cs` 的对应资源，以及 `src/Modules/Settings/Mosaic.Settings.Wpf/Localization/zh.xaml:223` 与 `Localization/en.xaml:223` 同步显示默认筛选和恢复规则。
+- 已有安装继续读取 `desktop.popup.filter` 的键和值，并把它用作默认筛选。新增本机偏好文件位于 `<数据根目录>/Config/task-peek-filter.txt`，只保存 `All`、`Open` 或 `Completed`。旧安装没有文件或内容无效时自动沿用现有默认值，无需手动迁移。关闭筛选条时用默认值，重新显示后恢复保存的值。回退原版本时可保留偏好文件，恢复新版后仍可读取。需要重置偏好时，退出应用后移走该文件。
+- `tests/Mosaic.Wpf.Tests/PresenceTests.cs` 的 `Peek_remembers_user_filter_across_reopen_and_restart_and_preserves_the_configured_fallback` 走驻留宿主和真实速览单选按钮，覆盖三个筛选、关闭重开、宿主重建、缺失及非法文件、隐藏与重新显示筛选条。`AccountViewModelTests.cs` 的 `Account_cards_show_session_states_and_fit_the_available_width` 覆盖空状态、加载、保留已有会话、按钮对齐与换行和删除确认入口。`PreviewCaptureTests.cs` 的 `Render` 和 `FindRepositoryRoot` 供账户页预览复用。`tests/Mosaic.Desktop.SmokeTests/PeekCompletionTests.cs` 的 `Peek_completion_and_filter_use_real_persisted_task_state` 用 UI Automation 验证 Release 桌面进程关闭面板重开及退出重启后恢复所选筛选。
+
+- Release 方案构建为 0 警告、0 错误。16 个测试工程共 485 项通过，含 174 项 WPF 测试与 55 项实际桌面进程冒烟。默认并行冒烟中，浮窗拖动用例 `FloatingDragTests.cs:38` 两次读到 0 像素水平位移，期望区间为 56–64 像素。定向复跑和 `-parallel none` 串行全跑通过。核对了中文浅色 600 DIP、英文深色 320 DIP 的账户页渲染。预览位于 `artifacts/ui-preview/account-sessions-light.png` 与 `artifacts/ui-preview/account-sessions-dark.png`，构建和测试日志位于 `artifacts/verify-account-peek-release/`。
+
+## 0.18.10 源码更新 · 任务列表与速览
 
 - 主任务列表使用圆角状态徽标，深色模式下提高未完成任务标题的可读性。
 - 主任务列表与任务速览共用矢量回形针。有附件的任务在行右侧显示回形针，悬停可查看数量。

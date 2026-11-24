@@ -146,7 +146,7 @@ public sealed class PreviewCaptureTests
         return (api, tasks, settings);
     }
 
-    private static void Render(FrameworkElement element, double width, double height, string path)
+    internal static void Render(FrameworkElement element, double width, double height, string path)
     {
         var bitmap = new RenderTargetBitmap(
             Math.Max(1, (int)Math.Ceiling(width)),
@@ -174,7 +174,7 @@ public sealed class PreviewCaptureTests
         return Assert.IsType<ResourceDictionary>(Application.LoadComponent(uri));
     }
 
-    private static string FindRepositoryRoot()
+    internal static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,8 +13,10 @@ using Mosaic.Presentation.Wpf;
 
 namespace Mosaic.DesktopPresence.Wpf;
 
-internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFactory factory, IDiagnosticSink diagnostics) : IDesktopPresenceSurface
+internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFactory factory, IDiagnosticSink diagnostics,
+    string? filterPreferencePath) : IDesktopPresenceSurface
 {
+    private string? _lastFilter = LoadFilter(filterPreferencePath, diagnostics);
     private Window? _edge;
     private Window? _popup;
     private ICompanionViewSession? _session;
@@ -160,15 +163,19 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         cancellationToken.ThrowIfCancellationRequested();
         if (_popup is not null || _stopped) return Task.CompletedTask;
         _sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _session = factory.Create(new(Read("desktop.popup.filter", "All"), Read("desktop.popup.maxItems", 12),
+        var showFilterSwitch = Read("desktop.popup.filterSwitch", true);
+        var defaultFilter = Read("desktop.popup.filter", "All");
+        var filter = showFilterSwitch ? _lastFilter ?? defaultFilter : defaultFilter;
+        _session = factory.Create(new(filter, Read("desktop.popup.maxItems", 12),
             Read("desktop.popup.openColor", "Theme"), Read("desktop.popup.completedColor", "Theme"),
             Read("desktop.popup.rowGap", 0), Read("desktop.popup.rowPaddingY", 12),
             Read("desktop.popup.titleFontSize", 14), Read("desktop.popup.titleMaxLines", 2),
-            Read("desktop.popup.completionToggle", true), Read("desktop.popup.filterSwitch", true)));
+            Read("desktop.popup.completionToggle", true), showFilterSwitch));
         var generation = ++_sessionGeneration;
         _sessionLayoutHandler = (_, _) => QueueMeasure(generation);
         _session.LayoutInvalidated += _sessionLayoutHandler;
         _session.DismissRequested += SessionDismissRequested;
+        if (showFilterSwitch) _session.FilterChanged += SessionFilterChanged;
         _popup = CreateWindow("Presence.Title", "PresencePopup");
         var popupView = new PresencePopupView(_session.View, RestoreAsync, ExitAsync, DismissAsync,
             Read("desktop.popup.autoHide", true), Read("desktop.popup.padding", 16), Read("desktop.popup.cornerRadius", 12),
@@ -224,6 +231,51 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         }));
     }
 
+    private static bool IsFilter(string? filter) => filter is "All" or "Open" or "Completed";
+
+    private static string? LoadFilter(string? path, IDiagnosticSink diagnostics)
+    {
+        if (path is null) return null;
+        try
+        {
+            var filter = File.ReadAllText(path).Trim();
+            return IsFilter(filter) ? filter : null;
+        }
+        catch (IOException exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            diagnostics.Report("desktop.presence.filter.read", exception);
+            return null;
+        }
+    }
+
+    private void SessionFilterChanged(object? sender, string filter)
+    {
+        if (!ReferenceEquals(sender, _session) || !IsFilter(filter)) return;
+        _lastFilter = filter;
+        if (filterPreferencePath is null) return;
+        // Write beside the destination so a partial write cannot replace the previous selection.
+        var temporary = $"{filterPreferencePath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(filterPreferencePath)!);
+            File.WriteAllText(temporary, filter);
+            File.Move(temporary, filterPreferencePath, overwrite: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            diagnostics.Report("desktop.presence.filter.write", exception);
+            try { File.Delete(temporary); }
+            catch (Exception cleanupException) when (cleanupException is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Report("desktop.presence.filter.cleanup", cleanupException);
+            }
+        }
+    }
+
     public async Task ClosePopupAsync()
     {
         _hover.Stop(); _dismiss.Stop(); _pointer.Stop();
@@ -236,6 +288,7 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         {
             if (_sessionLayoutHandler is not null) session.LayoutInvalidated -= _sessionLayoutHandler;
             session.DismissRequested -= SessionDismissRequested;
+            session.FilterChanged -= SessionFilterChanged;
         }
         _sessionLayoutHandler = null;
         var cancellation = _sessionCancellation; _sessionCancellation = null;

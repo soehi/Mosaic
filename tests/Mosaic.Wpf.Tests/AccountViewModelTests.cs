@@ -1,7 +1,13 @@
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Media;
 using Mosaic.Auth.Contracts;
 using Mosaic.Auth.Wpf.Internal;
+using Mosaic.Auth.Wpf.Views;
 using Mosaic.Contracts;
 using Mosaic.Presentation.Contracts;
+using Mosaic.Presentation.Wpf;
 using Mosaic.Settings.Contracts;
 using Mosaic.Sync.Contracts;
 
@@ -32,6 +38,7 @@ public sealed class AccountViewModelTests
         public OperationResult SendCodeResult = OperationResult.Success();
         public OperationResult DeleteResult = OperationResult.Success();
         public List<AuthSessionInfoDto> SessionsResult { get; set; } = [];
+        public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>>? PendingSessions { get; set; }
         public DeviceAuthorizationDto DeviceAuthorization { get; set; } = new(
             "device-code", "BAADC832", new Uri("https://sync.example.com/device"), new Uri("https://sync.example.com/device?code=BAADC832"), 600, 5);
         public Task<OperationResult<AuthPolicyDto>> GetPolicyAsync(CancellationToken cancellationToken = default) =>
@@ -69,7 +76,10 @@ public sealed class AccountViewModelTests
         public Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(OperationResult<string>.Success("access"));
         public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default)
-        { ListSessionsCalls++; return Task.FromResult(OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success(SessionsResult)); }
+        {
+            ListSessionsCalls++;
+            return PendingSessions ?? Task.FromResult(OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success(SessionsResult));
+        }
         public Task<OperationResult> RevokeSessionAsync(string sessionId, CancellationToken cancellationToken = default)
         { SessionsResult = SessionsResult.Where(session => session.Id != sessionId).ToList(); return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult> RevokeAllSessionsAsync(bool keepCurrent, CancellationToken cancellationToken = default) =>
@@ -420,6 +430,117 @@ public sealed class AccountViewModelTests
         Assert.Equal(2, signedIn.ViewModel.Sessions.Count);
         Assert.True(signedIn.ViewModel.HasSessions);
         Assert.True(signedIn.ViewModel.ShowSessionList);
+    });
+
+    [Theory]
+    [InlineData(false, 600, MosaicThemeVariant.Light)]
+    [InlineData(true, 320, MosaicThemeVariant.Dark)]
+    public Task Account_cards_show_session_states_and_fit_the_available_width(bool english, int width, MosaicThemeVariant theme) => Run(async () =>
+    {
+        await using var fixture = await new Fixture().StartAsync(signedIn: true);
+        var model = fixture.ViewModel;
+        await model.InitializeAsync();
+        var view = new AccountView { DataContext = model };
+        view.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/Mosaic.Presentation.Wpf;component/Themes/Theme.xaml", UriKind.Relative)
+        });
+        view.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri($"/Mosaic.Presentation.Wpf;component/Themes/Palettes/{theme}.xaml", UriKind.Relative)
+        });
+        var strings = AuthLocalizationDictionaries.Dictionary(english);
+        view.Resources.MergedDictionaries.Add(strings);
+        const int height = 600;
+        void Arrange()
+        {
+            view.Measure(new Size(width, height));
+            view.Arrange(new Rect(0, 0, width, height));
+            view.UpdateLayout();
+        }
+        static IEnumerable<FrameworkElement> Descendants(DependencyObject parent)
+        {
+            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, index);
+                if (child is FrameworkElement element) yield return element;
+                foreach (var descendant in Descendants(child)) yield return descendant;
+            }
+        }
+        T Find<T>(string id) where T : FrameworkElement =>
+            Assert.Single(Descendants(view).OfType<T>(), element => AutomationProperties.GetAutomationId(element) == id);
+
+        Arrange();
+        var sessions = Find<StackPanel>("AccountSessionsSection");
+        var deletion = Find<StackPanel>("AccountDeleteSection");
+        var empty = Assert.Single(sessions.Children.OfType<TextBlock>(), text => text.Text == (string)strings["Auth.Sessions.Empty"]);
+        var loading = Assert.Single(sessions.Children.OfType<TextBlock>(), text => text.Text == (string)strings["Auth.Sessions.Loading"]);
+        var rows = Assert.Single(sessions.Children.OfType<ItemsControl>());
+        var refresh = Find<Button>("RefreshSessionsButton");
+        var revoke = Find<Button>("RevokeOtherSessionsButton");
+        var delete = Find<Button>("DeleteAccountButton");
+        var uploadBackup = Find<Button>("UploadBackupButton");
+        var downloadBackup = Find<Button>("DownloadBackupButton");
+        var refreshBackup = Find<Button>("RefreshBackupButton");
+        Assert.Equal(uploadBackup.ActualHeight, downloadBackup.ActualHeight);
+        Assert.Equal(uploadBackup.ActualHeight, refreshBackup.ActualHeight);
+        Assert.Same(view.FindResource(MosaicTheme.QuietButtonKey), refreshBackup.Style);
+        var refreshOrigin = refresh.TranslatePoint(new Point(), sessions);
+        var revokeOrigin = revoke.TranslatePoint(new Point(), sessions);
+        Assert.Equal(Visibility.Visible, empty.Visibility);
+        Assert.Equal(Visibility.Collapsed, loading.Visibility);
+        Assert.Equal(Visibility.Collapsed, rows.Visibility);
+        Assert.Equal(refresh.ActualHeight, revoke.ActualHeight);
+        Assert.Equal(refresh.ActualHeight, delete.ActualHeight);
+        if (english)
+        {
+            Assert.Equal(refreshOrigin.X, revokeOrigin.X);
+            Assert.True(revokeOrigin.Y >= refreshOrigin.Y + refresh.ActualHeight);
+        }
+        else
+        {
+            Assert.Equal(refreshOrigin.Y, revokeOrigin.Y);
+            Assert.True(revokeOrigin.X > refreshOrigin.X + refresh.ActualWidth);
+        }
+        Assert.InRange(revokeOrigin.X + revoke.ActualWidth, 1, sessions.ActualWidth);
+        Assert.Equal(0, delete.TranslatePoint(new Point(), deletion).X);
+
+        var output = Path.Combine(PreviewCaptureTests.FindRepositoryRoot(), "artifacts", "ui-preview");
+        Directory.CreateDirectory(output);
+        Assert.IsType<ScrollViewer>(view.Content).ScrollToBottom();
+        view.UpdateLayout();
+        PreviewCaptureTests.Render(view, width, height, Path.Combine(output, $"account-sessions-{theme.ToString().ToLowerInvariant()}.png"));
+
+        var initial = new TaskCompletionSource<OperationResult<IReadOnlyList<AuthSessionInfoDto>>>();
+        fixture.Auth.PendingSessions = initial.Task;
+        var load = model.RefreshSessionsCommand.ExecuteAsync(null);
+        Assert.Equal(Visibility.Collapsed, empty.Visibility);
+        Assert.Equal(Visibility.Visible, loading.Visibility);
+        var now = DateTimeOffset.UtcNow;
+        initial.SetResult(OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success([
+            new("s-1", "Mosaic Desktop", "windows", now, now, now.AddDays(10), true)
+        ]));
+        await load;
+        Assert.Equal(Visibility.Visible, rows.Visibility);
+        Assert.Single(rows.Items);
+
+        var pendingRefresh = new TaskCompletionSource<OperationResult<IReadOnlyList<AuthSessionInfoDto>>>();
+        fixture.Auth.PendingSessions = pendingRefresh.Task;
+        var reload = model.RefreshSessionsCommand.ExecuteAsync(null);
+        Assert.Equal(Visibility.Visible, rows.Visibility);
+        Assert.Equal(Visibility.Collapsed, loading.Visibility);
+        pendingRefresh.SetResult(OperationResult<IReadOnlyList<AuthSessionInfoDto>>.Success([]));
+        await reload;
+        Assert.Equal(Visibility.Visible, empty.Visibility);
+
+        delete.Command.Execute(null);
+        Arrange();
+        var confirm = Find<Button>("ConfirmDeleteAccountButton");
+        Assert.True(model.DeleteDialogVisible);
+        Assert.Equal(Visibility.Visible, confirm.Visibility);
+        Assert.True(confirm.ActualHeight >= 36);
+        Assert.Same(view.FindResource(MosaicTheme.DangerButtonKey), confirm.Style);
+        Assert.Equal(0, fixture.Auth.DeleteAccountCalls);
     });
 
     [Fact]

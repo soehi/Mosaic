@@ -220,8 +220,8 @@
     <sys:String x:Key="Settings.Setting.Desktop.CloseBehavior.Description">驻留后台或退出应用；退出后边缘入口也会关闭</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeActivation">入口触发方式</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeActivation.Description">通过悬停、单击或双击打开任务摘要</sys:String>
-    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter">摘要任务筛选</sys:String>
-    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter.Description">弹窗只展示筛选后的任务快照</sys:String>
+    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter">速览默认筛选</sys:String>
+    <sys:String x:Key="Settings.Setting.Desktop.PopupFilter.Description">在速览中选择筛选前或隐藏筛选切换时使用</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeMonitor">目标显示器</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeMonitor.Description">主屏或主窗口上次所在的显示器</sys:String>
     <sys:String x:Key="Settings.Setting.Desktop.EdgeAnchor">边缘方向</sys:String>

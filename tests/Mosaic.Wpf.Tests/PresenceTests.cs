@@ -535,6 +535,100 @@ public sealed class PresenceTests
     });
 
     [Fact]
+    public Task Peek_remembers_user_filter_across_reopen_and_restart_and_preserves_the_configured_fallback() => Sta.Run(async () =>
+    {
+        var directory = Directory.CreateTempSubdirectory("mosaic-peek-filter-");
+        try
+        {
+            var preferencePath = Path.Combine(directory.FullName, "Config", "task-peek-filter.txt");
+            var queries = new List<TaskFilter>();
+            var api = new Api
+            {
+                Query = (query, _) =>
+                {
+                    queries.Add(query.Filter);
+                    return Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([]));
+                }
+            };
+            var dispatcher = new UiDispatcher(Dispatcher.CurrentDispatcher);
+            var diagnostics = new Diagnostics();
+            await using var tasks = new TasksUiModule(new(api, dispatcher, new Dialogs(), diagnostics));
+            await tasks.ActivateAsync();
+            await using var settings = new SettingsModule(new(new Repository()));
+            await settings.ActivateAsync();
+            DesktopPresenceModule CreatePresence() => new(new(new Host(), tasks.CompanionFactory, settings.Api,
+                dispatcher, diagnostics, preferencePath));
+
+            async Task<FrameworkElement> OpenAsync(DesktopPresenceModule presence, TaskFilter expected, bool showSwitch = true)
+            {
+                var previousQueryCount = queries.Count;
+                Assert.True((await presence.Api.RequestPopupAsync()).IsSuccess);
+                await Drain();
+                Assert.Equal(previousQueryCount + 1, queries.Count);
+                Assert.Equal(expected, queries.Last());
+                var surface = typeof(DesktopPresenceModule).GetField("_surface", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(presence)!;
+                var popup = Assert.IsType<Window>(surface.GetType().GetField("_popup", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(surface));
+                var view = Assert.Single(Descendants(popup).OfType<Mosaic.Tasks.Wpf.Internal.TaskPeekView>());
+                var filters = Assert.IsAssignableFrom<FrameworkElement>(view.FindName("Filters"));
+                Assert.Equal(showSwitch ? Visibility.Visible : Visibility.Collapsed, filters.Visibility);
+                if (showSwitch) Assert.True(Filter(view, expected.ToString()).IsChecked);
+                return view;
+            }
+
+            async Task ConfigureAsync(Dictionary<string, object?> changes)
+            {
+                var result = await settings.Api.ProposeChangesAsync(changes);
+                Assert.True(result.IsSuccess, result.Error?.Message);
+                Assert.Empty(result.Value);
+            }
+
+            await using (var presence = CreatePresence())
+            {
+                await presence.ActivateAsync();
+                await ConfigureAsync(new() { ["desktop.popup.filter"] = "Completed", ["desktop.popup.autoHide"] = false });
+                Assert.True((await presence.Api.RequestParkAsync()).IsSuccess);
+                var view = await OpenAsync(presence, TaskFilter.Completed);
+                Assert.False(File.Exists(preferencePath));
+
+                foreach (var choice in new[] { TaskFilter.All, TaskFilter.Open, TaskFilter.Completed })
+                {
+                    Filter(view, choice.ToString()).IsChecked = true;
+                    await Drain();
+                    Assert.Equal(choice, queries.Last());
+                    Assert.Equal(choice.ToString(), File.ReadAllText(preferencePath));
+                    Assert.True((await presence.Api.RequestDismissAsync()).IsSuccess);
+                    view = await OpenAsync(presence, choice);
+                }
+
+                Assert.True((await presence.Api.RequestDismissAsync()).IsSuccess);
+                await ConfigureAsync(new() { ["desktop.popup.filter"] = "Open", ["desktop.popup.filterSwitch"] = false });
+                await OpenAsync(presence, TaskFilter.Open, showSwitch: false);
+                Assert.Equal("Completed", File.ReadAllText(preferencePath));
+                Assert.True((await presence.Api.RequestDismissAsync()).IsSuccess);
+                await ConfigureAsync(new() { ["desktop.popup.filterSwitch"] = true });
+                await OpenAsync(presence, TaskFilter.Completed);
+            }
+
+            await using (var restarted = CreatePresence())
+            {
+                await restarted.ActivateAsync();
+                Assert.True((await restarted.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(restarted, TaskFilter.Completed);
+            }
+
+            File.WriteAllText(preferencePath, "Invalid");
+            await using (var invalidPreference = CreatePresence())
+            {
+                await invalidPreference.ActivateAsync();
+                Assert.True((await invalidPreference.Api.RequestParkAsync()).IsSuccess);
+                await OpenAsync(invalidPreference, TaskFilter.Open);
+                Assert.Equal("Invalid", File.ReadAllText(preferencePath));
+            }
+        }
+        finally { directory.Delete(recursive: true); }
+    });
+
+    [Fact]
     public Task Popup_measures_generic_content_clamps_height_and_ignores_closed_session_notifications() => Sta.Run(async () =>
     {
         await using var settings = new SettingsModule(new(new Repository())); await settings.ActivateAsync();

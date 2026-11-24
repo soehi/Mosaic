@@ -60,6 +60,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     private CancellationTokenSource? _feedbackCancellation;
     public event EventHandler? InteractionChanged;
     public event EventHandler? DismissRequested;
+    public event EventHandler<string>? FilterChanged;
     public bool CancelInteraction() => _view.CancelDrag();
     private readonly IDisposable? _changes;
     private async Task<bool> DetachAsync(TaskPeekRow row, FloatingPlacementHint? hint, CancellationToken cancellationToken)
@@ -346,8 +347,10 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionNavig
     }
     private Task SelectFilterAsync(TaskFilter filter)
     {
-        if (_closed || filter == _selectedFilter) return Task.CompletedTask;
-        _view.CancelDrag(); _selectedFilter = filter;
+        if (_closed || !_options.ShowFilterSwitch || filter == _selectedFilter) return Task.CompletedTask;
+        _view.CancelDrag();
+        _selectedFilter = filter;
+        FilterChanged?.Invoke(this, filter.ToString());
         return InitializeAsync();
     }
     private Task CompleteAsync(TaskPeekRow row)

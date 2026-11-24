@@ -30,6 +30,8 @@ public interface ICompanionViewSession : IAsyncDisposable
     event EventHandler? LayoutInvalidated { add { } remove { } }
     // Lets the host apply its dismissal policy after a completed interaction.
     event EventHandler? DismissRequested { add { } remove { } }
+    // Raised when the user selects a different filter in the companion.
+    event EventHandler<string>? FilterChanged { add { } remove { } }
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task CloseAsync();
 }
