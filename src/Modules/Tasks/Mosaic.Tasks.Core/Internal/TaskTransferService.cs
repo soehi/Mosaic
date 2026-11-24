@@ -1,4 +1,4 @@
-using Mosaic.Contracts;
+﻿using Mosaic.Contracts;
 using Mosaic.Tasks.Contracts;
 using Mosaic.Tasks.Persistence.Contracts;
 
@@ -30,7 +30,9 @@ internal sealed class TaskTransferService(ITasksApi api, ITaskTransferRepository
         }
         var replaced = await repository.ReplaceAllAsync(tasks, cancellationToken).ConfigureAwait(false);
         if (!replaced.IsSuccess) return replaced;
-        foreach (var task in tasks) changed(new(task.Id, task.Revision, TaskChangeKind.Updated));
+        // A restore replaces the whole table at once; observers get one bulk notification instead of
+        // one per row, which used to turn a 100k-task restore into 100k list reloads.
+        changed(new(Guid.Empty, 0, TaskChangeKind.Replaced));
         return OperationResult.Success();
     }
 

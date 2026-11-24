@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
 using Mosaic.Tasks.Contracts;
@@ -218,7 +218,9 @@ public sealed class AutoArchiveTests
         public Task<OperationResult<TaskItemDto>> SetArchivedAsync(SetTaskArchivedRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException("disabled policy must never archive");
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
+    
+        public Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+}
 
     private sealed class PassThroughTasksApi(MemoryTaskRepository repository) : ITasksApi
     {
@@ -245,5 +247,7 @@ public sealed class AutoArchiveTests
         }
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
+    
+        public Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default) => repository.QueryCountsAsync(query, cancellationToken);
+}
 }

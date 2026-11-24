@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentReleaseId": "mosaic-0.18.13",
+  "currentReleaseId": "mosaic-0.18.14",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -968,6 +968,21 @@
         "修正迁移绑定、设置归属与 README 三处描述。"
       ],
       "contentSha256": "8B92129E17522E61D95EBFA5C90BE0072DD7EE78DD68FE6EEAE5F5E93B66F32C"
+    },
+    {
+      "releaseId": "mosaic-0.18.14",
+      "version": "0.18.14",
+      "releasedOn": "2026-11-24",
+      "previousReleaseId": "mosaic-0.18.13",
+      "added": [],
+      "improved": [
+        "任务速览只读取一页且不再携带备注，总数与未完成数改由一次聚合计数得到；任务与备注较多时打开更快、占用更少。",
+        "主列表刷新按任务复用行对象，只更新变化的行：保存或切换筛选不再重建整张列表，选择与滚动位置保持稳定。"
+      ],
+      "fixed": [
+        "恢复整份备份后只发送一次批量变更通知，任务很多时不再逐条重载列表与浮窗。"
+      ],
+      "contentSha256": "41480A27905B5217AEBBA8B6DF4EE36B594C9D5B9E336DFA48D54EEADC6B79C5"
     }
   ]
 }

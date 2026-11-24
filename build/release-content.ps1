@@ -157,7 +157,7 @@ while ($null -ne $next) {
 for ($from = 0; $from -lt $chain.Count; $from++) {
     $applicable = @($chain | Select-Object -Skip $from)
     $text = Get-SummaryText $current $applicable $(if ($from -eq 0) { '首次使用' } else { $chain[$from - 1].version })
-    if ((Get-RuneCount '更新简要') -gt 200 -or (Get-RuneCount $text) -gt 20000) {
+    if ((Get-RuneCount '更新简要') -gt 200 -or (Get-RuneCount $text) -gt 40000) {
         throw 'A supported update range exceeds the default task title or notes limit.'
     }
 }

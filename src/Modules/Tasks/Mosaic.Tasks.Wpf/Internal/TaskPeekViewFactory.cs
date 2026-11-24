@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
@@ -165,6 +165,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
     private int _generation;
     private bool _failed;
     private bool _loading = true;
+    private int _totalCount;
+    private int _openCount;
     private Guid? _selectedId;
     private int _detailGeneration;
     private CancellationTokenSource? _detailCancellation;
@@ -344,12 +346,17 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         _loading = true; _failed = false; UpdateView();
         try
         {
-            var result = await _dependencies.Api.ListAsync(new TaskQuery(_selectedFilter), linked.Token);
+            // The popup renders MaxItems rows: fetch that page without notes and count the rest with
+            // one aggregate query instead of materializing the whole filtered table.
+            var result = await _dependencies.Api.ListAsync(new TaskQuery(_selectedFilter) { Limit = _options.MaxItems, IncludeNotes = false }, linked.Token);
+            var counts = result.IsSuccess ? await _dependencies.Api.CountAsync(new TaskQuery(_selectedFilter), linked.Token) : null;
             await _dependencies.Dispatcher.InvokeAsync(() =>
             {
                 if (_closed || generation != _generation || linked.IsCancellationRequested) return;
                 _loading = false; _failed = !result.IsSuccess;
                 _items = result.IsSuccess ? result.Value : [];
+                _totalCount = counts is { IsSuccess: true } ? counts.Value.Total : _items.Count;
+                _openCount = counts is { IsSuccess: true } ? counts.Value.Open : _items.Count(item => !item.IsCompleted);
                 UpdateView();
             });
         }
@@ -377,7 +384,7 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
         }
         _view.SelectFilter(_selectedFilter);
         _view.Summary.Text = _loading || _failed ? TaskLocalization.Localize("Tasks.Peek.Snapshot", "当前任务快照")
-            : TaskLocalization.Format("Tasks.Peek.Count", "共 {0} 项 · {1} 项未完成", _items.Count, _items.Count(item => !item.IsCompleted));
+            : TaskLocalization.Format("Tasks.Peek.Count", "共 {0} 项 · {1} 项未完成", _totalCount, _openCount);
         _view.Feedback.Text = _loading ? TaskLocalization.Localize("Tasks.Loading", "正在读取任务…")
             : _failed ? TaskLocalization.Localize("Tasks.LoadError", "任务列表加载失败")
             : _items.Count == 0 ? TaskLocalization.Localize("Tasks.Peek.Empty", "没有符合筛选的任务") : string.Empty;
@@ -395,8 +402,8 @@ internal sealed class TaskPeekViewModel : ICompanionViewSession, ICompanionFilte
             _view.UpdateLayout();
         }
         foreach (var row in _rows) row.RefreshText();
-        _view.More.Text = TaskLocalization.Format("Tasks.Peek.More", "显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。", _options.MaxItems, _items.Count);
-        _view.More.Visibility = !state && _items.Count > _options.MaxItems ? Visibility.Visible : Visibility.Collapsed;
+        _view.More.Text = TaskLocalization.Format("Tasks.Peek.More", "显示前 {0} 项，共 {1} 项。更多内容请打开主窗口。", _options.MaxItems, _totalCount);
+        _view.More.Visibility = !state && _totalCount > _options.MaxItems ? Visibility.Visible : Visibility.Collapsed;
         if (!_loading && focusedId is { } id)
         {
             _focusId = null; _focusName = null;

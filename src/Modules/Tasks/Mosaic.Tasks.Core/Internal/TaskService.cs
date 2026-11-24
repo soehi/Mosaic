@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Mosaic.Contracts;
@@ -82,6 +82,8 @@ internal sealed class TaskService(
         var result = await repository.QueryAsync(query, ct).ConfigureAwait(false);
         return result;
     }
+    internal Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken ct) =>
+        repository.QueryCountsAsync(query, ct);
     internal Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();

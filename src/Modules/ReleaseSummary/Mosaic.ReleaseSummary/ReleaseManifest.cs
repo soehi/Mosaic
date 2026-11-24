@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -77,7 +77,9 @@ public sealed record ReleaseManifest(int SchemaVersion, string CurrentReleaseId,
                     .CompareTo(currentVersion) >= 0) continue;
             var composed = ReleaseSummaryComposer.Compose(this, announced is null ? [] : [announced]);
             if (!composed.IsSuccess) return composed.Error!.Message;
-            if (RuneCount(ReleaseSummaryComposer.TaskTitle) > 200 || RuneCount(composed.Value.Notes) > 20000)
+            // 发布历史随版本线性增长，0.18.13 之后整条链已接近旧的 20000 上限；放宽到 40000，
+            // 与 build/release-content.ps1 和 scripts/release_content_verify.py 保持一致。
+            if (RuneCount(ReleaseSummaryComposer.TaskTitle) > 200 || RuneCount(composed.Value.Notes) > 40000)
                 return "发布范围内容超过默认任务限额，不能完整生成更新简要。";
         }
         return null;

@@ -1,4 +1,40 @@
-# Mosaic：实施与验证记录
+﻿# Mosaic：实施与验证记录
+
+## 0.18.14：任务查询分页投影、主列表差量更新与整表恢复批量通知（2026-11-24）
+
+本轮落实性能评审里优先级最高的三项：任务查询收窄为投影 + `LIMIT`/`COUNT`、主列表改为按 Id 差量更新行、整份备份恢复只发一次批量变更通知。附带把发布校验的历史长度上限从 20000 放宽到 40000 字符——0.18.13 之后整条发布历史已达 19959 字符，任何新条目都会在验证阶段被拒绝。数据目录、设置键与模块装配均未变。
+
+**根因位置**
+
+1. 列表查询没有上限且连备注一起物化。`SqliteTaskRepository.cs:18-26`（0.18.12）用 `SELECT *` 取回整行并逐条 `Map`；`TaskPeekViewFactory.cs:347`（0.18.12）每次加载都读取整张筛选结果、只在渲染时截断到 `MaxItems`；`TasksViewModel.cs:286`（0.18.12）同样取全字段。触发条件：打开速览、每次任务变更后的重载、主列表首屏与刷新。出错原因：行、DTO 与备注字符串的峰值和常驻量与任务总量同阶，备注上限 200000 字符时单条就可能占数百 KB；`AttachmentCountingTasksApi.cs:20-25` 还对整份结果再做一次 `with` 克隆。
+2. 主列表每次刷新重建全部行。`TasksViewModel.cs:892-893`（0.18.12）`Items.Clear()` 后逐条 `new TaskListItemViewModel`，而行类型不可观察、每个 getter 都重新做本地化与格式化。触发条件：保存、完成、归档、切换筛选或排序。出错原因：O(N) 个新对象与 N+1 次集合通知，容器、选择和滚动位置全部丢失，保存一次就要重建整张表；语言切换走 `RebuildListTitles` 时同样整表重建。
+3. 整表恢复逐条发变更。`TaskTransferService.cs:24-30`（0.18.12）对恢复的每一行调用 `changed(new(...))`，上限 10 万行。触发条件：从备份恢复。出错原因：速览、主列表与浮窗各自收到 N 次通知并各做一次全表查询，恢复大备份时界面持续被重载占满。
+4. 发布历史长度上限已触顶。`scripts/release_content_verify.py:113`（0.18.13）、`build/release-content.ps1:160` 与运行时校验 `ReleaseManifest.cs:80` 都把整段历史的长度上限设为 20000 字符；59 个版本后最长调用已到 19959，新增任何说明都会超限——打包脚本与程序内清单校验会先后拒绝这份清单。
+
+**改动位置**
+
+1. `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskRequests.cs:17-29`：`TaskQuery` 新增 `Limit`（0 表示不限）、`Offset`、`IncludeNotes`（默认 `true`，导出与详情行为不变），新增 `TaskCountsDto(Total, Open)`；`:44` 新增 `ITasksApi.CountAsync`。
+2. `src/Modules/Tasks/Mosaic.Tasks.Persistence.Contracts/ITaskRepository.cs`：新增 `QueryCountsAsync`（同筛选与归档范围计数，忽略分页）。
+3. `src/Modules/Storage/Mosaic.Tasks.Sqlite/Internal/SqliteTaskRepository.cs:18-51`：`QueryAsync` 按 `IncludeNotes` 选择列、按 `Limit` 追加 `LIMIT $limit OFFSET $offset`；新增 `QueryCountsAsync`（`COUNT(*)` 与未完成 `SUM`）；`:53-67` 抽出 `Where`；`:141-145` 的 `Map` 在跳过备注时填空串。
+4. `src/Modules/Tasks/Mosaic.Tasks.Core/Internal/TaskService.cs:85-86`、`GuardedTasksApi.cs:28-34`（`ValidQuery` 同时校验分页参数）、`AttachmentCountingTasksApi.cs:28-29`：计数路径贯通，附件装饰器只透传。
+5. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekViewFactory.cs:351-359`：速览取 `Limit = MaxItems`、`IncludeNotes = false` 的一页，再用一次 `CountAsync` 取总数与未完成数，计数失败时回退为当前页统计；`:379-380` 的摘要与「更多」提示改用总数。
+6. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TasksViewModel.cs:286-288`：主列表查询不再携带备注（编辑器与详情仍走 `GetAsync`）；`:893` 调用新的 `ApplyItems`（`:907-940`），按 Id 复用行、先删已消失的行、再按目标顺序 `Move`/`Insert`，移动超过 64 次时改为一次重建以避免 O(n²)；`:942-948` 的 `IndexOf` 用引用比较；`:1202-1206` 的语言切换改为原地 `RefreshLocalizedText`。
+7. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskListItemViewModel.cs:8-82`：改为可观察行，`Update`（`:38-46`）只在数据或未命名标题变化时通知，`RefreshLocalizedText`（`:48-54`）只刷新展示串，不再重建集合。
+8. `src/Modules/Tasks/Mosaic.Tasks.Contracts/TaskChanges.cs:2-3`：新增 `TaskChangeKind.Replaced`（`TaskId` 为空、`Revision` 为 0，表示整表重载）；`TaskTransferService.cs:33-36` 在替换成功后只发一次该通知；`TaskFloatingContentFactory.cs:68` 的订阅改为同时响应 `Replaced`。
+9. 测试：`RepositoryContractTests.cs:16` 新增分页/投影/计数用例并对 SQLite 与内存仓储各跑一遍；`PresenceTests.cs:433` 断言速览只取一页、不带备注并读取聚合计数；`PresentationTests.cs:852` 断言刷新复用同一行对象、只更新变化字段且列表查询不带备注；`TaskTransferTests.cs:129` 改为断言单次 `Replaced`。各 `ITasksApi` 测试替身补齐 `CountAsync`。
+10. 发布工具与元数据：`scripts/release_content_verify.py:113-115`、`build/release-content.ps1:160` 与 `ReleaseManifest.cs:80-83` 的上限统一放宽到 40000（对应上限用例改为 40001 字符）；`build/public-api.txt` 登记 `Mosaic.Tasks.Contracts.TaskCountsDto`；`Directory.Build.props:12` 升到 0.18.14；`build/release-content.json` 与 `build/published-release-index.json` 追加第 60 条；`build/release-manifest.json`、`docs/releases/v0.18.14.md` 由校验脚本生成。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：不改数据库 schema、不改设置键、不改模块装配，无需数据迁移。`TaskQuery` 三个新属性都有保持旧行为的默认值（`Limit = 0`、`Offset = 0`、`IncludeNotes = true`），导出（`TaskTransferService.cs:16`）继续带备注；已发布历史与索引只追加，不改旧条目。
+- 对已有安装的影响：升级后任务、附件、设置与 `task-peek-filter.txt` 均原样读取；主列表与速览的筛选、排序、空态与计数口径与 0.18.13 一致；列表 DTO 的 `Notes` 变为空串只影响列表视图，编辑器与详情仍通过 `GetAsync` 取得完整备注。
+- 验收项：
+  1. 速览一次加载只发 `Limit = MaxItems`、`IncludeNotes = false` 的列表查询，另发一次计数查询；摘要按计数显示（新增用例）。
+  2. 主列表刷新后同一任务仍是同一个行对象、只收到变化字段的通知；查询不含备注（新增用例）。
+  3. 整表恢复只发一次 `Replaced`（改后用例），浮窗按该通知重载。
+  4. SQLite 与内存仓储在分页、投影、计数三处行为一致（新增契约用例双向执行）。
+  5. 全量 492 项测试仅剩发布提交前的两项一致性检查失败（提交后通过）。
+- 回滚方式：回退本次提交即可；无数据迁移需要撤销，旧版本读取的数据与设置不受影响。发布工具的上限放宽只影响构建期校验，不进入安装包。
 
 ## 0.18.12：速览行复用、筛选同步与会话行本地化（2026-11-24）
 

@@ -110,7 +110,9 @@ while nxt is not None:
 for frm in range(len(chain)):
     applicable = chain[frm:]
     previous_version = '首次使用' if frm == 0 else chain[frm - 1]['version']
-    if len(summary_text(current, applicable, previous_version)) > 20000:
+    # 发布历史随版本线性增长；59 个版本后 20000 字符已不够放下整条链路。
+    # 该上限只约束校验时的整段历史文本，写入 vX.md 的仍只有当前版本，因此放宽到 40000。
+    if len(summary_text(current, applicable, previous_version)) > 40000:
         sys.exit('Notes exceed limit')
 
 write_utf8(os.path.join(ROOT, 'build', 'release-manifest.json'),

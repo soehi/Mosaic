@@ -293,5 +293,10 @@
     "releaseId": "mosaic-0.18.13",
     "version": "0.18.13",
     "contentSha256": "8B92129E17522E61D95EBFA5C90BE0072DD7EE78DD68FE6EEAE5F5E93B66F32C"
+  },
+  {
+    "releaseId": "mosaic-0.18.14",
+    "version": "0.18.14",
+    "contentSha256": "41480A27905B5217AEBBA8B6DF4EE36B594C9D5B9E336DFA48D54EEADC6B79C5"
   }
 ]

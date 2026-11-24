@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -65,7 +65,15 @@ public sealed class FloatingWindowsTests
         public Task<OperationResult> DeleteAsync(DeleteTaskRequest request,CancellationToken cancellationToken=default)=>throw new NotSupportedException();
         public Task<OperationResult<TaskConstraintsDto>> GetConstraintsAsync(CancellationToken cancellationToken=default)=>
             Task.FromResult(OperationResult<TaskConstraintsDto>.Success(new(200, 20000, true, false, 1, 50, 10)));
-    }
+    
+        public async Task<OperationResult<TaskCountsDto>> CountAsync(TaskQuery query, CancellationToken cancellationToken = default)
+        {
+            var listed = await ListAsync(query, cancellationToken);
+            return listed.IsSuccess
+                ? OperationResult<TaskCountsDto>.Success(new(listed.Value.Count, listed.Value.Count(task => !task.IsCompleted)))
+                : OperationResult<TaskCountsDto>.Failure(listed.Error!);
+        }
+}
     private static TaskItemDto Item()=>new(Guid.NewGuid(),"可复制任务 Long title",string.Concat(Enumerable.Repeat("长备注 long notes ",100)),false,DateTimeOffset.UtcNow,DateTimeOffset.UtcNow,1);
     private static Window[] Windows(FloatingWindowsModule module)
     {
