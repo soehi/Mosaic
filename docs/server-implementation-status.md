@@ -302,3 +302,42 @@
 ### 回滚方式
 
 `git revert` 本次提交并回退 `server/Directory.Build.props:12` 至 `0.1.1`。已升级的库可继续以 0.1.1 运行（旧代码不读取 `attachments` 表）；如需彻底清理：停服务 → 备份数据目录 → `DROP TABLE attachments; DELETE FROM schema_migrations WHERE version = 3;` → 删除 `<数据目录>/attachments/`。
+
+## 0.1.2（其三）：Linux 原地升级脚本与发布包（2026-11-24）
+
+### 根因位置
+
+线上实例 `https://mosaic.bansonic.top`（DNS → `47.112.187.172`，nginx 反代 → `127.0.0.1:5080`）在 2026-11-24T13:01Z 的 `/health` 返回 `"version":"0.1.1"`，即线上仍在运行 0.1.2（其二）之前的构建，`attachments` 表与 `/v1/attachments` 端点不存在。
+
+升级通道缺失：`server/README.md` 的部署章节（原「把输出目录拷到服务器后」段落）与 `server/publish-linux.ps1:31-37` 只打印启动命令，没有任何停服、备份、目录替换、健康检查与回滚步骤；仓库没有 `.github/` 工作流（`gh workflow list` 为空），也没有 Coolify/脚本化部署资产。按现有文档升级只能人工 `rsync`，容易漏掉 `<数据目录>/master.key` 与 `<数据目录>/attachments/` 的备份，也没有「版本号与迁移版本是否到位」的判定标准。
+
+### 改动位置
+
+- `server/deploy/upgrade-linux.sh`（新增）：root 权限执行的原地升级脚本。`die`/`read_env` 为辅助函数；`PKG_VERSION` 从包名解析版本；步骤依次为校验（`sha256sum -c`）→ 探测（`systemctl show -p ExecStart/EnvironmentFiles/User` 得到程序目录、`MOSAIC_DATA_DIR`、`MOSAIC_DATABASE_PATH`、服务用户；未配置时回落 `<程序目录>/data` → `/var/lib/mosaic-server`）→ 磁盘余量检查（包体积 + 解压体积 + 数据目录体积）→ `systemctl stop` 后备份（数据库与 `-wal`/`-shm`、`master.key`、`attachments/`）→ 目录整体替换（旧目录改名 `<APP_DIR>.previous-<STAMP>`，新目录解压后 `chmod +x` 与 `chown -R`）→ `systemctl start` 并轮询 `/health` 60 秒且比对版本 → 打印 `schema_migrations`/`attachments` 表/附件文件数/nginx `client_max_body_size`。健康检查失败调用 `rollback()`：停服、新目录改名 `<APP_DIR>.failed-<STAMP>`、旧目录换回、重启。
+- `server/README.md`：新增「### 升级（原地替换）」小节，写明单包发布形态、脚本执行命令、六步流程、可覆盖的环境变量与数据回滚语句。
+- `server/artifacts/Mosaic.Server-0.1.2-linux-x64.tar.gz`（派生产物，`artifacts/` 已在 `.gitignore:3`）：`tar -C linux-x64 -czf` 打包 341 个文件，48,849,064 字节，SHA-256 `67fda52481a9a62855c0a5327896dae4c5fb3bcf3edaf65a362e52db431611ad`；同目录 `SHA256SUMS` 记录该行。
+
+### 本机验证
+
+1. `dotnet publish server/src/Mosaic.Server/Mosaic.Server.csproj -c Release -r linux-x64 --self-contained true -o server/artifacts/linux-x64` → 退出码 0，108 MB / 341 文件；`Mosaic.Server.dll` 内含 `0.1.2`；包内 `Mosaic.Server` 为 78,256 字节的 linux-x64 单文件宿主。
+2. 全新数据目录（`MOSAIC_DATA_DIR=server/artifacts/smoke-data`）从源码启动 → `GET /health` 返回 `"version":"0.1.2+2c60018a..."`；SQLite 内 `schema_migrations` = `1 initial, 2 session_management_and_sync_floor, 3 attachments`，`attachments` 表存在，`master.key` 自动生成；`GET /v1/attachments/<guid>` 返回 `401`（未携带访问令牌）。
+3. 升级路径模拟：停服 → 删除 `schema_migrations` 中 `version=3` 的行并 `DROP TABLE attachments`（还原成 0.1.1 的库形态）→ 用 0.1.2 启动 → 自动补回迁移 3 与 `attachments` 表，`master.key` 复用未报错，`/health` 仍为 0.1.2。迁移 3 是纯增量 DDL（`Schema.cs:172-183`），不触碰既有行。
+4. `dotnet test server/tests/Mosaic.Server.Tests/Mosaic.Server.Tests.csproj -c Release --filter "FullyQualifiedName~Attachment"` → 9/9 通过（约 6 秒）。未跑全量（`Mosaic.Server.Tests` 全量 91 个用例的上一轮结果见 0.1.2（其二））。
+5. `sh -n server/deploy/upgrade-linux.sh` 通过；本机无 WSL 发行版，无法用 `dash` 复验，也未在真实 systemd 主机上执行过脚本本身。
+
+### 未验证
+
+- `upgrade-linux.sh` 在真实 Linux + systemd 上的完整执行（目录改名、`chown`、`/health` 轮询、失败回滚分支）。
+- 线上 47.112.187.172 的 nginx `client_max_body_size` 是否 ≥ 50 MiB；脚本只在装了 nginx 时打印该项，不会修改配置。
+- 反向代理之后的 50 MiB 附件上传、真实两设备附件往返、`attachments/` 目录在 `User=mosaic` 下的写权限与磁盘配额。
+
+### 线上替换的访问前提
+
+替换线上实例需要对 `bansonic.top`（`47.112.187.172`）的 SSH 访问。本次探测：`ssh -o BatchMode=yes root@bansonic.top` 返回 `Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)`，默认 `~/.ssh/id_rsa` 未被接受；仓库与本地均无部署脚本、CI 或凭据。在拿到可用登录方式（用户名 + 端口 + 密钥或口令）或由操作者在面板上执行脚本之前，线上保持 0.1.1。
+
+### 线上替换步骤（拿到访问后执行）
+
+1. 上传 `Mosaic.Server-0.1.2-linux-x64.tar.gz` 与 `SHA256SUMS` 到服务器任意目录（例如 `/root/mosaic-upgrade/`）。
+2. `sudo sh upgrade-linux.sh Mosaic.Server-0.1.2-linux-x64.tar.gz SHA256SUMS`（脚本在仓库 `server/deploy/upgrade-linux.sh`，并随 v0.19.0 发布附件提供）。
+3. 核验：`curl -fsS https://mosaic.bansonic.top/health` 应含 `"version":"0.1.2`；`sqlite3 <数据目录>/mosaic-server.sqlite3 "select * from schema_migrations"` 应含 `3|attachments`；`nginx -T | grep client_max_body_size` 应 ≥ `50m`。
+4. 失败回滚：脚本自动完成；手工回滚按脚本结尾打印的三步（停服 → 换回 `<程序目录>.previous-<STAMP>` → 启动），数据回滚见「升级（原地替换）」小节。

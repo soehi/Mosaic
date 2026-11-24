@@ -127,6 +127,27 @@ WantedBy=multi-user.target
 
 反向代理（Caddy/Nginx）负责 HTTPS；设置 `MOSAIC_PUBLIC_URL=https://...` 与 `MOSAIC_TRUSTED_PROXIES=<代理 IP>`，这样设备授权页链接与按 IP 限流都正确。
 
+### 升级（原地替换）
+
+发布包按 `<版本>` 打成单个 tar.gz（341 个文件，约 47 MB）。在服务器上以 root 执行：
+
+```bash
+sudo ./upgrade-linux.sh Mosaic.Server-0.1.2-linux-x64.tar.gz SHA256SUMS
+```
+
+脚本做六件事，全部可回滚：
+
+1. `sha256sum -c` 校验发布包。
+2. 从 `systemctl show` 解析 `ExecStart` 程序目录、`EnvironmentFiles` 里的 `MOSAIC_DATA_DIR`（未设置时回落 `<程序目录>/data` 或 `/var/lib/mosaic-server`）与 `User`，检查磁盘余量（解压体积 + 数据目录体积）。
+3. `systemctl stop` 后复制数据库（含 `-wal`/`-shm`）、`master.key`、`attachments/` 到 `/var/backups/mosaic-server/<UTC 时间戳>/`。
+4. 旧目录整体改名为 `<程序目录>.previous-<时间戳>`，解压新包到原路径，`chmod +x Mosaic.Server`，按服务用户 `chown -R`（保留最近 2 个旧版本目录）。
+5. `systemctl start` 后轮询 `/health` 最多 60 秒，并要求返回的 `version` 与包名版本一致；任一步失败自动停服、换回旧目录、重启，新目录留在 `<程序目录>.failed-<时间戳>`。
+6. 打印 `schema_migrations` 全部版本、`attachments` 表是否存在、附件文件数，以及 nginx 的 `client_max_body_size`（若装了 nginx）。
+
+默认配置可用环境变量覆盖：`MOSAIC_SERVICE`、`MOSAIC_APP_DIR`、`MOSAIC_BACKUP_ROOT`、`MOSAIC_HEALTH_URL`、`MOSAIC_DATA_DIR`、`MOSAIC_SKIP_ATTACHMENTS_BACKUP=1`（磁盘紧张时跳过附件备份）、`MOSAIC_KEEP_PREVIOUS`。
+
+数据回滚（仅在需要回退到 0.1.1 时）：停服务 → 覆盖回备份的 `mosaic-server.sqlite3`、删除 `-wal`/`-shm` → `DROP TABLE attachments; DELETE FROM schema_migrations WHERE version = 3;` → 启动。0.1.2 → 0.1.2 的内部回滚只换目录，库不动。
+
 ## 数据、密钥与迁移
 
 - 数据库：`<数据目录>/mosaic-server.sqlite3`（WAL 模式，`busy_timeout` 15s）。
