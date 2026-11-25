@@ -1,5 +1,36 @@
 # Mosaic：实施与验证记录
 
+## 0.19.3：修复任务速览内未拖出面板时拖拽提示残留（2026-11-25）
+
+本轮修复用户报告的问题：在任务速览（peek）面板内按住任务行拖动但松手时仍在面板内（或松键事件被吞掉），所有任务行会同时残留虚线拖拽框与「松手以创建小窗 · Esc取消」气泡，且每拖动一次叠加一层，直到面板关闭。改动后：每次激活拖拽前先按类型把本控件上残留的 `DragHintAdorner` 全量清扫，取消/结束手势时同样全量清扫；同时拖拽已激活后若收到左键已松开的鼠标移动（说明 MouseUp 被吞、`LostMouseCapture` 未路由），立即走 `CancelDrag` 收尾，不再依赖单一路径。本版本不改数据库、设置与模块装配，服务端保持 0.1.2 不动。
+
+**根因位置**
+
+1. `Mosaic.Tasks.Wpf.Internal.TaskPeekView.ActivateDrag`（改动前 `TaskPeekView.xaml.cs:82-96`，字段赋值 `_preview = new DragHintAdorner(...)` 位于原 `:88-90`）：激活拖拽时直接用新实例覆盖 `_preview` 字段，而移除旧提示层的唯一路径是 `ResetGesture`/`CancelDrag` 按字段引用移除。触发条件：前一次手势的 MouseUp 在行元素离树或捕获丢失时未路由到 `EndGesture`/`CaptureLost`（在面板内松手、或松键被其他元素吞掉）。出错原因：旧 `DragHintAdorner` 仍挂在 `AdornerLayer` 上，但字段被覆盖后已不是同一个引用，任何清理路径都再也找不到它，永久残留；下一次拖动再叠一层，用户截图即 4 行同时残留虚线框与气泡。
+2. `Mosaic.Tasks.Wpf.Internal.TaskPeekView.MoveGesture`（改动前 `:65-...`）：`_candidate is null || e.LeftButton != Pressed` 分支直接 `return`，不处理「`_dragging` 已为 true 但 MouseUp 被吞」的状态。触发条件：拖拽激活后松键事件丢失，下一次鼠标移动到来。出错原因：此时没有其他事件能触发 `CancelDrag`，`_dragging`、提示层与预览小窗保持存活，视觉残留且拦截后续点击。
+
+**改动位置**
+
+1. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs`
+   - `MoveGesture:65-81`：保留「捕获瞬间伪 Move 必须直接返回」的原守卫形态（这是 0.18.8 起的既有约束，`CaptureMouse()` 成功瞬间会重发一个左键未按下的伪 Move），在 `_dragging` 分支内新增 `CancelDrag()`（`:72`），用于察觉被吞掉的 MouseUp。
+   - `ActivateDrag:82-96`：`CaptureMouse` 成功并置 `_dragging` 后先调 `RemoveDragHints()`（`:87-88`），再创建新 `DragHintAdorner`，保证旧的泄漏 adorner 不会随字段覆盖永久残留。
+   - `ResetGesture:165-176`：原按字段移除改为调用 `RemoveDragHints()`（`:168`），取消/结束/打开菜单所有收尾路径共用同一清扫逻辑。
+   - 新增 `RemoveDragHints:185-191`：置空 `_preview` 后从 `AdornerLayer.GetAdornerLayer(this)` 取本控件全部 adorner，按 `OfType<DragHintAdorner>()` 全量 `Remove`，不依赖字段引用是否已漂移。
+2. `tests/Mosaic.Wpf.Tests/PresenceTests.cs`：新增 `Peek_repeated_drags_never_stack_drag_hint_adorners`，覆盖三个场景——激活后伪 Move 后层数为 1、同一行连续两次激活不叠加、`CancelDrag` 后清零（本类 26/26 通过）。
+3. 发布链：`Directory.Build.props:12` 版本 `0.19.3`；`build/release-content.json` 追加 0.19.3 条目（fixed 1，`previousReleaseId = mosaic-0.19.2`，指纹 `16D93C15F2706B9884886E35E7B8004A03618811CA67EAC48CB9CCC3C8299C50`）；`build/published-release-index.json` 追加同指纹回执至 64 条；`build/release-manifest.json` 与 `docs/releases/v0.19.3.md` 由 `scripts/release_content_verify.py` 生成；`README.md` 当前版本与下载链接更新为 0.19.3。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：不改数据库 schema、不改设置键、不改模块装配与公开契约，无需数据迁移。
+- 对已有安装的影响：升级覆盖安装即可，任务、设置、账户会话与浮窗状态不受影响；残留的提示层只存在于运行期视觉树，升级后重启即不存在。
+- 验收项：
+  1. `python -I scripts/release_content_verify.py` 输出 `Release content verified: 0.19.3, mosaic-0.19.3, 64 indexed releases.`
+  2. `dotnet build src/Modules/Tasks/Mosaic.Tasks.Wpf -c Release` 零警告零错误。
+  3. `dotnet test tests/Mosaic.Wpf.Tests --filter "DisplayName~Peek_repeated_drags_never_stack_drag_hint_adorners"` 全绿。
+  4. `dotnet test tests/Mosaic.Desktop.SmokeTests` 55/55 全绿（含真实指针拖出任务的 `Peek_real_pointer_detaches_multiple_tasks_and_dismisses_after_each_drop`）。
+  5. 实机验收：打开任务速览，按住任一任务行拖起后在面板内松手，再对其他行重复多次；所有行均不残留虚线框与气泡，随后拖出到桌面仍能正常创建小窗，Esc 仍可取消拖拽。
+- 回滚方式：`git revert` 本次提交即回到 0.19.2，行为回到旧实现（残留问题复现），数据无影响。
+
 ## 0.19.2：重启自动登录与可配置间隔的自动备份（2026-11-25）
 
 本轮解决两个用户可见断点：其一，重启软件后账号显示已登录，但任何需要服务器的操作都提示未登录，用户必须重新输入密码；其二，登录后没有任何周期性任务备份，只能手动点「立即备份」。改动后：启动时若本机存有与当前服务器同源的凭据，直接恢复登录状态，并在首次需要访问令牌时用保存的刷新令牌惰性换取访问令牌（启动过程仍然不联网）；`sync-core` 模块在激活后启动一个后台循环，登录状态下按用户设置的间隔（默认 60 秒，15–86400 秒可调，可单独关闭）上传任务与可移植设置，登录事件触发一次立即备份，改间隔/开关立即重定时，停止模块时先取消并等待循环退出。本版本不改数据库 schema、不改设置键名之外的数据、不改模块装配的依赖方向，服务端保持 0.1.2 不动。

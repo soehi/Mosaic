@@ -64,7 +64,14 @@ internal partial class TaskPeekView : UserControl
     }
     private void MoveGesture(object sender, MouseEventArgs e)
     {
-        if (_candidate is null || e.LeftButton != MouseButtonState.Pressed) return;
+        if (_candidate is null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            // 拖拽已激活后靠 Move 察觉被吞掉的 MouseUp（行离树后 LostMouseCapture 不路由）；
+            // 激活前的松键由 EndGesture/StartGesture 兜底，且 CaptureMouse 成功瞬间会重发一个
+            // 左键未按下的伪 Move，此处必须直接返回，否则会拆掉或重入刚建立的拖拽。
+            if (_dragging) CancelDrag();
+            return;
+        }
         var point = e.GetPosition(this);
         if (!_dragging && (Math.Abs(point.X - _start.X) > SystemParameters.MinimumHorizontalDragDistance || Math.Abs(point.Y - _start.Y) > SystemParameters.MinimumVerticalDragDistance))
         {
@@ -77,6 +84,8 @@ internal partial class TaskPeekView : UserControl
         if (_candidate is not { } surface) return;
         if (!surface.CaptureMouse()) { _candidate = null; return; }
         _dragging = true; _suppressClick = true; DragChanged?.Invoke(true);
+        // 上一次手势的提示层若因事件丢失未被移除，会随字段覆盖而永久残留，先按类型全量清扫。
+        RemoveDragHints();
         _preview = new DragHintAdorner(this, TaskLocalization.Localize("Tasks.Floating.Drag", "松手以创建小窗 · Esc取消"), surface);
         AdornerLayer.GetAdornerLayer(this)?.Add(_preview);
         _escapeHandler = (_, args) => { if (args.Key == Key.Escape) CancelDrag(); };
@@ -156,11 +165,7 @@ internal partial class TaskPeekView : UserControl
     private void ResetGesture()
     {
         _dragging = false;
-        if (_preview is not null)
-        {
-            AdornerLayer.GetAdornerLayer(this)?.Remove(_preview);
-            _preview = null;
-        }
+        RemoveDragHints();
         var host = Window.GetWindow(this);
         if (_escapeHandler is not null && host is not null) host.PreviewKeyDown -= _escapeHandler;
         _escapeHandler = null;
@@ -176,5 +181,12 @@ internal partial class TaskPeekView : UserControl
         var menu = button.ContextMenu!; menu.Items.Clear();
         var item = new MenuItem { Header = TaskLocalization.Localize("Tasks.Floating.Open", "在小窗中打开") };
         item.Click += async (_, _) => { if (DetachRequested is { } request) await request(row, null, CancellationToken.None); }; menu.Items.Add(item);
+    }
+    private void RemoveDragHints()
+    {
+        _preview = null;
+        if (AdornerLayer.GetAdornerLayer(this) is not { } layer) return;
+        foreach (var adorner in layer.GetAdorners(this)?.OfType<DragHintAdorner>().ToArray() ?? [])
+            layer.Remove(adorner);
     }
 }

@@ -361,6 +361,63 @@ public sealed class PresenceTests
     });
 
     [Fact]
+    public Task Peek_repeated_drags_never_stack_drag_hint_adorners() => Sta.Run(async () =>
+    {
+        // 拖动未到桌面即松手（MouseUp 丢失或行复用离树）后再次拖动，
+        // 虚线提示层必须被清理而不是随字段覆盖在 AdornerLayer 里逐次叠加残留。
+        var first = Item("拖拽残留一");
+        var second = Item("拖拽残留二");
+        var api = new Api { Query = (_, _) => Task.FromResult(OperationResult<IReadOnlyList<TaskItemDto>>.Success([first, second])) };
+        var floating = new FloatingApi();
+        await using var module = new TasksUiModule(new(api, new UiDispatcher(Dispatcher.CurrentDispatcher), new Dialogs(), new Diagnostics()));
+        await module.ActivateAsync();
+        using var registration = module.DetachSource.RegisterDetachHandler(floating);
+        await using var session = module.CompanionFactory.Create(new("All", 12, "Theme", "Theme"));
+        await session.InitializeAsync(); Texts(session.View);
+        var view = session.View; var type = view.GetType();
+        var interaction = (ICompanionInteraction)session;
+        var candidate = type.GetField("_candidate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var activate = type.GetMethod("ActivateDrag", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var move = type.GetMethod("MoveGesture", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var host = new Window { Content = view, Width = 300, Height = 200, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+        host.Show(); view.UpdateLayout();
+        var layer = AdornerLayer.GetAdornerLayer(view);
+        Assert.NotNull(layer);
+        int Hints() => (layer.GetAdorners(view) ?? []).Count(adorner => adorner.GetType().Name == "DragHintAdorner");
+        try
+        {
+            var rows = Descendants(view).OfType<Button>().Where(button => button.Name == "TaskCard").Select(button => (FrameworkElement)button.Parent).ToArray();
+            Assert.Equal(2, rows.Length);
+
+            // 第一次拖动：激活后 MouseUp 丢失，靠后续 Move（左键已松开）察觉并清理。
+            candidate.SetValue(view, rows[0]);
+            activate.Invoke(view, [new Point(60, 60)]);
+            Assert.Equal(1, Hints());
+            move.Invoke(view, [rows[0], new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.PreviewMouseMoveEvent }]);
+            Assert.Equal(0, Hints());
+            Assert.Null(candidate.GetValue(view));
+            Assert.False(rows[0].IsMouseCaptured);
+            Assert.False(interaction.IsInteracting);
+
+            // 泄漏场景：同一行连续两次激活之间不经过任何清理路径（模拟事件全部丢失），
+            // 第二次 ActivateDrag 必须先清扫旧提示层，AdornerLayer 里只留最新一个。
+            candidate.SetValue(view, rows[0]);
+            activate.Invoke(view, [new Point(60, 60)]);
+            Assert.Equal(1, Hints());
+            candidate.SetValue(view, rows[0]);
+            activate.Invoke(view, [new Point(70, 70)]);
+            Assert.Equal(1, Hints());
+            Assert.True(rows[0].IsMouseCaptured);
+
+            // 弹窗内松手（CancelDrag）后 AdornerLayer 不得残留任何提示层。
+            type.GetMethod("CancelDrag", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, null);
+            Assert.Equal(0, Hints());
+            Assert.False(interaction.IsInteracting);
+        }
+        finally { host.Close(); }
+    });
+
+    [Fact]
     public Task Peek_conflict_refreshes_revision_failure_does_not_flip_and_message_can_dismiss() => Sta.Run(async () =>
     {
         var item = Item("冲突任务"); var writes = 0;
