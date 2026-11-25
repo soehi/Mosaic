@@ -1,5 +1,64 @@
 # Mosaic：实施与验证记录
 
+## 0.19.4：修复任务速览拖动闪屏并降低拖拽期内存占用（2026-11-25）
+
+本轮解决用户报告的「拖动速览任务条时有闪屏」，同时按架构规范把拖拽热路径上的重复布局与重复分配去掉。闪屏不是单点问题：从任务速览的装饰层，到浮窗模块的幽灵预览窗，再到桌面驻留模块的宿主弹窗，三处都在鼠标移动或轮询时无条件重写窗口几何、无条件重做布局，而 `AllowsTransparency=true` 的分层窗口每次几何写入都会重建合成表面，视觉上即闪屏。本轮把三处的写入都改为「真正变化才写」，并把逐帧分配全部移出热路径。改动只发生在 WPF 渲染/宿主层，`Mosaic.Tasks.Wpf` 仍只经 `Mosaic.FloatingWindows.Contracts` 的 `BeginPlacementPreview/UpdatePlacementPreview/EndPlacementPreview` 与浮窗模块通信，`build/project-boundaries.json` 的依赖方向、`build/public-api.txt` 的公开契约均未变。本版本不改数据库 schema、不改设置键、不改模块装配，服务端保持 0.1.2 不动。
+
+**根因位置**
+
+1. `Mosaic.Tasks.Wpf.Internal.TaskPeekView.MoveGesture`（改动前 `TaskPeekView.xaml.cs:65-...`，原逐帧调用位于 `:78` 附近）：每次 `PreviewMouseMove` 都执行 `AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange()`。触发条件：在速览面板内按住任务行拖动、指针每移动一个像素。出错原因：`AdornerLayer` 覆盖整个被装饰控件，整层失效会让全部装饰元素重新测量与重排，面板行数越多、耗时越长，帧率抖动直接表现为闪屏。
+2. `Mosaic.Tasks.Wpf.Internal.DragHintAdorner.MeasureOverride/ArrangeOverride`（改动前 `DragHintAdorner.cs:69-99`）：`MeasureOverride` 每帧用 `PositiveInfinity` 重新 `_hint.Measure`，`ArrangeOverride` 每帧 `TransformToAncestor` 后重设 `Canvas.Left/Top` 并再次 `_canvas.Arrange`。触发条件：任意一次布局过程（含上述整层失效触发的那些）。出错原因：气泡尺寸在手势期间恒定，逐帧测量与重排纯属浪费；`TransformToAncestor` 还会在目标行离树时抛异常中断整轮布局。
+3. `Mosaic.FloatingWindows.Wpf.FloatingSurface.UpdatePreview`（改动前 `FloatingSurface.cs:104-...`）：每次指针移动都 `CreateRecord(...)`（新建 `FloatingWindowRecord` 与字符串）并 `FloatingScreen.Resolve(record.MonitorId)`（`EnumDisplayMonitors` 全屏枚举 + 每屏 `GetMonitorInfo` 分配 `MonitorInfo`），随后无条件写 `Left/Top/Width/Height` 并把 `Opacity` 设成 1。触发条件：从速览拖出任务到桌面。出错原因：幽灵窗是 `AllowsTransparency=true` 的 Topmost 分层窗，同一几何重复写入也会让 WPF 丢弃并重建合成表面；同时逐帧的托管与原生分配在拖动期间持续抬高 GC 压力。
+4. `Mosaic.DesktopPresence.Wpf.PresenceSurface.PositionWindows`（改动前 `PresenceSurface.cs` 内 `_popup.Left/Top` 写入段）：`_popup` 与 `_edge` 的 `Left/Top/Width/Height` 无条件写入，`fitContent` 分支每次都做无约束 `content.Measure`。触发条件：鼠标轮询、DPI 通知、显示器变化、任意设置提交都会走到这里，拖动期间高频命中。出错原因：几何未变时的写入同样触发分层窗口重建；无约束 measure 遍历整棵承载视图视觉树，是驻留期间的 CPU 与临时分配大头。
+5. `Mosaic.DesktopPresence.Wpf.PresenceScreen.Place/WorkArea`（改动前 `PresenceScreen.cs:21-45`）：`Place` 每次无条件 `SetWindowPos`，`WorkArea` 每次三连 P/Invoke（`MonitorFromWindow` + `GetMonitorInfo` + `GetDpiForMonitor`）并分配 `MonitorInfo`。触发条件：同第 4 条。出错原因：几何已就位仍强制重定位，是驻留面板闪动与 `Win32Exception` 的另一个来源；工作区与 DPI 只在显示器配置变化时变，逐次重算是纯浪费。
+
+**改动位置**
+
+1. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/TaskPeekView.xaml.cs`
+   - `MoveGesture:65-83`：删除 `InvalidateArrange` 整层失效；`_dragging` 分支改为 `e.Handled = true; _preview?.Update(point); MovePreview(point);`（`:82`），提示层逐帧只改自身合成变换，对浮窗模块仍每帧转发一次位置，契约层 `Begin/Update/End` 保持 1:1。
+   - `ActivateDrag:84-99`：改为 `_preview.Update(position); StartPreview(position);`（`:97-98`），加入提示层已触发一次完整布局，不再追加显式失效。
+   - `RemoveDragHints:188-195`：倒序原地删除 `DragHintAdorner`，不再每次清理都 `ToArray()` 分配一个数组。
+2. `src/Modules/Tasks/Mosaic.Tasks.Wpf/Internal/DragHintAdorner.cs`（全文重构，113 行）
+   - `MeasureOverride:69-74`：直接 `return constraint`，不再逐帧重测气泡。
+   - `ArrangeOverride:76-100`：只在首次 `_hint.Measure(new Size(PositiveInfinity, PositiveInfinity))` 并缓存 `_hintSize`（`:_measured` 门控）；`TransformToAncestor` 失败改为 `catch (InvalidOperationException)` 吞掉并折叠虚线框；末尾 `_canvas.Arrange(new Rect(finalSize))` 后调 `Place(_offset)`。
+   - `Update:58-63`：只写 `_hintOffset.X/Y`（`TranslateTransform`），不失效测量与重排。
+   - `Place:103-111`：按 `AdornedElement.RenderSize` 做边界夹取，气泡越界时翻转到指针上方。
+3. `src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf/FloatingSurface.cs`
+   - 字段 `:25-30`：`_values` 之外新增 `_previewWindow`/`_previewReference`/`_previewScreen` 与常量 `PreviewHeight=76`；`_previewWindow` 字段名被 `FloatingWindowsTests.cs:380-404` 反射读取，不可改名。
+   - `Near:57`：新增 0.5 像素容差比较。
+   - `UpdateSettings:58-84`：`Changed(values)` 返回 `null`（设置表完全没变，不复制不重排）/`false`（只有非浮窗设置变了，不重排）/`true`（`floating.*` 变了才 `Layout`），替代原来的 `new Dictionary` 无条件复制 + 无条件重排。
+   - `BeginPreview:93-103`：`EndPreview()` 后若该任务已在小窗中则直接返回（已打开的窗不能被幽灵窗承诺新位置）；`(_previewWindow ??= CreatePreviewWindow()).Show()` 跨手势复用，只切换可见性。
+   - `UpdatePreview:104-130`：直接算矩形，不再 `CreateRecord`；屏幕缓存 `_previewScreen` 只在释放点离开已缓存屏幕像素区时才 `FloatingScreen.Resolve`；`Math.Round` 对齐整物理像素；四处几何与 `Opacity` 都经 `Near` 门控。
+   - `EndPreview`：改为 `Hide()`（测试断言 `Assert.False(preview.IsVisible)`，不能用 `Opacity=0`）；`Dispose` 里 `preview?.Close()`，`App.xaml` 的 `ShutdownMode="OnExplicitShutdown"` 保证隐藏窗不会拖住退出。
+4. `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceSurface.cs`
+   - 字段 `:35-39`（原 `_sessionGeneration` 之后）：新增 `_measureVersion`/`_measuredVersion`/`_measuredWidth`/`_measuredHeight`/`_measureOperation`。
+   - 新增 `Near(double,double)` 辅助（`:51`）与 `Set(Window, width, height, left, top)`（`:441-447`，紧随 `PositionWindows`）：几何只在变化时写入。
+   - `QueueMeasure:290-297`：`++_measureVersion`（`:296`），承载视图报告 `LayoutInvalidated` 时标记自然高度可能已变。
+   - `PositionWindows:395-439`（全文重写）：`_edge` 与 `_popup` 全部经 `Set(...)` 容差写入；`Topmost` 只在值变化时写；`fitContent` 分支的 `content.Measure` 由 `_measuredVersion != _measureVersion || !Near(_measuredWidth, width)`（`:422`）门控，缓存 `_measuredHeight`（`:426`）。
+   - `ShowPopupAsync:243`：新会话时 `++_measureVersion; _measuredVersion = -1; _measuredWidth = double.NaN;`，上一次会话的自然高度不能复用。
+   - `DisplayChanged:449-455` 与 `CreateWindow` 的 `DpiChanged`（`:389`）：`PresenceScreen.Reset()` + `++_measureVersion` 后异步 `PositionWindows`。
+5. `src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf/PresenceScreen.cs`（全文重写，83 行）
+   - 新增静态缓存 `Areas`/`Scales`（键 `(nint Monitor, bool LastWindow)`）与 `Reset()`。
+   - `WorkArea:21-32`：命中缓存直接返回；未命中才做 `MonitorFromWindow` + `GetMonitorInfo` + `ScaleOf`。
+   - `ScaleOf:34-43`：DPI 比例单独缓存，`GetDpiForMonitor` 缺失时回退 96。
+   - `Place:46-61`：先 `GetWindowRect` 比对，已在目标像素矩形上就跳过 `SetWindowPos`；仅在几何确实需要变时才调用，失败才抛 `Win32Exception`。
+6. 测试：未新增用例；`tests/Mosaic.Wpf.Tests/PresentationTests.cs` 的 `Leaving_during_save_waits_and_duplicate_submission_is_disabled`（`:158`）开头补一行 `MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese)`，让 `:169` 的中文断言不再依赖进程默认 UI 文化（原实现只要 `DOTNET_CLI_UI_LANGUAGE=en` 就断言失败，属于用例自身的环境脆弱性，与本次改动无关）。既有 `tests/Mosaic.Wpf.Tests/PresenceTests.cs`（180 项）、`tests/Mosaic.Wpf.Tests/FloatingWindowsTests.cs` 与 `tests/Mosaic.FloatingWindows.Tests`（12 项）覆盖了本次改动的全部硬约束：`_previewWindow` 反射字段名、幽灵窗宽度区间 220..640、`EndPlacementPreview` 后 `IsVisible == false`、`PreviewBegins/Updates/Ends` 1:1 转发、`DragHintAdorner` 类名与 `Drop` 后装饰层为空、`Popup_measures_generic_content...` 在 `LayoutInvalidated` 后高度必须增长、旧会话通知不得改高度。
+7. 发布链：`Directory.Build.props:12` 版本 `0.19.4`；`build/release-content.json` 追加 0.19.4 条目（improved 3 / fixed 1，`previousReleaseId = mosaic-0.19.3`，指纹 `53BCB2BAC1E60A9D36A79F8DA8D41495D70CC0E2604BC045BCA0AE379ECEB809`）；`build/published-release-index.json` 追加同指纹回执至 65 条；`build/release-manifest.json` 与 `docs/releases/v0.19.4.md` 由 `scripts/release_content_verify.py` 生成；`README.md` 当前版本、下载链接、MSI 文件名与发布说明入口更新为 0.19.4。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：不改数据库 schema、不改设置键、不改模块装配与公开契约，无需数据迁移。
+- 对已有安装的影响：升级覆盖安装即可，任务、设置、账户会话与浮窗状态不受影响。幽灵预览窗改为跨手势复用，进程退出时才关闭；`App.xaml` 的 `ShutdownMode="OnExplicitShutdown"` 已保证隐藏窗不阻塞退出。桌面驻留的屏幕几何缓存只存在于进程内，升级后首次启动自动重建。
+- 验收项：
+  1. `python -I scripts/release_content_verify.py` 输出 `Release content verified: 0.19.4, mosaic-0.19.4, 65 indexed releases.`
+  2. `dotnet build src/Modules/DesktopPresence/Mosaic.DesktopPresence.Wpf -c Release` 与 `dotnet build src/Modules/FloatingWindows/Mosaic.FloatingWindows.Wpf -c Release` 均零警告零错误。
+  3. `dotnet test tests/Mosaic.Wpf.Tests -c Release` 180/180 全绿（实测 21s 258ms；含 `Placement_preview_ghost_tracks_the_hint_and_ends_without_a_window`、`Popup_measures_generic_content_clamps_height_and_ignores_closed_session_notifications`、`Peek_drag_forwards_placement_preview_and_ends_on_cancel`、`Peek_repeated_drags_never_stack_drag_hint_adorners`）。注意**不要**给测试进程设置 `DOTNET_CLI_UI_LANGUAGE=en`：`PresentationTests` 依赖中文 UI 文化的断言会被改成英文文案（本轮已在该用例内固定为中文，但其他本地化用例仍按进程默认文化跑）。
+  4. `dotnet test tests/Mosaic.FloatingWindows.Tests -c Release` 12/12 全绿（契约层 `Begin/Update/End` 1:1 转发）。
+  5. 桌面 smoke（串行，`tests/Mosaic.Desktop.SmokeTests`）：`Floating_header_buttons_move_on_drag_and_still_click_on_short_press` 连续 7 次通过（12s 643ms 等）；`Floating_real_pointer_moves_resizes_clicks_and_restores_saved_bounds` 1/1 通过（15s 552ms）。更正记录：本轮早前有 4 次 header 用例失败（`FloatingDragTests.cs:150` 实测位移 21，期望 30..41），当时误判为 0.19.4 回归；后续在完全相同的代码上连跑 6 次全过，确认根因是本机残留 `Mosaic.Desktop.exe` 抢占前台，按下时首次点击仅激活窗口、越过系统拖动阈值的手势被推迟到轨迹后段才触发，`FloatingSurface.cs` 未再改动。运行 smoke 前先用 `Get-Process Mosaic.Desktop` 清掉残留实例。
+  6. 发布前全量：`dotnet test Mosaic.sln -c Release` 515/515 全绿（含 `Mosaic.Desktop.SmokeTests` 1m 22s 与 `Mosaic.Architecture.Tests`，0 跳过）。
+  7. 实机验收：打开任务速览，按住任一任务行在面板内快速来回拖动，气泡与虚线框全程跟随指针且无闪屏；拖出到桌面时幽灵预览窗平滑跟随、跨屏时位置正确；松手创建小窗、Esc 取消均正常；桌面驻留边缘条与弹窗在长时间驻留下无闪动。
+- 回滚方式：`git revert` 本次提交即回到 0.19.3，行为回到旧实现（闪屏复现），数据无影响。
+
 ## 0.19.3：修复任务速览内未拖出面板时拖拽提示残留（2026-11-25）
 
 本轮修复用户报告的问题：在任务速览（peek）面板内按住任务行拖动但松手时仍在面板内（或松键事件被吞掉），所有任务行会同时残留虚线拖拽框与「松手以创建小窗 · Esc取消」气泡，且每拖动一次叠加一层，直到面板关闭。改动后：每次激活拖拽前先按类型把本控件上残留的 `DragHintAdorner` 全量清扫，取消/结束手势时同样全量清扫；同时拖拽已激活后若收到左键已松开的鼠标移动（说明 MouseUp 被吞、`LostMouseCapture` 未路由），立即走 `CancelDrag` 收尾，不再依赖单一路径。本版本不改数据库、设置与模块装配，服务端保持 0.1.2 不动。

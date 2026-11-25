@@ -26,6 +26,7 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     private IReadOnlyDictionary<string,object?> _values=new Dictionary<string,object?>();
     private Window? _previewWindow;
     private FloatingContentReference? _previewReference;
+    private FloatingScreen? _previewScreen;
     private const double PreviewHeight=76;
     internal FloatingWindowCoordinator Coordinator {get;set;}=null!;
     internal FloatingSurface(IFloatingContentFactory content,IUiDispatcher dispatcher,IDiagnosticSink diagnostics,Func<Task> restore)
@@ -53,10 +54,33 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     }
     private int Number(string id,int fallback)=>FloatingSettings.Read(_values,id,fallback);
     private bool Flag(string id,bool fallback)=>_values.TryGetValue(id,out var value)&&value is bool flag?flag:fallback;
+    private static bool Near(double current,double target)=>!double.IsNaN(current)&&Math.Abs(current-target)<0.5;
     internal void UpdateSettings(IReadOnlyDictionary<string,object?> values)
     {
+        // null 表示设置表完全没变：既不复制也不重排；false 表示只有非浮窗设置变了。
+        if(Changed(values) is not {} layout)return;
         _values=new Dictionary<string,object?>(values);
+        if(!layout)return;
         foreach(var entry in _windows.Values)Layout(entry);
+    }
+    /// <summary>Null when the incoming table equals the current one; otherwise whether a floating.* value changed.</summary>
+    private bool? Changed(IReadOnlyDictionary<string,object?> values)
+    {
+        var any=false;var layout=false;
+        foreach(var pair in values)
+        {
+            _values.TryGetValue(pair.Key,out var existing);
+            if(Equals(existing,pair.Value))continue;
+            any=true;
+            if(pair.Key.StartsWith("floating.",StringComparison.Ordinal))layout=true;
+        }
+        foreach(var key in _values.Keys)
+        {
+            if(values.ContainsKey(key))continue;
+            any=true;
+            if(key.StartsWith("floating.",StringComparison.Ordinal))layout=true;
+        }
+        return any?layout:null;
     }
     public FloatingWindowRecord CreateRecord(FloatingContentReference reference,FloatingPlacementHint? hint)
     {
@@ -72,32 +96,45 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
         EndPreview();
         // An already-open task can only be activated by a detach; a ghost would promise a new position.
         if(_windows.ContainsKey(reference))return;
-        _previewReference=reference;
-        _previewWindow=CreatePreviewWindow();
-        _previewWindow.Show();
+        _previewReference=reference;_previewScreen=null;
+        // 幽灵窗口跨手势复用：Show/Hide 只切换可见性，不必每次拖出都重建分层窗口与 HwndSource。
+        (_previewWindow??=CreatePreviewWindow()).Show();
         UpdatePreview(hint);
     }
     public void UpdatePreview(FloatingPlacementHint hint)
     {
         if(_previewWindow is null || _previewReference is null)return;
         if(!_dispatcher.CheckAccess()){_=_dispatcher.InvokeAsync(()=>UpdatePreview(hint));return;}
-        try
+        var point=new Point(hint.ScreenX,hint.ScreenY);
+        // 只有释放点离开已缓存的显示器时才重新枚举：跨屏拖拽才付 EnumDisplayMonitors 的代价。
+        var screen=_previewScreen;
+        if(screen is null || !screen.Pixels.Contains(point))
         {
-            var record=CreateRecord(_previewReference,hint);
-            var screen=FloatingScreen.Resolve(record.MonitorId);
-            var rect=FloatingScreen.Placement(screen,record,Number("floating.minWidth",220),PreviewHeight);
-            _previewWindow.Left=rect.Left;_previewWindow.Top=rect.Top;
-            _previewWindow.Width=rect.Width;_previewWindow.Height=rect.Height;
-            _previewWindow.Opacity=1;
+            screen=FloatingScreen.Resolve(screenPoint:point);_previewScreen=screen;
         }
-        catch(ArgumentException) { _previewWindow.Opacity=0; } // Release point outside every work area.
+        if(!screen.Pixels.Contains(point)){_previewWindow.Opacity=0;return;} // Release point outside every work area.
+        // 与 CreateRecord + Placement 同一套数学，但不分配记录：逐帧只算一个矩形。
+        var width=Math.Min(screen.Width,Math.Max(Number("floating.minWidth",220),Number("floating.defaultCompactWidth",320)));
+        var height=Math.Min(screen.Height,Math.Max(60,PreviewHeight));
+        var x=Math.Clamp((point.X-screen.Pixels.Left)/screen.Scale-hint.GrabX,0,Math.Max(0,screen.Width-width));
+        var y=Math.Clamp((point.Y-screen.Pixels.Top)/screen.Scale-hint.GrabY,0,Math.Max(0,screen.Height-height));
+        // 对齐到整物理像素，避免分层窗口在亚像素位置上逐帧重采样产生闪烁。
+        var left=Math.Round((screen.Pixels.Left/screen.Scale+x)*screen.Scale)/screen.Scale;
+        var top=Math.Round((screen.Pixels.Top/screen.Scale+y)*screen.Scale)/screen.Scale;
+        var window=_previewWindow;
+        if(!Near(window.Left,left))window.Left=left;
+        if(!Near(window.Top,top))window.Top=top;
+        if(!Near(window.Width,width))window.Width=width;
+        if(!Near(window.Height,height))window.Height=height;
+        if(window.Opacity!=1)window.Opacity=1;
     }
     public void EndPreview()
     {
         if(_previewWindow is null)return;
         if(!_dispatcher.CheckAccess()){_=_dispatcher.InvokeAsync(EndPreview);return;}
-        var window=_previewWindow;_previewWindow=null;_previewReference=null;
-        window.Close();
+        _previewReference=null;_previewScreen=null;
+        // 隐藏而非关闭：Close() 会销毁分层窗口，下一次拖出要重建 HWND、样式与合成表面。
+        if(_previewWindow.IsVisible)_previewWindow.Hide();
     }
     private Window CreatePreviewWindow()
     {
@@ -320,7 +357,9 @@ internal sealed class FloatingSurface : IFloatingWindowSurface,IDisposable
     private void DisplayChanged(object? sender,EventArgs e)=>_ = _dispatcher.InvokeAsync(()=>{foreach(var entry in _windows.Values.ToArray())Layout(entry);});
     private void SystemChanged(object? sender,PropertyChangedEventArgs e)=>DisplayChanged(sender,e);
     private void Report(Exception ex){try{_diagnostics.Report(Guid.NewGuid().ToString("N"),ex);}catch{}}
-    public void Dispose(){EndPreview();SystemEvents.DisplaySettingsChanged-=DisplayChanged;SystemParameters.StaticPropertyChanged-=SystemChanged;MosaicLocalizationManager.LanguageChanged-=DisplayChanged;}
+    public void Dispose(){EndPreview();SystemEvents.DisplaySettingsChanged-=DisplayChanged;SystemParameters.StaticPropertyChanged-=SystemChanged;MosaicLocalizationManager.LanguageChanged-=DisplayChanged;
+        // 复用窗口只在真正退出时销毁，避免残留一个已关闭的 HwndSource。
+        var preview=_previewWindow;_previewWindow=null;preview?.Close();}
     [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]private static extern nint GetWindowLongPtr(nint window,int index);
     [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]private static extern nint SetWindowLongPtr(nint window,int index,nint value);
 }

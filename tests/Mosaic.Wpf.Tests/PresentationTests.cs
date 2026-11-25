@@ -157,6 +157,9 @@ public sealed class PresentationTests
     [Fact]
     public Task Leaving_during_save_waits_and_duplicate_submission_is_disabled() => Sta.Run(async () =>
     {
+        // The assertion below checks the Chinese busy text, so pin the UI culture instead of inheriting
+        // whatever DOTNET_CLI_UI_LANGUAGE or a neighbouring test left behind.
+        MosaicLocalizationManager.SetLanguage(MosaicLanguage.Chinese);
         var pending = new TaskCompletionSource<OperationResult<TaskItemDto>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var api = new Api { Creator = _ => pending.Task };
         var page = await Page(api, new()); var model = page.View.DataContext;

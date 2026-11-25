@@ -77,7 +77,9 @@ internal partial class TaskPeekView : UserControl
         {
             ActivateDrag(point);
         }
-        if (_dragging) { e.Handled = true; _preview?.Update(point); MovePreview(point); AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange(); }
+        // 提示层逐帧只改自身的合成变换，不再让整个 AdornerLayer 重新测量与重排；
+        // 每帧仍只向浮窗模块转发一次位置，契约层的 Begin/Update/End 保持 1:1。
+        if (_dragging) { e.Handled = true; _preview?.Update(point); MovePreview(point); }
     }
     internal void ActivateDrag(Point position)
     {
@@ -90,8 +92,9 @@ internal partial class TaskPeekView : UserControl
         AdornerLayer.GetAdornerLayer(this)?.Add(_preview);
         _escapeHandler = (_, args) => { if (args.Key == Key.Escape) CancelDrag(); };
         Window.GetWindow(this)?.PreviewKeyDown += _escapeHandler;
+        // 加入提示层会触发一次完整布局，气泡与虚线框在首次 Arrange 中落位；
+        // 这里只记录起点，避免再加一次显式失效。
         _preview.Update(position);
-        AdornerLayer.GetAdornerLayer(this)?.InvalidateArrange();
         StartPreview(position);
     }
     private void StartPreview(Point position)
@@ -185,8 +188,9 @@ internal partial class TaskPeekView : UserControl
     private void RemoveDragHints()
     {
         _preview = null;
-        if (AdornerLayer.GetAdornerLayer(this) is not { } layer) return;
-        foreach (var adorner in layer.GetAdorners(this)?.OfType<DragHintAdorner>().ToArray() ?? [])
-            layer.Remove(adorner);
+        if (AdornerLayer.GetAdornerLayer(this) is not { } layer || layer.GetAdorners(this) is not { } adorners) return;
+        // 倒序原地删除：每次拖拽都 ToArray() 会为一次清理分配一个数组。
+        for (var index = adorners.Length - 1; index >= 0; index--)
+            if (adorners[index] is DragHintAdorner) layer.Remove(adorners[index]);
     }
 }

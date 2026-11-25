@@ -7,6 +7,11 @@ using Mosaic.Presentation.Wpf;
 
 namespace Mosaic.Tasks.Wpf.Internal;
 
+/// <summary>
+/// Drag feedback for the peek list: a dashed frame over the dragged row plus a hint bubble.
+/// The bubble is positioned through a render transform so a pointer move costs one compositing
+/// update instead of a measure/arrange pass over the whole adorner layer.
+/// </summary>
 internal sealed class DragHintAdorner : Adorner
 {
     private readonly Canvas _canvas = new() { IsHitTestVisible = false };
@@ -14,7 +19,10 @@ internal sealed class DragHintAdorner : Adorner
     private readonly TextBlock _text;
     private readonly Rectangle _frame;
     private readonly FrameworkElement _target;
+    private readonly TranslateTransform _hintOffset = new();
+    private Size _hintSize;
     private Point _offset;
+    private bool _measured;
 
     public DragHintAdorner(UIElement adornedElement, string text, FrameworkElement target) : base(adornedElement)
     {
@@ -28,6 +36,7 @@ internal sealed class DragHintAdorner : Adorner
             CornerRadius = new CornerRadius(7),
             BorderThickness = new Thickness(1),
             IsHitTestVisible = false,
+            RenderTransform = _hintOffset,
         };
         _frame = new Rectangle
         {
@@ -49,7 +58,8 @@ internal sealed class DragHintAdorner : Adorner
     public void Update(Point position)
     {
         _offset = position;
-        InvalidateArrange();
+        // 逐帧只写合成变换：不失效测量与重排，拖拽期间 AdornerLayer 不再整层重新布局。
+        Place(position);
     }
 
     protected override int VisualChildrenCount => 1;
@@ -58,12 +68,20 @@ internal sealed class DragHintAdorner : Adorner
 
     protected override Size MeasureOverride(Size constraint)
     {
-        _hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        // The canvas is arranged at the adorned element's size; nothing here depends on the
+        // bubble's size until the first arrange, so the pass stays free of work per frame.
         return constraint;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
+        if (!_measured)
+        {
+            _hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            _hintSize = _hint.DesiredSize;
+            _measured = true;
+        }
+
         var target = Rect.Empty;
         try { target = _target.TransformToAncestor(AdornedElement).TransformBounds(new Rect(_target.RenderSize)); }
         catch (InvalidOperationException) { /* Target left the visual tree while the drag was finishing. */ }
@@ -75,13 +93,20 @@ internal sealed class DragHintAdorner : Adorner
             Canvas.SetLeft(_frame, target.X);
             Canvas.SetTop(_frame, target.Y);
         }
-        var size = _hint.DesiredSize;
-        var x = Math.Max(0, Math.Min(_offset.X + 14, finalSize.Width - size.Width));
-        var y = _offset.Y + 14;
-        if (y + size.Height > finalSize.Height) y = Math.Max(0, _offset.Y - size.Height - 10);
-        Canvas.SetLeft(_hint, x);
-        Canvas.SetTop(_hint, y);
+
         _canvas.Arrange(new Rect(finalSize));
+        Place(_offset);
         return finalSize;
+    }
+
+    /// <summary>Moves the bubble without a layout pass; clamped to the adorner's own bounds.</summary>
+    private void Place(Point position)
+    {
+        var area = AdornedElement.RenderSize;
+        var x = Math.Max(0, Math.Min(position.X + 14, area.Width - _hintSize.Width));
+        var y = position.Y + 14;
+        if (y + _hintSize.Height > area.Height) y = Math.Max(0, position.Y - _hintSize.Height - 10);
+        _hintOffset.X = x;
+        _hintOffset.Y = y;
     }
 }

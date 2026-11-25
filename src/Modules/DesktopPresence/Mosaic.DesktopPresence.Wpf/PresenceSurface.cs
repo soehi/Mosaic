@@ -30,6 +30,12 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
     private bool _closingWindows;
     private bool _observing;
     private int _sessionGeneration;
+    // 承载视图的自然高度只在它自己报告布局失效后才变；同一版本与宽度下重复调用 PositionWindows
+    // （鼠标轮询、DPI 通知、显示器变化）不必再次做无约束 measure。
+    private int _measureVersion;
+    private int _measuredVersion = -1;
+    private double _measuredWidth = double.NaN;
+    private double _measuredHeight;
     private DispatcherOperation? _measureOperation;
     private ContextMenu? _edgeMenu;
     private EventHandler? _sessionLayoutHandler;
@@ -41,6 +47,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
     private int Read(string id, int fallback) => PresenceSettings.ReadInt(_values, id, fallback);
     private bool Read(string id, bool fallback) => PresenceSettings.ReadBool(_values, id, fallback);
     private Rect Area => PresenceScreen.WorkArea(host.MainWindowHandle, Read("desktop.edge.monitor", "Primary") == "LastMainWindow");
+    // 分层窗口的几何只在真正变化时写入：重复写同一位置会让 WPF 每帧重建合成表面。
+    private static bool Near(double current, double target) => !double.IsNaN(current) && Math.Abs(current - target) < 0.5;
     internal double MaximumOffset(IReadOnlyDictionary<string, object?> values)
     {
         var area = PresenceScreen.WorkArea(host.MainWindowHandle, PresenceSettings.ReadString(values, "desktop.edge.monitor", "Primary") == "LastMainWindow");
@@ -231,6 +239,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             Read("desktop.popup.titleFontSize", 14), Read("desktop.popup.titleMaxLines", 2),
             Read("desktop.popup.completionToggle", true), showFilterSwitch));
         var generation = ++_sessionGeneration;
+        // 新会话意味着新的承载视图：上一次会话缓存下来的自然高度不能再用。
+        ++_measureVersion; _measuredVersion = -1; _measuredWidth = double.NaN;
         _sessionLayoutHandler = (_, _) => QueueMeasure(generation);
         _session.LayoutInvalidated += _sessionLayoutHandler;
         _session.DismissRequested += SessionDismissRequested;
@@ -282,6 +292,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         var popup = _popup;
         if (popup is null || _stopped || generation != _sessionGeneration) return;
         if (!popup.Dispatcher.CheckAccess()) { popup.Dispatcher.BeginInvoke(new Action(() => QueueMeasure(generation))); return; }
+        // 承载视图报告了布局失效：自然高度可能已变，下一次 PositionWindows 需要重新测量。
+        ++_measureVersion;
         if (_measureOperation?.Status == DispatcherOperationStatus.Pending) return;
         _measureOperation = popup.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
@@ -373,7 +385,8 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             ShowInTaskbar = false, ShowActivated = false, FontSize = 14, UseLayoutRounding = true };
         window.SetResourceReference(Control.ForegroundProperty, MosaicTheme.TextPrimaryBrushKey);
         window.SetResourceReference(FrameworkElement.ToolTipProperty, titleKey);
-        window.DpiChanged += (_, _) => window.Dispatcher.BeginInvoke(PositionWindows);
+        // 跨屏移动会换显示器，缓存的屏幕几何与自然高度随之失效。
+        window.DpiChanged += (_, _) => { PresenceScreen.Reset(); ++_measureVersion; window.Dispatcher.BeginInvoke(PositionWindows); };
         System.Windows.Automation.AutomationProperties.SetAutomationId(window, automationId);
         window.SetResourceReference(System.Windows.Automation.AutomationProperties.NameProperty, titleKey);
         return window;
@@ -387,13 +400,14 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
         var depth = Math.Min(size, Read("desktop.edge.visibleDepth", 12));
         var rightEdge = Read("desktop.edge.anchor", "RightEdgeTop") == "RightEdgeTop";
         var offset = Math.Clamp(Read("desktop.edge.offset", 24), 0, Math.Max(0, (rightEdge ? area.Height : area.Width) - size));
+        var lastWindow = Read("desktop.edge.monitor", "Primary") == "LastMainWindow";
         if (_edge is not null)
         {
-            _edge.Width = size; _edge.Height = size;
-            _edge.Left = rightEdge ? area.Right - depth : area.Right - offset - size;
-            _edge.Top = rightEdge ? area.Top + offset : area.Top - size + depth;
-            _edge.Topmost = Read("desktop.edge.topmost", true);
-            PresenceScreen.Place(_edge, host.MainWindowHandle, Read("desktop.edge.monitor", "Primary") == "LastMainWindow");
+            Set(_edge, size, size,
+                rightEdge ? area.Right - depth : area.Right - offset - size,
+                rightEdge ? area.Top + offset : area.Top - size + depth);
+            if (_edge.Topmost != Read("desktop.edge.topmost", true)) _edge.Topmost = Read("desktop.edge.topmost", true);
+            PresenceScreen.Place(_edge, host.MainWindowHandle, lastWindow);
         }
         if (_popup is not null)
         {
@@ -404,20 +418,39 @@ internal sealed class PresenceSurface(IDesktopWindowHost host, ICompanionViewFac
             {
                 // Only the companion's own list scrolls. An unconstrained measure gives
                 // the generic container's natural height without inspecting its content.
-                content.Measure(new Size(width, double.PositiveInfinity));
-                height = Math.Max(1, Math.Min(maximumHeight, Math.Ceiling(content.DesiredSize.Height)));
+                // 无约束 measure 会遍历整棵视觉树，只在视图报告布局失效或宽度变化后重做。
+                if (_measuredVersion != _measureVersion || !Near(_measuredWidth, width))
+                {
+                    content.Measure(new Size(width, double.PositiveInfinity));
+                    _measuredHeight = content.DesiredSize.Height;
+                    _measuredVersion = _measureVersion;
+                    _measuredWidth = width;
+                }
+                height = Math.Max(1, Math.Min(maximumHeight, Math.Ceiling(_measuredHeight)));
             }
-            if (Math.Abs(_popup.Width - width) > 0.5 || double.IsNaN(_popup.Width)) _popup.Width = width;
-            if (Math.Abs(_popup.Height - height) > 0.5 || double.IsNaN(_popup.Height)) _popup.Height = height;
-            _popup.Left = rightEdge ? Math.Max(area.Left, area.Right - depth - _popup.Width) : Math.Clamp(area.Right - offset - _popup.Width, area.Left, area.Right - _popup.Width);
-            _popup.Top = rightEdge ? Math.Clamp(area.Top + offset, area.Top, area.Bottom - _popup.Height) : area.Top + depth;
-            if (_popup.Top + _popup.Height > area.Bottom) _popup.Top = area.Bottom - _popup.Height;
-            _popup.Topmost = Read("desktop.edge.topmost", true);
-            PresenceScreen.Place(_popup, host.MainWindowHandle, Read("desktop.edge.monitor", "Primary") == "LastMainWindow");
+            var left = rightEdge ? Math.Max(area.Left, area.Right - depth - width) : Math.Clamp(area.Right - offset - width, area.Left, area.Right - width);
+            var top = rightEdge ? Math.Clamp(area.Top + offset, area.Top, area.Bottom - height) : area.Top + depth;
+            if (top + height > area.Bottom) top = area.Bottom - height;
+            Set(_popup, width, height, left, top);
+            if (_popup.Topmost != Read("desktop.edge.topmost", true)) _popup.Topmost = Read("desktop.edge.topmost", true);
+            PresenceScreen.Place(_popup, host.MainWindowHandle, lastWindow);
         }
     }
+
+    /// <summary>Writes a window's geometry only where it changes; identical writes rebuild the layered surface.</summary>
+    private static void Set(Window window, double width, double height, double left, double top)
+    {
+        if (!Near(window.Width, width)) window.Width = width;
+        if (!Near(window.Height, height)) window.Height = height;
+        if (!Near(window.Left, left)) window.Left = left;
+        if (!Near(window.Top, top)) window.Top = top;
+    }
+
     private void DisplayChanged(object? sender, EventArgs e)
     {
+        // 显示器配置、DPI 或工作区变了：缓存的屏幕几何与承载视图的自然高度都可能失效。
+        PresenceScreen.Reset();
+        ++_measureVersion;
         var dispatcher = _popup?.Dispatcher ?? _edge?.Dispatcher ?? Application.Current?.Dispatcher;
         dispatcher?.BeginInvoke(PositionWindows);
     }

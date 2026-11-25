@@ -2,9 +2,9 @@
 
 本地优先的 Windows 桌面任务工作台：任务、速览、浮窗、账户与备份、设置、维护集中在同一个模块化应用里。数据默认保存在本机 SQLite，账户与同步可选。
 
-当前版本 **0.19.3**：修复在任务速览内拖动任务但未拖到桌面时全部任务行残留拖拽提示气泡的问题；0.19.2 的自动登录与自动备份保持不变。
+当前版本 **0.19.4**：修复在任务速览内拖动任务条时的闪屏，拖拽气泡与预览窗只在几何真正变化时重绘，并降低拖动与桌面驻留期间的内存占用；0.19.2 的自动登录与自动备份保持不变。
 
-Windows 安装包：[下载 Mosaic 0.19.3](https://github.com/soehi/Mosaic/releases/download/v0.19.3/Mosaic-0.19.3-win-x64.msi)。安装包自带 .NET 10 运行时，无需安装 SDK。
+Windows 安装包：[下载 Mosaic 0.19.4](https://github.com/soehi/Mosaic/releases/download/v0.19.4/Mosaic-0.19.4-win-x64.msi)。安装包自带 .NET 10 运行时，无需安装 SDK。
 
 ---
 
@@ -62,7 +62,7 @@ Windows 安装包：[下载 Mosaic 0.19.3](https://github.com/soehi/Mosaic/relea
 
 系统要求：64 位 Windows 10 版本 2004（build 19041）或更高版本，或 Windows 11（安装包启动条件为 `VersionNT64 AND WINDOWSBUILD >= 19041`，`build/installer/Package.wxs:21`）。
 
-1. 下载并运行 `Mosaic-0.19.3-win-x64.msi`，按向导完成安装。
+1. 下载并运行 `Mosaic-0.19.4-win-x64.msi`，按向导完成安装。
 2. 首次启动创建数据目录 `%LOCALAPPDATA%\Mosaic`，数据库文件为 `mosaic.sqlite`。
 3. 新版本直接覆盖安装；升级保留设置、账户会话与任务数据，并在升级前自动备份数据库。
 
@@ -202,6 +202,7 @@ build/package.ps1
 
 **版本**
 
+- [0.19.4 发布说明](docs/releases/v0.19.4.md)
 - [0.19.3 发布说明](docs/releases/v0.19.3.md)
 - [0.19.2 发布说明](docs/releases/v0.19.2.md)
 - [0.19.1 发布说明](docs/releases/v0.19.1.md)
