@@ -1,5 +1,55 @@
 # Mosaic：实施与验证记录
 
+## 0.19.2：重启自动登录与可配置间隔的自动备份（2026-11-25）
+
+本轮解决两个用户可见断点：其一，重启软件后账号显示已登录，但任何需要服务器的操作都提示未登录，用户必须重新输入密码；其二，登录后没有任何周期性任务备份，只能手动点「立即备份」。改动后：启动时若本机存有与当前服务器同源的凭据，直接恢复登录状态，并在首次需要访问令牌时用保存的刷新令牌惰性换取访问令牌（启动过程仍然不联网）；`sync-core` 模块在激活后启动一个后台循环，登录状态下按用户设置的间隔（默认 60 秒，15–86400 秒可调，可单独关闭）上传任务与可移植设置，登录事件触发一次立即备份，改间隔/开关立即重定时，停止模块时先取消并等待循环退出。本版本不改数据库 schema、不改设置键名之外的数据、不改模块装配的依赖方向，服务端保持 0.1.2 不动。
+
+**根因位置**
+
+1. 自动登录断点：`Mosaic.Auth.Core.Internal.AuthService.GetAccessTokenAsync`（改动前的 `AuthService.cs:352-360`）以 `_session is null` 直接判定「尚未登录」并返回 `AuthErrorCodes.TokenInvalid`。而 `AuthService.ActivateAsync`（`AuthService.cs:49-73`，恢复分支 `:63-68`）只把 `_stored`（DPAPI 保存的刷新令牌）读回内存并写 `AuthStatus.SignedIn`，刻意不发网络请求、不建立 `_session`。触发条件：重启软件后首次触发任何需要访问令牌的调用（同步、任务上传/下载、账户页远程操作）。出错原因：状态显示已登录与访问层判定未登录来自两份不同的内存状态，刷新分支在没有 `_session` 时根本走不到 `transport.RefreshAsync`。
+2. 自动备份缺失：`Mosaic.Sync.Core.SyncModule`（改动前 96 行）只有在宿主调用 `ISyncApi.UploadAsync` 时才备份，模块内没有定时器、没有登录事件驱动的备份；`Internal/SyncSettingsSource.cs`（改动前 3 个定义）只登记 `sync.enabled`/`sync.includeSettings`/`sync.includeAttachments`，没有间隔与自动开关。触发条件：用户登录后放着软件不动。出错原因：没有「时间」这个驱动源，备份完全依赖用户手动点击。
+3. 设置读取时机陷阱（新实现必须避开）：`SettingsService.Register(source)` 只登记设置源，`ApplyAsync` 仅在设置提交或编辑会话时被调用，启动时不会自动应用。若后台循环直接用 `SyncOptions` 的字段默认值启动，用户上次保存的「关闭自动备份 / 自定义间隔」会被默认值覆盖。触发条件：激活即启动循环的朴素实现。出错原因：字段默认值与落盘值在激活时点不相等；`TasksModule` 的既有惯例是激活时先 `GetValuesAsync()` 再 `Apply`，本轮 Sync 对齐该惯例（`SyncModule.cs:62-67`）。
+
+**改动位置**
+
+1. `src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthService.cs`
+   - `GetAccessTokenAsync:352-384`：判定条件从「`_session` 与 `_stored` 都必须存在」改为「`_stored` 与 `State.Server` 存在即可」，`_session` 为空或访问令牌过期时进入既有刷新分支，用 `_stored.RefreshToken` 调 `transport.RefreshAsync:367`，成功后走 `CompleteSignInAsync:386-403` 重建 `_session`、写回 DPAPI 并更新状态；刷新被服务器拒绝（`TokenInvalid`/`TokenExpired`）时清凭据并回到 `SignedOut`（`:371-377`，行为未变）。
+2. `src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncSettingsSource.cs`
+   - `SyncOptions:7-40`：新增 `DefaultAutoIntervalSeconds = 60`、`MinAutoIntervalSeconds = 15`、`MaxAutoIntervalSeconds = 86400`、`AutoSyncEnabled`（缺省 `true`）、`AutoIntervalSeconds`（缺省 60）、`AutoInterval => TimeSpan.FromSeconds(AutoIntervalSeconds)`；`Apply:24-28` 用 `is not false` 语义读开关、`ParseAutoInterval:31-41` 对非数字/溢出回落默认值后再 `Math.Clamp`。
+   - 设置定义 `:49-75`：新增 `sync.autoSyncEnabled`（Boolean，`StorageSystem`/`Normal`/`Immediate`/`UserSettings`）与 `sync.autoIntervalSeconds`（Integer，默认 60，范围 15–86400），均带 `Settings.Setting.SyncAutoEnabled(.Description)` / `Settings.Setting.SyncAutoIntervalSeconds(.Description)` 本地化键。
+   - `ApplyAsync:78-86`：应用后再比对开关与间隔是否真的变化，只有变化才调用 `onTimingChanged`，避免每次设置提交都打断计时。
+3. `src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncService.cs`
+   - `UploadAsync:107-108` 保持不变（手动备份按 `_options.IncludeAttachments` 决定是否镜像附件）；新增 `UploadTasksAsync:114-115` 内部入口，固定 `includeSettings: true, includeAttachments: false`；原实现主体改为 `UploadCoreAsync:117-…`，两条入口共用导出、校验、上传、状态更新与通知链路。
+4. `src/Modules/Sync/Mosaic.Sync.Core/Internal/GuardedSyncApi.cs:41-42`：新增内部 `UploadTasksAsync`，与公开 `UploadAsync:34-35` 一样经 `IModuleExecutionGate` 与 `IDiagnosticSink`；不进 `ISyncApi` 公开契约，因此 `build/public-api.txt` 与蓝图边界不变。
+5. `src/Modules/Sync/Mosaic.Sync.Core/SyncModule.cs`
+   - `SyncDependencies:10-17` 新增可选 `TimeProvider? Clock`（默认 `TimeProvider.System`，`:43`），测试用手动时钟驱动。
+   - `ActivateAsync:58-74`：`Register` 设置源 → `GetValuesAsync` 读落盘值（失败抛 `InvalidOperationException("同步设置读取失败。")`）→ `_options.Apply` → 订阅 `Auth.StateChanged` → `_gate.Activate()` → 建 `CancellationTokenSource` 并启动 `AutoSyncLoopAsync`；激活本身不上传。
+   - `StopAsync:76-97`：先退订、取消并 `await` 后台循环（捕 `OperationCanceledException`）→ `PrepareSourceStopAsync("sync-core")` → 释放设置登记 → `_gate.StopAsync()`，符合框架规范「后台任务在 `StopAsync` 中取消并等待」。
+   - `OnAuthChanged:101-106`：登录成功即 `ScheduleUpload()`（立即备份一次），登出不清状态、由循环下一轮自行跳过。
+   - `RetimeAutoSync:109`/`ScheduleUpload:111-115`/`Wake:119-124`：用 `TaskCompletionSource` 唤醒信号打断 `Task.Delay`，重定时只重新排队、不额外上传。
+   - `WaitForTickAsync:126-143`：`Task.Delay(_options.AutoInterval, _clock, ct)` 与唤醒信号 `Task.WhenAny`；信号胜出时放弃的 delay 挂 `ContinueWith(OnlyOnFaulted)` 观察异常，避免未观测任务异常。
+   - `AutoSyncLoopAsync:145-163`：间隔到点无条件备份；仅被唤醒时只有 `_uploadDue == 1`（登录事件）才备份；非取消除外一律 `_diagnostics.Report` 后继续下一轮，单次失败不终止循环。
+   - `AutoSyncOnceAsync:165-172`：未登录、`sync.enabled` 关闭或自动备份关闭时静默返回，否则 `_api.UploadTasksAsync`。
+6. `src/Mosaic.Desktop/BuiltInModuleCatalog.cs:41`（`internal TimeProvider Clock { get; } = clock;`）与 `:209-220` 的 Sync 装配：把宿主时钟传入 `SyncDependencies`，与 Auth/Tasks 模块取时钟的方式一致。
+7. `src/Modules/Settings/Mosaic.Settings.Wpf/Localization/zh.xaml:281-284`、`en.xaml:281-284`：新增 `Settings.Setting.SyncAutoEnabled(.Description)`、`Settings.Setting.SyncAutoIntervalSeconds(.Description)` 四个键。Integer 设置项在既有设置页已渲染为整数输入框（`SettingsViewModel.cs:72`、`:270`、`:296-297`），本轮零 UI 改动。
+8. `tests/Mosaic.Auth.Core.Tests/AuthServiceTests.cs`：`WithStoredCredential()` 构造「只有刷新令牌、没有会话」的重启态，新增 3 个用例覆盖「首取令牌用刷新令牌重建会话」「访问令牌未过期不重复刷新」「刷新被拒清凭据回未登录」。
+9. `tests/Mosaic.Sync.Core.Tests/Fakes.cs`：`FakeSettings` 后追加 `ManualTimeProvider`（`TimeProvider.CreateTimer` 返回可手动推进的 `ManualTimer`，实现 `IAsyncDisposable`），供后台循环确定性计时。
+10. `tests/Mosaic.Sync.Core.Tests/AutomaticSyncTests.cs`（新增，8 个用例）：激活零上传、登录即备份一次（断言只上传 `Task`/`Setting`、无下载、无附件清单与附件上传）、每间隔重复、落盘间隔控制首次到点、登出跳过并重新登录恢复、关闭自动备份跳过并在重开后恢复、改小间隔即时重定时、`StopAsync` 后注销设置源且推进 600 秒无上传。
+11. 发布链：`Directory.Build.props:12` 版本 `0.19.2`；`build/release-content.json` 追加 0.19.2 条目（added 2、improved 2、fixed 1，`previousReleaseId = mosaic-0.19.1`，指纹 `8E40D560…AA27D`）；`build/published-release-index.json` 追加同指纹回执至 63 条；`build/release-manifest.json` 与 `docs/releases/v0.19.2.md` 由 `scripts/release_content_verify.py` 生成。
+
+**迁移逻辑与验收项**
+
+- 迁移逻辑：不改数据库 schema、不改设置表结构、不改模块装配依赖方向，无需数据迁移。新增的两个设置键在首次读取时按缺省值生效（自动备份开启、间隔 60 秒），已有安装升级后行为即为「登录状态下每分钟备份一次」，可在设置页随时关闭或改间隔。手动备份行为与 0.19.1 完全一致（仍按「同步任务附件」开关决定是否镜像附件）。
+- 对已有安装的影响：升级保留账号凭据、任务、附件与设置；升级后首次启动会用已保存的刷新令牌静默换取访问令牌，若该令牌已被服务器撤销则清凭据并显示未登录（需要重新输入密码），不会反复报错。
+- 验收项：
+  1. `python -I scripts/release_content_verify.py` 输出 `Release content verified: 0.19.2, mosaic-0.19.2, 63 indexed releases.`
+  2. `dotnet build Mosaic.sln -c Release` 零警告零错误。
+  3. `dotnet test tests/Mosaic.Auth.Core.Tests`（含 3 个重启自动登录用例）全绿。
+  4. `dotnet test tests/Mosaic.Sync.Core.Tests`（含 8 个后台循环用例）全绿。
+  5. `dotnet test tests/Mosaic.Architecture.Tests` 全绿（`build/public-api.txt` 未新增公开类型，蓝图依赖方向未变）。
+  6. 实机验收：登录后关闭软件再启动，界面直接显示已登录且右上角/账户页不提示重新登录；保持登录放置 2 分钟，服务器侧备份记录每分钟新增一次；在设置里把间隔改成 15 秒后 15 秒内出现下一次备份。
+- 回滚方式：`git revert` 本次提交即回到 0.19.1；回滚后新增的两个设置键留在设置库中不被读取，不影响启动。若只需关闭该行为而不回滚版本，把「自动备份」设为关闭即可。
+
 ## 0.19.1：合入 0.18.14 性能优化，保留任务附件同步（2026-11-24）
 
 本轮把 `origin/main` 的 0.18.14 性能优化（`9e1d70c`）合入 0.19.0 附件同步线，解决两侧并行的 10 个文件冲突，并发布为客户端 **0.19.1**。合并后同时具备：任务查询分页投影与聚合计数、主列表按行差量更新、整表恢复单次批量通知（来自 main），以及账号备份的附件上传/下载/删除通道（来自 0.19.0）。数据目录、设置键、模块装配与数据库 schema 均未变；服务端保持 0.1.2 不动。

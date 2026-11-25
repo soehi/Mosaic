@@ -278,4 +278,8 @@
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings.Description">Include task rules, task texts, appearance theme and interface language; when off, backups contain only tasks</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeAttachments">Back up task attachments</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeAttachments.Description">Allow manual upload and download of task attachments; when off, backups contain only tasks and restoring clears local attachment records while leaving files on disk</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoEnabled">Automatic backups</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoEnabled.Description">While signed in, upload tasks and user settings on the interval below; automatic backups upload only, never download or mirror attachments</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoIntervalSeconds">Automatic backup interval (seconds)</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoIntervalSeconds.Description">Seconds between automatic backups, 15 to 86400; nothing is uploaded while signed out or when backups are off</sys:String>
 </ResourceDictionary>

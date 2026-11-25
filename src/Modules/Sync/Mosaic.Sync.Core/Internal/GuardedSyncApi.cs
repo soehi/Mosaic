@@ -36,4 +36,8 @@ internal sealed class GuardedSyncApi(SyncService service, IModuleExecutionGate g
 
     public Task<OperationResult<RestoreSummary>> DownloadAndReplaceAsync(CancellationToken cancellationToken = default) =>
         Invoke(service.DownloadAndReplaceAsync, cancellationToken);
+
+    /// <summary>周期自动备份入口：仍走执行门与诊断，但不属于 <see cref="ISyncApi"/> 公开契约。</summary>
+    internal Task<OperationResult<BackupUploadResult>> UploadTasksAsync(CancellationToken cancellationToken) =>
+        Invoke(service.UploadTasksAsync, cancellationToken);
 }

@@ -351,16 +351,19 @@ internal sealed class AuthService(
 
     public async Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default)
     {
-        var session = _session;
-        if (session is null || _stored is null || State.Server is not { } server)
+        // Restart recovery: ActivateAsync only restores AuthStatus.SignedIn from the stored refresh token and
+        // deliberately keeps startup offline (no network). The first request that needs a token therefore
+        // redeems the stored refresh token here instead of forcing the user to sign in again.
+        if (State.Server is not { } server || _stored is null)
             return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
-        if (clock.GetUtcNow() < _accessExpiresAtUtc) return OperationResult<string>.Success(session.AccessToken);
+        var session = _session;
+        if (session is not null && clock.GetUtcNow() < _accessExpiresAtUtc) return OperationResult<string>.Success(session.AccessToken);
         await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             session = _session;
-            if (session is null || _stored is null) return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
-            if (clock.GetUtcNow() < _accessExpiresAtUtc) return OperationResult<string>.Success(session.AccessToken);
+            if (_stored is null) return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
+            if (session is not null && clock.GetUtcNow() < _accessExpiresAtUtc) return OperationResult<string>.Success(session.AccessToken);
             var refreshed = await transport.RefreshAsync(server, _stored.RefreshToken, cancellationToken).ConfigureAwait(false);
             if (!refreshed.IsSuccess)
             {

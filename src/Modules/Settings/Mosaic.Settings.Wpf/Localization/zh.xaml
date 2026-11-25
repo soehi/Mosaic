@@ -278,4 +278,8 @@
     <sys:String x:Key="Settings.Setting.SyncIncludeSettings.Description">允许备份任务规则、任务文案、外观主题与界面语言；关闭后备份只包含任务</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeAttachments">备份任务附件</sys:String>
     <sys:String x:Key="Settings.Setting.SyncIncludeAttachments.Description">允许手动上传和下载任务附件；关闭后备份只包含任务本身，下载恢复会清空本地附件记录并保留磁盘文件</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoEnabled">自动备份</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoEnabled.Description">保持登录时按下面的间隔自动上传任务与用户设置；自动备份只上传不下载，也不镜像附件</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoIntervalSeconds">自动备份间隔（秒）</sys:String>
+    <sys:String x:Key="Settings.Setting.SyncAutoIntervalSeconds.Description">两次自动备份之间的秒数，范围 15 到 86400；账号未登录或备份功能关闭时不会上传</sys:String>
 </ResourceDictionary>

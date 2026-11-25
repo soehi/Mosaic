@@ -32,6 +32,15 @@ public sealed class AuthServiceTests
             var login = await Api.LoginAsync("user@example.com", "password-123");
             Assert.True(login.IsSuccess, login.Error?.Message);
         }
+
+        /// <summary>预置“上次运行留下的凭据”：服务器地址 + 平台密钥库里的 refresh token，模拟应用重启。</summary>
+        public Fixture WithStoredCredential()
+        {
+            Settings.Values["auth.serverUrl"] = ServerUrl;
+            Secrets.Stored = new("refresh-1", Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                Guid.Parse("11111111-1111-1111-1111-111111111111"), "user@example.com", "用户", Server);
+            return this;
+        }
     }
 
     [Fact]
@@ -48,10 +57,7 @@ public sealed class AuthServiceTests
     [Fact]
     public async Task Activation_with_stored_credentials_for_same_server_signs_in_offline()
     {
-        var fixture = new Fixture();
-        fixture.Settings.Values["auth.serverUrl"] = ServerUrl;
-        fixture.Secrets.Stored = new("refresh-1", Guid.Parse("22222222-2222-2222-2222-222222222222"),
-            Guid.Parse("11111111-1111-1111-1111-111111111111"), "user@example.com", "用户", Server);
+        var fixture = new Fixture().WithStoredCredential();
         await fixture.StartAsync();
 
         Assert.Equal(AuthStatus.SignedIn, fixture.Api.State.Status);
@@ -358,6 +364,55 @@ public sealed class AuthServiceTests
 
         Assert.Equal(AuthErrorCodes.DeviceFlowNotStarted, (await fixture.Api.PollDeviceAuthorizationAsync()).Error!.Code);
         Assert.Equal(0, fixture.Transport.PollCalls);
+    }
+
+    [Fact]
+    public async Task Restored_session_redeems_the_stored_refresh_token_on_the_first_token_request()
+    {
+        var fixture = new Fixture().WithStoredCredential();
+        await fixture.StartAsync();
+        Assert.Equal(0, fixture.Transport.Calls);
+
+        var token = await fixture.Api.GetAccessTokenAsync();
+
+        Assert.True(token.IsSuccess, token.Error?.Message);
+        Assert.Equal("access-1", token.Value);
+        Assert.Equal(1, fixture.Transport.RefreshCalls);
+        Assert.Equal("refresh-1", fixture.Secrets.Stored!.RefreshToken);
+        Assert.Equal(Guid.Parse("22222222-2222-2222-2222-222222222222"), fixture.Secrets.Stored.DeviceId);
+        Assert.Equal(AuthStatus.SignedIn, fixture.Api.State.Status);
+        Assert.Equal("user@example.com", fixture.Api.State.Account!.Email);
+    }
+
+    [Fact]
+    public async Task Restored_session_with_a_rejected_refresh_token_clears_the_credential_and_signs_out()
+    {
+        var fixture = new Fixture().WithStoredCredential();
+        await fixture.StartAsync();
+        fixture.Transport.RefreshResult = OperationResult<AuthSessionDto>.Failure(new(AuthErrorCodes.TokenInvalid, "invalid"));
+
+        var token = await fixture.Api.GetAccessTokenAsync();
+
+        Assert.False(token.IsSuccess);
+        Assert.Equal(AuthErrorCodes.TokenInvalid, token.Error!.Code);
+        Assert.Equal(AuthStatus.SignedOut, fixture.Api.State.Status);
+        Assert.Null(fixture.Secrets.Stored);
+        Assert.Equal(1, fixture.Secrets.Clears);
+    }
+
+    [Fact]
+    public async Task Restored_session_keeps_the_credential_when_the_refresh_cannot_reach_the_server()
+    {
+        var fixture = new Fixture().WithStoredCredential();
+        await fixture.StartAsync();
+        fixture.Transport.RefreshResult = OperationResult<AuthSessionDto>.Failure(new(AuthErrorCodes.NetworkUnavailable, "offline"));
+
+        var token = await fixture.Api.GetAccessTokenAsync();
+
+        Assert.False(token.IsSuccess);
+        Assert.Equal(AuthStatus.SignedIn, fixture.Api.State.Status);
+        Assert.NotNull(fixture.Secrets.Stored);
+        Assert.Equal(0, fixture.Secrets.Clears);
     }
 
     [Fact]

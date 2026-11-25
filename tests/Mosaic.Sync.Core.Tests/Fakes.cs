@@ -377,3 +377,103 @@ internal sealed class FakeSettings : ISettingsCore
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
+
+/// <summary>手动推进的时钟：后台循环里的 <c>Task.Delay(间隔, TimeProvider)</c> 只有调用方推进时才到点。</summary>
+internal sealed class ManualTimeProvider : TimeProvider
+{
+    private readonly object _sync = new();
+    private readonly List<ManualTimer> _timers = [];
+    private DateTimeOffset _now = new(2026, 11, 25, 0, 0, 0, TimeSpan.Zero);
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_sync) return _now;
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ManualTimer(this, callback, state);
+        timer.Change(dueTime, period);
+        return timer;
+    }
+
+    internal void Advance(TimeSpan delta)
+    {
+        List<ManualTimer> due = [];
+        lock (_sync)
+        {
+            _now += delta;
+            due.AddRange(_timers.Where(timer => timer.DueUtc is { } dueUtc && dueUtc <= _now));
+        }
+        // 回调在锁外同步执行：回调内部可能再次读取时钟或注册计时器。
+        foreach (var timer in due) timer.Fire(_now);
+    }
+
+    private sealed class ManualTimer : ITimer
+    {
+        private readonly ManualTimeProvider _owner;
+        private readonly TimerCallback _callback;
+        private readonly object? _state;
+        private DateTimeOffset? _dueUtc;
+        private TimeSpan _period = Timeout.InfiniteTimeSpan;
+        private bool _disposed;
+
+        internal ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state)
+        {
+            _owner = owner;
+            _callback = callback;
+            _state = state;
+            lock (owner._sync) owner._timers.Add(this);
+        }
+
+        internal DateTimeOffset? DueUtc
+        {
+            get { lock (_owner._sync) return _dueUtc; }
+        }
+
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            lock (_owner._sync)
+            {
+                if (_disposed) return false;
+                _period = period;
+                _dueUtc = dueTime == Timeout.InfiniteTimeSpan ? null : _owner._now + dueTime;
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_owner._sync)
+            {
+                _disposed = true;
+                _dueUtc = null;
+                _owner._timers.Remove(this);
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+
+        internal void Fire(DateTimeOffset now)
+        {
+            lock (_owner._sync)
+            {
+                if (_disposed || _dueUtc is null) return;
+                if (_period == Timeout.InfiniteTimeSpan || _period <= TimeSpan.Zero)
+                {
+                    _dueUtc = null;
+                    _owner._timers.Remove(this);
+                }
+                else
+                {
+                    _dueUtc = now + _period;
+                }
+            }
+            _callback(_state);
+        }
+    }
+}

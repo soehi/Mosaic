@@ -214,7 +214,8 @@ internal static class BuiltInModuleCatalog
                 context.Tasks?.Transfer ?? throw new InvalidOperationException("Task transfer was not assembled before backup core."),
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings core was not assembled before backup core."),
                 new Mosaic.Kernel.ModuleExecutionGate(),
-                context.Diagnostics));
+                context.Diagnostics,
+                context.Clock));
             return context.Sync;
         }),
         [AuthUiModule.Definition.Id] = new(AuthUiModule.Definition, context =>

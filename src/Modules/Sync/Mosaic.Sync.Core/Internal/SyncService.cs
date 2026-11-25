@@ -105,6 +105,16 @@ internal sealed class SyncService : ISyncApi
         }, cancellationToken);
 
     public Task<OperationResult<BackupUploadResult>> UploadAsync(bool includeSettings, CancellationToken cancellationToken = default) =>
+        UploadCoreAsync(includeSettings, _options.IncludeAttachments, cancellationToken);
+
+    /// <summary>
+    /// 周期自动备份只上传任务与用户设置，不镜像附件：附件需要逐个读盘并计算 SHA-256，
+    /// 放在每分钟一次的循环里代价过高；附件仍由用户在账户页手动上传/下载。
+    /// </summary>
+    internal Task<OperationResult<BackupUploadResult>> UploadTasksAsync(CancellationToken cancellationToken = default) =>
+        UploadCoreAsync(includeSettings: true, includeAttachments: false, cancellationToken);
+
+    private Task<OperationResult<BackupUploadResult>> UploadCoreAsync(bool includeSettings, bool includeAttachments, CancellationToken cancellationToken) =>
         Guarded(async () =>
         {
             if (!_options.Enabled) return Fail<BackupUploadResult>(SyncErrorCodes.Disabled, "账号备份已在设置中关闭。");
@@ -134,7 +144,7 @@ internal sealed class SyncService : ISyncApi
             Raise();
             var attachmentCount = 0;
             var deletedAttachmentCount = 0;
-            if (_options.IncludeAttachments)
+            if (includeAttachments)
             {
                 var mirrored = await UploadAttachmentsAsync(context.Value.Server, context.Value.Token, cancellationToken).ConfigureAwait(false);
                 if (!mirrored.IsSuccess) return OperationResult<BackupUploadResult>.Failure(mirrored.Error!);

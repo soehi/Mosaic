@@ -165,7 +165,7 @@ Tasks 只增加明确的新能力，不改现有 `ITasksApi` 签名：
 - “连接其他自建服务器”允许修改服务端 URL；URL 必须 HTTPS，开发例外只能显式配置且不能用于正式发布。
 - “不连接服务器，离线使用”保持当前全部本地能力。
 - 注册页字段：邮箱、6 位验证码、密码、确认密码、发送验证码/重新发送倒计时；密码强度与错误反馈明确。
-- 设置页只放非秘密项：`auth.serverUrl`、`sync.enabled`、`sync.backupOnExit`、`sync.intervalMinutes`、可移植设置白名单。密码、验证码、access/refresh token 不进入 `settings` 表、`appsettings.json`、`settings.pending.json` 或日志。
+- 设置页只放非秘密项：`auth.serverUrl`、`sync.enabled`、`sync.includeSettings`、`sync.includeAttachments`、`sync.autoSyncEnabled`、`sync.autoIntervalSeconds`、可移植设置白名单。密码、验证码、access/refresh token 不进入 `settings` 表、`appsettings.json`、`settings.pending.json` 或日志。
 
 ### 4.3 备份范围
 
