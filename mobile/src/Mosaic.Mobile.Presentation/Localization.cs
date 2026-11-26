@@ -173,6 +173,29 @@ public static class StringKeys
     public const string AppDescription = "settings.description";
     public const string CachedTasks = "settings.cachedTasks";
     public const string LocalPreferenceHint = "settings.localPreferenceHint";
+
+    public const string WidgetTitle = "widget.title";
+    public const string WidgetCount = "widget.count";
+    public const string WidgetMore = "widget.more";
+    public const string WidgetEmpty = "widget.empty";
+    public const string WidgetNeedsSignIn = "widget.needsSignIn";
+    public const string WidgetNeedsSync = "widget.needsSync";
+    public const string WidgetUnavailable = "widget.unavailable";
+    public const string WidgetRefresh = "widget.refresh";
+    public const string WidgetComplete = "widget.complete";
+    public const string WidgetArchive = "widget.archive";
+    public const string WidgetRestore = "widget.restore";
+    public const string WidgetContentDescription = "widget.contentDescription";
+    public const string WidgetOfflineWrite = "widget.offlineWrite";
+    public const string WidgetTimeoutWrite = "widget.timeoutWrite";
+    public const string WidgetProtocolWrite = "widget.protocolWrite";
+    public const string WidgetConflictWrite = "widget.conflictWrite";
+    public const string WidgetSessionExpiredWrite = "widget.sessionExpiredWrite";
+    public const string WidgetServerErrorWrite = "widget.serverErrorWrite";
+    public const string WidgetRateLimitedWrite = "widget.rateLimitedWrite";
+    public const string WidgetAppliedWrite = "widget.appliedWrite";
+    public const string WidgetReplayedWrite = "widget.replayedWrite";
+    public const string WidgetUnknownTask = "widget.unknownTask";
 }
 
 /// <summary>
@@ -336,6 +359,28 @@ public sealed class LocalizationService : INotifyPropertyChanged
             [StringKeys.AppDescription] = ("Mosaic 手机端：查看同步到账号的任务与设置。", "Mosaic Mobile: view tasks and settings synced to your account."),
             [StringKeys.CachedTasks] = ("本机缓存任务：{0}", "Cached tasks: {0}"),
             [StringKeys.LocalPreferenceHint] = ("外观与语言只保存在本机；任务与设置由服务器同步。", "Appearance and language stay on this device; tasks and settings sync from the server."),
+            [StringKeys.WidgetTitle] = ("待办", "Open tasks"),
+            [StringKeys.WidgetCount] = ("{0} 项待办", "{0} open"),
+            [StringKeys.WidgetMore] = ("还有 {0} 项", "+{0} more"),
+            [StringKeys.WidgetEmpty] = ("没有未完成的任务。", "No open tasks."),
+            [StringKeys.WidgetNeedsSignIn] = ("请先登录", "Sign in first"),
+            [StringKeys.WidgetNeedsSync] = ("需要同步", "Sync required"),
+            [StringKeys.WidgetUnavailable] = ("数据不可用", "Data unavailable"),
+            [StringKeys.WidgetRefresh] = ("刷新", "Refresh"),
+            [StringKeys.WidgetComplete] = ("完成", "Complete"),
+            [StringKeys.WidgetArchive] = ("归档", "Archive"),
+            [StringKeys.WidgetRestore] = ("取消归档", "Restore"),
+            [StringKeys.WidgetContentDescription] = ("任务小组件", "Tasks widget"),
+            [StringKeys.WidgetOfflineWrite] = ("离线，操作未提交", "Offline; the action was not submitted"),
+            [StringKeys.WidgetTimeoutWrite] = ("网络超时，操作未提交", "Network timed out; the action was not submitted"),
+            [StringKeys.WidgetProtocolWrite] = ("服务器响应无法识别，操作未提交", "Unrecognized server response; the action was not submitted"),
+            [StringKeys.WidgetConflictWrite] = ("已被其他设备修改，请同步后重试", "Changed on another device; sync and try again"),
+            [StringKeys.WidgetSessionExpiredWrite] = ("会话失效，请重新登录", "Session expired; sign in again"),
+            [StringKeys.WidgetServerErrorWrite] = ("服务器暂时不可用，操作未提交", "Server unavailable; the action was not submitted"),
+            [StringKeys.WidgetRateLimitedWrite] = ("操作过于频繁，请稍后再试", "Too many requests; try again shortly"),
+            [StringKeys.WidgetAppliedWrite] = ("已提交", "Submitted"),
+            [StringKeys.WidgetReplayedWrite] = ("已提交（重复请求）", "Submitted (replayed)"),
+            [StringKeys.WidgetUnknownTask] = ("任务已不属于当前账号", "The task no longer belongs to this account"),
         };
 
     private AppLanguagePreference _preference = AppLanguagePreference.FollowSystem;

@@ -167,6 +167,22 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
         }
     }
 
+    /// <summary>
+    /// Monotonic identity transition counter. A widget action captures this value
+    /// when its PendingIntent is built and rechecks it before writing, so an intent
+    /// created before sign-out or account switching cannot act on the new account.
+    /// </summary>
+    public long Generation
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _generation;
+            }
+        }
+    }
+
     /// <summary>True when a token exists but only the offline cache may be read.</summary>
     public bool CacheReadOnly
     {
@@ -594,6 +610,14 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
 
         return AuthResult.Ok();
     }
+
+    /// <summary>
+    /// Marks a server-rejected session as expired without a local sign-out. The
+    /// widget calls this on a 401 so its next read is read-only and any
+    /// PendingIntent captured before the invalidation cannot keep writing.
+    /// </summary>
+    public Task ExpireForWidgetAsync() =>
+        ExpireAsync("widget_session_expired", cacheReadOnly: true, clearTokens: true);
 
     /// <summary>
     /// Sign out. With <paramref name="localOnly"/> the refresh token is *not*

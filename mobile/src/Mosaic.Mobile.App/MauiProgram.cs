@@ -4,6 +4,9 @@ using Mosaic.Mobile.App.Services;
 using Mosaic.Mobile.Auth;
 using Mosaic.Mobile.Presentation;
 using Mosaic.Mobile.Sync;
+#if ANDROID
+using Mosaic.Mobile.App.Platforms.Android.Widgets;
+#endif
 
 namespace Mosaic.Mobile.App;
 
@@ -24,7 +27,7 @@ public static class MauiProgram
 
     private static void ConfigureDeviceFacts()
     {
-        var version = "0.2.0";
+        var version = "0.2.1";
         try
         {
             version = AppInfo.Current.VersionString;
@@ -107,7 +110,24 @@ public static class MauiProgram
         services.AddTransient<ForgotPasswordPage>();
         services.AddTransient<DeviceAuthorizePage>();
         services.AddTransient<DeviceSignInPage>();
+#if ANDROID
+        ConfigureWidgetServices(services);
+#endif
     }
+
+#if ANDROID
+    private static void ConfigureWidgetServices(IServiceCollection services)
+    {
+        // Widget broadcasts resolve the same singletons from the application
+        // container. Registering them here keeps the widget on the shared token
+        // store, projection and API client — no parallel HttpClient or cache.
+        services.AddSingleton(global::Android.App.Application.Context);
+        services.AddSingleton<TaskWriteClient>();
+        services.AddSingleton<WidgetTaskReader>();
+        services.AddSingleton<WidgetTaskRepository>();
+        services.AddSingleton<WidgetRefresh>();
+    }
+#endif
 
 #if ANDROID
     private static ISecretStorage CreateSecretStorage() =>

@@ -1642,3 +1642,99 @@ pwsh -File build/test-install.ps1
   - `D:/Android/Sdk/build-tools/36.0.0/aapt2.exe dump badging ...-Signed.apk` 回读：`package: name='app.mosaic.tasks' versionCode='3' versionName='0.2.0'`、`targetSdkVersion:'36'`、`application-label:'Mosaic'`。
   - 构建期间需修复的 Release-only 错误：`StartupService.DrainAsync` 使用了不存在的 `ChannelReader.IsEmpty`（改 `TryPeek`）；`PreferenceEnums.cs` 漏迁（见根因 7）；本机 android-36 platform 缺少 `android.jar`（重装 `platforms;android-36`）；NuGet arm64 运行时包下载中断（重试 restore）。
 - 未验证：真机或模拟器交互式 smoke（登录、切换账号、断网只读、强制结束后续迁）。
+## 手机端（独立交付，0.2.1）
+
+手机端位于 `mobile/`，独立解决方案与版本号（`0.2.1`，Android `versionCode` 4），只发 Android Release，不进入桌面 MSI，也不随桌面版本发布；本轮不新增 iOS Widget，不改 `server/`、`src/`、Coolify 与桌面 MSI。本节记录 Android 小组件的根因位置、改动位置、迁移逻辑与验收边界。
+
+### 根因位置（现象 → 触发条件 → 出错原因）
+
+1. `mobile/src/Mosaic.Mobile.App/Platforms/Android/`（0.2.0 无对应文件）：0.2.0 没有 `AppWidgetProvider`、没有 `appwidget-provider` XML、没有 `RemoteViews` 布局资源。触发条件：用户不打开 App 只想看任务；出错原因是任务展示只存在 `MainActivity`/`AppShell` 的 UI 路径，系统桌面无法读取，因此小组件根本无法添加。
+2. `mobile/src/Mosaic.Mobile.Sync/`（0.2.0 删除 `SyncWriteClient` 后无单任务窄写封装）：触发条件是用户从小组件点击完成/归档；出错原因是没有把 `SyncedTask` 映射为 `ChangePushRequestDto` + 完整 camelCase `TaskItemDto` 并复用共享 `IMosaicApi.PostAsync` 的入口，若在广播里直接改本地库会与服务器分叉。
+3. `mobile/src/Mosaic.Mobile.App/MauiProgram.cs` 与 `mobile/src/Mosaic.Mobile.App/Platforms/Android/MainApplication.cs`（0.2.0 无 `ConfigureWidgetServices`、无 Application 层订阅）：触发条件是系统直接向广播投递而 `MainActivity` 尚未创建；出错原因是 DI 与 `AuthSessionManager.InitializeAsync(serverUrl)` 只在 UI 启动链路上执行，广播无法拿到共享会话、投影和 API 客户端。
+4. `mobile/src/Mosaic.Mobile.Sync/SyncEngine.cs` `Completed`/`StatusChanged` 与 0.2.0 缺失的 widget 刷新路径：触发条件是同步完成、状态变化、写成功或换号/撤销设备；出错原因是没有 `AppWidgetManager.UpdateAppWidget` 调用，RemoteViews 永远是旧快照；同时若刷新沿用切换前 identity，旧账号 taskId 会被写进新账号投影。
+5. `mobile/docs/protocol-conflicts.md`（0.2.0 陈旧表述，现 `:35`）：仍描述 `SyncWriteClient`/outbox 已就绪，触发条件是按 0.2.1 窄写路线核对协议；出错原因是文档与 0.2.0 删除写客户端、0.2.1 只上线三个窄写命令的实际边界冲突。
+
+### 改动位置
+
+新增 Android 小组件（`mobile/src/Mosaic.Mobile.App/Platforms/Android/Widgets/`）
+- 新增 `TaskWidgetProvider.cs`：`TaskWidgetProvider`（`:21`）、`OnUpdate`（`:23`）、`OnAppWidgetOptionsChanged`（`:52`）；`goAsync()` 包住异步刷新，DI 未就绪时静默跳过。
+- 新增 `TaskWidgetActionReceiver.cs`：`TaskWidgetActionReceiver`（`:21`）、`OnReceive`（`:23`）、`RunAsync`（`:57`）、`AppWidgetManagerCompat`（`:130`）；校验 action/taskId/widgetId，重新建会话，旧 taskId 不存在时拒绝写入，成功后刷新。
+- 新增 `WidgetTaskRepository.cs`：`WidgetTaskRepository`（`:13`）、`EstablishAsync`（`:35`）、`IsCurrent`（`:86`）、`ReadAsync`（`:88`）、`FindTaskAsync`（`:94`）、`WriteAsync`（`:100`）、`ExpireSessionAsync`（`:117`）、`WidgetContext`（`:132`）；冷启动会话恢复、身份核验、窄写与 401 只读化。
+- 新增 `WidgetRefresh.cs`：`WidgetRefresh`（`:18`）、`Subscribe`（`:39`）、`RefreshAllAsync`（`:55`）、`RefreshAsync`（`:68`/`:82`）、`DrawBlocked`（`:142`）、`WidgetComponent`（`:159`）、事件处理与 `Dispose`（`:184`）；每次刷新重建 identity，渲染前后校验 generation。
+- 新增 `WidgetBroadcastScope.cs`：`WidgetBroadcastScope.TryResolve`（`:14`）；从 `MauiApplication` + `IPlatformApplication.Current.Services` 解析共享 DI，不新建容器。
+- 新增 `WidgetFormatter.cs`：`WidgetFormatter`（`:17`）、`ActionRefresh`/`ActionTask`/Extra 常量（`:19-23`）、`Build`（`:25`）、`MaxRows`（`:81`）、`RefreshIntent`（`:93`）、`TaskIntent`（`:105`）、`ApplyNotice`（`:124`）、`ApplyRows`（`:137`）、`BlockedKey`（`:185`）与行 ID 映射（`:192-235`）；PendingIntent 只带 `taskId`、`taskAction`、`widgetId`。
+
+新增/修改 Android 资源与注册
+- 新增 `Resources/layout/widget_tasks_small.xml`、`widget_tasks_large.xml`：`widget_root`、`widget_title`、`widget_count`、`widget_notice`、5 组 `widget_row_N`/`widget_task_N`/`widget_complete_N`/`widget_archive_N`/`widget_restore_N`、`widget_more`、`widget_status`；文本用 `sp`、间距用 `dp`，任务标题 `singleLine` + `ellipsize=end`，小尺寸 1 行、大尺寸最多 5 行。
+- 新增 `Resources/xml/widget_tasks_info.xml`：`appwidget-provider`，`minWidth=110dp`、`minHeight=40dp`、`targetCellWidth=2`、`targetCellHeight=1`、`updatePeriodMillis=0`、`resizeMode=horizontal|vertical`、`widgetCategory=home_screen`、`initialLayout=@layout/widget_tasks_small`。
+- 新增 `Resources/values/strings.xml` 与 `Resources/values-zh/strings.xml`：`widget_label`、`widget_description` 及 widget 标题、计数、溢出、动作、错误与 content description 文案。
+- 改 `Platforms/Android/AndroidManifest.xml`：`:11-19` 注册 `TaskWidgetProvider`（`android:exported="false"`、`APPWIDGET_UPDATE`、`@xml/widget_tasks_info`），`:23-28` 注册 `TaskWidgetActionReceiver`（`android:exported="false"`、`widget.REFRESH`、`widget.TASK`）。
+- 改 `Platforms/Android/MainApplication.cs`：`MainApplication.OnCreate`（`:19`），从 Application 层订阅 `WidgetRefresh.Subscribe()`，独立于 `MainActivity`/`AppShell`。
+
+窄写与展示模型
+- 新增 `mobile/src/Mosaic.Mobile.Sync/TaskWriteClient.cs`：`WidgetTaskAction`（`:9`）、`TaskWriteOutcome`（`:17`）、`TaskWriteResult`（`:38`）、`TaskWriteClient`（`:52`）、`WriteAsync`（`:64`）、`BuildPayload`（`:152`）；复用 `IMosaicApi.PostAsync` 调 `v1/sync/changes`，`baseServerRevision`/`clientRevision`/新 `idempotencyKey`，`Deleted=false`；409 解析 `details.current`，`replayed=true` 按成功处理但不本地改 revision。
+- 新增 `mobile/src/Mosaic.Mobile.Presentation/WidgetViewModels.cs`：`WidgetWriteStatus`（`:8`）、`WidgetWriteResult`（`:21`）、`WidgetBlockedReason`（`:24`）、`WidgetSnapshot`（`:34`）、`WidgetTaskReader`（`:48`）、`ReadAsync`（`:61`）、`FindTaskAsync`（`:128`）、`IsCurrent`（`:159`）、`TryCreateIdentity`（`:179`）、`WidgetWriteText.Describe`（`:197`）、`From`（`:213`）；通过 `ProjectionStoreFactory` + `ISyncStore.ListTasksAsync(MobileTaskFilter.Open)` 读取当前 `(normalizedServerOrigin, userId)` 投影。
+- 改 `mobile/src/Mosaic.Mobile.Auth/AuthSessionManager.cs`：`Generation`（`:175`）与 `ExpireForWidgetAsync`（`:619`）；401 后只读化并递增身份代次，旧 PendingIntent 无法继续写。
+- 改 `mobile/src/Mosaic.Mobile.Presentation/Localization.cs`：`StringKeys.WidgetTitle` 至 `WidgetUnknownTask`（`:177-198`）及中英文 `Texts`；覆盖 blocked、计数、溢出、动作、成功/失败文案。
+- 改 `mobile/src/Mosaic.Mobile.Presentation/ViewModels/AuthViewModels.cs`：`AppVersion`（`:690`）统一为 `0.2.1`。
+- 改 `mobile/src/Mosaic.Mobile.App/MauiProgram.cs`：`ConfigureDeviceFacts`（`:28`，`version=0.2.1`）、`ConfigureServices`（`:50`）调用 `ConfigureWidgetServices`（`:114`/`:119`）；widget 服务全部注册到共享容器。
+- 改 `mobile/Directory.Build.props`（`:17`，`Version=0.2.1`）与 `mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj`（`:14-15` display version 0.2.1 / versionCode 4；`:17-18` Android minSdk 26、iOS 15.0 回退值不变；`:24` MauiVersion 10.0.20）。
+- 改 `mobile/docs/protocol-conflicts.md`（`:35`）：写入上线范围改为 0.2.1 三窄写命令与 opaque payload swap 边界。
+
+测试与文档
+- 新增 `mobile/tests/Mosaic.Mobile.Sync.Tests/TaskWriteClientTests.cs`：`TaskWriteClientTests`（`:10`）、`Complete_writes_full_payload_without_tombstone`（`:106`）、`Archive_keeps_completed_state_and_never_sets_deleted`（`:140`）、`Restore_clears_archive_and_preserves_completion`（`:157`）、`Each_action_generates_a_new_idempotency_key`（`:177`）、`Conflict_parses_current_from_details`（`:192`）、`Missing_conflict_details_are_tolerated`（`:219`）、`Http_failures_map_to_explicit_outcomes`（`:234`）、`Transport_failures_map_to_offline`（`:251`）、`Protocol_failures_keep_explicit_outcome`（`:264`）、`Replayed_response_is_success`（`:277`）。
+- 改 `mobile/tests/Mosaic.Mobile.Presentation.Tests/PresentationTests.cs`：`Widget_write_text_maps_each_status`（`:118`）、`Widget_write_text_distinguishes_timeout_from_offline`（`:129`）、`Widget_write_status_maps_every_write_outcome`（`:159`）、`Widget_snapshot_blocked_carries_no_task_data`（`:170`）、`Widget_write_text_is_localized_in_chinese`（`:180`）。
+- 新增 `docs/releases/v0.2.1-mobile.md`（`:1-28`）：发布说明覆盖功能、安全、迁移与真实快照边界。
+- 改 `docs/implementation-status.md`：追加本节（根因、改动位置、验收矩阵、迁移与验证）。
+
+### 验收矩阵（W01-W14）
+
+| 项 | 场景 | 实现与检查点 | 覆盖状态 |
+| --- | --- | --- | --- |
+| W01 | 小组件添加与提示 | `widget_tasks_info.xml` + provider 注册；计数/标题来自 `WidgetTaskReader.ReadAsync` → `MobileTaskFilter.Open` | 代码与资源已实现；真机添加待验证 |
+| W02 | 标记完成 | `TaskWriteClient.BuildPayload`：完成 write `isCompleted=true`、`completedAtUtc=now`、`restoredAtUtc=null`，保留 archived；单测 `:106` | 已通过单测；真机点击待验证 |
+| W03 | 归档 | `Archive` 写 `archivedAtUtc=now`、`deleted=false`，保留完成状态；单测 `:140` | 已通过单测；真机点击待验证 |
+| W04 | 取消归档 | `Restore` 写 `restoredAtUtc=now`、`archivedAtUtc=null`，保留完成状态；单测 `:157` | 已通过单测；真机点击待验证 |
+| W05 | 离线动作 | `SyncErrorKind.Offline` → `WidgetOfflineWrite`“离线，操作未提交”，无 outbox/排队；单测 `:251`、Presentation `:129` | 已通过单测；真机断网待验证 |
+| W06 | 网络超时/协议错误 | 超时走 `LocalTransportCodes.Timeout` 独立文案；协议错误显式映射；单测 `:264`、Presentation `:129` | 已通过单测；真机弱网待验证 |
+| W07 | 409 冲突与 `replayed=true` | `details.current` → “已被其他设备修改，请同步后重试”，不本地假写；`replayed=true` 成功但不改本地 revision；单测 `:192`/`:277` | 已通过单测；真实服务端并发待验证 |
+| W08 | 401/身份失效 | `ExpireForWidgetAsync()` 只读化并递增 generation；`WidgetWriteStatus.SessionExpired` 文案；单测 `:234` | 已通过单测；真实 401 待验证 |
+| W09 | 换号后 widget | `WidgetTaskRepository.EstablishAsync`/`WidgetTaskReader.FindTaskAsync` 校验 identity + `Generation`；旧 taskId 拒绝 | 代码已实现；真机换号待验证 |
+| W10 | 撤销设备后 widget | 401 走 `ExpireForWidgetAsync`，刷新前重建 identity；旧 PendingIntent 不可写 | 代码已实现；真机撤销设备待验证 |
+| W11 | 小/大布局、溢出、深色与字体 | `MaxRows` 大尺寸 5 行、`widget_more` 溢出计数、`sp`/`dp`、`singleLine` + `ellipsize`、content description | 代码与资源已实现；深色模式和系统字体放大未在真机验证 |
+| W12 | 未登录/无投影/损坏投影 | `WidgetBlockedReason.NeedsSignIn`/`NeedsSync`/`Unavailable`，blocked 快照不含任务数据；Presentation `:170` | 已通过单测；真机未登录/损坏投影待验证 |
+| W13 | 0.2.0 → 0.2.1 覆盖升级 | versionCode 3 → 4，投影 schema 不变；发布说明与迁移验收项 | APK badging 已回读 `app.mosaic.tasks`/versionCode 4/versionName 0.2.1/minSdk 26；真机覆盖安装待验证 |
+| W14 | 写后刷新、同步刷新、快速点击、广播明文 | `WidgetRefresh.Subscribe`/`RefreshAsync` 校验 generation；`goAsync`；PendingIntent 只有 taskId/taskAction/widgetId | 代码已实现；快速连点真机待验证 |
+
+### 迁移逻辑、验收项与已有安装影响
+
+迁移逻辑：0.2.0 → 0.2.1 是覆盖升级，`mosaic-mobile.db` 投影 schema、账号 `owner_key`、令牌存储与同步 wire 均未变化，不执行数据迁移；新增的只是桌面小组件 provider、receiver、RemoteViews 布局、字符串和窄写客户端。0.2.0 的快照引导边界继续成立：新投影从服务端最新已上传备份重建基线，再从该备份 cursor 继续拉取仍保留的增量变更；不保证覆盖从未上传快照的任务；本地未上传的旧 outbox 按设计废弃。本版本没有重新引入 outbox，也没有离线排队。
+
+迁移验收项：
+- [x] `Version=0.2.1`、`ApplicationDisplayVersion=0.2.1`、`ApplicationVersion=4`。
+- [x] 两个 Android receiver 均 `android:exported="false"`，provider 带 `APPWIDGET_UPDATE` 与 `@xml/widget_tasks_info`。
+- [x] `appwidget-provider` 的 `updatePeriodMillis=0`，无周期轮询。
+- [x] 窄写不写 tombstone：三个动作均 `Deleted=false`，payload 为完整 `TaskItemDto`。
+- [ ] 真机覆盖安装 0.2.0 → 0.2.1：已有会话与投影保留，用户手动添加 widget 后能读到未归档未完成任务。
+- [ ] 真机验证换号/撤销设备/退出后旧 widget 与旧 PendingIntent 不写入新账号。
+- [ ] 真机验证深色模式、字体放大、小/大尺寸布局与快速连续点击。
+
+对已有安装的影响：
+- 0.2.0 → 0.2.1 可直接覆盖安装（`versionCode` 3 → 4）；小组件需用户自行在桌面添加，不会自动创建。
+- 已登录会话和按账号隔离的投影不变化；不读取桌面 `mosaic.sqlite`，不引用桌面 Shell/Tasks 内部程序集。
+- 写入成功只提交到服务端窄写接口，随后由既有同步流程刷新其他界面；离线动作不排队。
+- 回滚到 0.2.0（versionCode 3）在 Android 覆盖安装语义下可能被拒绝；如需回退需卸载 0.2.1 再装旧 APK，应用数据目录会随卸载删除，需重新登录并按上述真实边界重建投影。
+
+### 已执行验证
+
+- `dotnet test mobile/tests/Mosaic.Mobile.Sync.Tests/Mosaic.Mobile.Sync.Tests.csproj -c Release` — 90 通过 / 0 失败（含 14 个 `TaskWriteClientTests`）。
+- `dotnet test mobile/tests/Mosaic.Mobile.Presentation.Tests/Mosaic.Mobile.Presentation.Tests.csproj -c Release` — 33 通过 / 0 失败（含 5 个 widget 文案/状态测试）。
+- 定向测试未设置 `DOTNET_CLI_UI_LANGUAGE`；当前测试宿主不接受 `--nologo`（退出码 5、零测试），已从命令中移除。
+- Android Release publish 成功：`dotnet publish mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj -f net10.0-android -c Release -p:AndroidSdkDirectory=D:/Android/Sdk -p:RuntimeIdentifier=android-arm64`，产物 `mobile/src/Mosaic.Mobile.App/bin/Release/net10.0-android/android-arm64/publish/app.mosaic.tasks-Signed.apk`。
+- `aapt2 dump badging` 回读：`package: name='app.mosaic.tasks' versionCode='4' versionName='0.2.1'`、`minSdkVersion:'26'`、`targetSdkVersion:'36'`；AndroidManifest 中两个 receiver 均 `android:exported="false"`，provider 含 `APPWIDGET_UPDATE` 与 `@xml/widget_tasks_info`。未验证项均已在 W01-W14 表格逐项标注。
+- 未验证：真机/模拟器交互式 smoke、真实服务端并发冲突、下载/安装渠道分发。
+
+### 回滚方式
+
+- 代码回滚：`git revert <0.2.1 提交哈希>`（仅回滚本交付单元），或删除本节所列新增文件并还原修改文件；不触碰 `server/`、`src/`、Coolify 与桌面 MSI。
+- 已安装 0.2.1 的设备按上面的覆盖安装限制处理：卸载后安装 0.2.0 APK，重新登录并按真实边界重建投影。

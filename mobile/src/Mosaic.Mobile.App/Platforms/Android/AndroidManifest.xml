@@ -5,6 +5,29 @@
                android:dataExtractionRules="@xml/data_extraction_rules"
                android:networkSecurityConfig="@xml/network_security_config"
                android:supportsRtl="true"
-               android:usesCleartextTraffic="false" />
+               android:usesCleartextTraffic="false">
+
+    <receiver
+        android:name="app.mosaic.tasks.TaskWidgetProvider"
+        android:exported="false"
+        android:label="@string/widget_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/widget_tasks_info" />
+    </receiver>
+
+    <receiver
+        android:name="app.mosaic.tasks.TaskWidgetActionReceiver"
+        android:exported="false"
+        android:label="@string/widget_label">
+      <intent-filter>
+        <action android:name="app.mosaic.tasks.widget.REFRESH" />
+        <action android:name="app.mosaic.tasks.widget.TASK" />
+      </intent-filter>
+    </receiver>
+  </application>
   <uses-permission android:name="android.permission.INTERNET" />
 </manifest>
