@@ -23,41 +23,31 @@ public sealed record TaskListItemViewModel(
 /// </summary>
 public sealed partial class TaskListViewModel : ViewModelBase
 {
-    private readonly ISyncStore _store;
-    private readonly SyncEngine _sync;
+    private readonly ProjectionSession _session;
     private readonly AuthSessionManager _auth;
-    private readonly PortableSettings _settings;
     private readonly SemaphoreSlim _loadGate = new(1, 1);
-    private int _lastCount;
 
     public TaskListViewModel(
-        ISyncStore store,
-        SyncEngine sync,
+        ProjectionSession session,
         AuthSessionManager auth,
-        PortableSettings settings,
         LocalizationService localizer)
         : base(localizer)
     {
-        ArgumentNullException.ThrowIfNull(store);
-        ArgumentNullException.ThrowIfNull(sync);
+        ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(auth);
-        ArgumentNullException.ThrowIfNull(settings);
-        _store = store;
-        _sync = sync;
+        _session = session;
         _auth = auth;
-        _settings = settings;
 
         _auth.StateChanged += OnAuthStateChanged;
-        _sync.StatusChanged += OnSyncStatusChanged;
-        _sync.Completed += OnSyncCompleted;
-        _settings.Changed += OnSettingsChanged;
+        _session.StatusChanged += OnSyncStatusChanged;
+        _session.Completed += OnSyncCompleted;
+        _session.Changed += OnProjectionChanged;
 
-        Filter = _settings.DefaultFilter switch
-        {
-            TaskDefaultFilter.Open => MobileTaskFilter.Open,
-            TaskDefaultFilter.Completed => MobileTaskFilter.Completed,
-            _ => MobileTaskFilter.All,
-        };
+        // Filters are per view state in v2: PortableSettings was removed with
+        // the write path, so the home screen always starts from "all".
+        Filter = MobileTaskFilter.All;
+        StatusText = SyncStatusText.Describe(Localizer, _session.Status);
+        LastSyncedText = SyncStatusText.LastSynced(Localizer, _session.Status.LastSyncedAt);
     }
 
     public ObservableCollection<TaskListItemViewModel> Tasks { get; } = [];
@@ -110,9 +100,9 @@ public sealed partial class TaskListViewModel : ViewModelBase
     public override void Dispose()
     {
         _auth.StateChanged -= OnAuthStateChanged;
-        _sync.StatusChanged -= OnSyncStatusChanged;
-        _sync.Completed -= OnSyncCompleted;
-        _settings.Changed -= OnSettingsChanged;
+        _session.StatusChanged -= OnSyncStatusChanged;
+        _session.Completed -= OnSyncCompleted;
+        _session.Changed -= OnProjectionChanged;
         _loadGate.Dispose();
         base.Dispose();
     }
@@ -124,20 +114,18 @@ public sealed partial class TaskListViewModel : ViewModelBase
         try
         {
             IsBusy = true;
-            var items = await _store.ListTasksAsync(Filter).ConfigureAwait(true);
 
-            if (items.Count == 0
-                && Filter != MobileTaskFilter.All
-                && _settings.AutoSwitchToAllOnHidden
-                && _lastCount > 0)
+            // Snapshot the store once: an account switch can replace it while the
+            // query is in flight, and rows from the previous projection must never
+            // be shown for the new account.
+            var store = _session.Store;
+            var items = store is null
+                ? Array.Empty<SyncedTask>()
+                : (await store.ListTasksAsync(Filter).ConfigureAwait(true)).ToArray();
+
+            if (!ReferenceEquals(store, _session.Store))
             {
-                Filter = MobileTaskFilter.All;
-                NoticeText = T(StringKeys.SwitchedToAll);
-                items = await _store.ListTasksAsync(Filter).ConfigureAwait(true);
-            }
-            else
-            {
-                NoticeText = string.Empty;
+                return;
             }
 
             Tasks.Clear();
@@ -146,7 +134,7 @@ public sealed partial class TaskListViewModel : ViewModelBase
                 Tasks.Add(Map(task));
             }
 
-            _lastCount = Tasks.Count;
+            NoticeText = ProjectionStatusText.Describe(Localizer, _session.Failure);
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(EmptyText));
         }
@@ -160,13 +148,14 @@ public sealed partial class TaskListViewModel : ViewModelBase
     [RelayCommand]
     private async Task RefreshAsync()
     {
-        if (_auth.State != AuthState.SignedIn)
+        var engine = _session.Engine;
+        if (_auth.State != AuthState.SignedIn || engine is null)
         {
             await LoadAsync().ConfigureAwait(true);
             return;
         }
 
-        await _sync.SyncOnceAsync().ConfigureAwait(true);
+        await engine.SyncOnceAsync().ConfigureAwait(true);
         await LoadAsync().ConfigureAwait(true);
     }
 
@@ -185,8 +174,9 @@ public sealed partial class TaskListViewModel : ViewModelBase
     protected override void RefreshLocalized()
     {
         OnPropertyChanged(nameof(TitleText));
-        StatusText = SyncStatusText.Describe(Localizer, _sync.Status);
-        LastSyncedText = SyncStatusText.LastSynced(Localizer, _sync.Status.LastSyncedAt);
+        NoticeText = ProjectionStatusText.Describe(Localizer, _session.Failure);
+        StatusText = SyncStatusText.Describe(Localizer, _session.Status);
+        LastSyncedText = SyncStatusText.LastSynced(Localizer, _session.Status.LastSyncedAt);
 
         // Rebuild rows so their status captions follow the language.
         var snapshot = Tasks.ToList();
@@ -219,9 +209,11 @@ public sealed partial class TaskListViewModel : ViewModelBase
         _ = LoadAsync();
     }
 
-    private void OnSettingsChanged(object? sender, EventArgs e)
+    private void OnProjectionChanged(object? sender, EventArgs e)
     {
-        OnPropertyChanged(nameof(EmptyText));
+        // Opening, switching or closing the projection all invalidate the rows
+        // currently on screen, so reload instead of keeping stale tasks.
+        _ = LoadAsync();
     }
 
     private TaskListItemViewModel Map(SyncedTask task) => new(

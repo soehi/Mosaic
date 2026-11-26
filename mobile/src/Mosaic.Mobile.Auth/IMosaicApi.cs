@@ -19,4 +19,18 @@ public interface IMosaicApi
         bool authenticated = true,
         bool retryTransient = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Raw GET with a hard byte ceiling. Used for snapshot downloads so a
+    /// hostile or misconfigured server cannot exhaust mobile memory: the
+    /// declared Content-Length is rejected up front and the streamed body is
+    /// aborted the moment it crosses <paramref name="maxBytes"/>. Failures carry
+    /// <see cref="Mosaic.Mobile.Wire.WireErrorCodes.ClientResponseTooLarge"/>.
+    /// </summary>
+    Task<ApiResult<byte[]>> GetBytesAsync(
+        string relativePath,
+        long maxBytes,
+        bool authenticated = true,
+        bool retryTransient = false,
+        CancellationToken cancellationToken = default);
 }

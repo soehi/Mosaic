@@ -16,13 +16,17 @@ public sealed class AppThemeService
 
     public void Apply(ThemePreference preference, bool systemIsDark)
     {
-        Preference = preference;
+        // Compare against the previous state before writing: assigning first made
+        // the guard compare the new preference with itself, so a switch that kept
+        // the same resolved brightness (FollowSystem -> Light on a light system)
+        // never raised Changed and was never persisted.
         var dark = ResolveIsDark(preference, systemIsDark);
         if (dark == IsDark && preference == Preference)
         {
             return;
         }
 
+        Preference = preference;
         IsDark = dark;
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -92,10 +96,15 @@ public static class SyncStatusText
         status.Status switch
         {
             SyncStatusType.Syncing => localizer.T(StringKeys.Syncing),
-            SyncStatusType.Succeeded => localizer.T(StringKeys.SyncSucceeded),
+            SyncStatusType.Bootstrapping => localizer.T(StringKeys.SyncBootstrapping),
+            SyncStatusType.Ready => localizer.T(StringKeys.SyncReady),
+            SyncStatusType.Empty => localizer.T(StringKeys.SyncEmpty),
+            SyncStatusType.Incomplete => localizer.T(StringKeys.SyncIncomplete),
             SyncStatusType.Offline => localizer.T(StringKeys.SyncOffline),
             SyncStatusType.NeedsSignIn => localizer.T(StringKeys.SyncNeedsSignIn),
-            SyncStatusType.RebuildRequired => localizer.T(StringKeys.SyncRebuildRequired),
+            SyncStatusType.NeedsRestore => localizer.T(StringKeys.SyncNeedsRestore),
+            SyncStatusType.SnapshotVanished => localizer.T(StringKeys.SyncSnapshotVanished),
+            SyncStatusType.SnapshotTooLarge => localizer.T(StringKeys.SyncSnapshotTooLarge),
             SyncStatusType.Failed => localizer.T(StringKeys.SyncFailed),
             _ => localizer.T(StringKeys.SyncIdle),
         };
@@ -106,6 +115,23 @@ public static class SyncStatusText
             : localizer.Format(
                 StringKeys.LastSyncedAt,
                 value.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture));
+}
+
+/// <summary>
+/// Turns a projection-open failure into a notice. The migration reason produced
+/// by <c>ProjectionStoreFactory</c> is English and developer-facing, so it is
+/// logged by the caller and never shown verbatim to the user.
+/// </summary>
+public static class ProjectionStatusText
+{
+    public static string Describe(LocalizationService localizer, ProjectionSessionFailure failure) =>
+        failure switch
+        {
+            ProjectionSessionFailure.IdentityRejected => localizer.T(StringKeys.ProjectionMismatch),
+            ProjectionSessionFailure.MigrationRejected => localizer.T(StringKeys.ProjectionRejected),
+            ProjectionSessionFailure.StorageUnavailable => localizer.T(StringKeys.ProjectionUnavailable),
+            _ => string.Empty,
+        };
 }
 
 public abstract class ViewModelBase : ObservableObject

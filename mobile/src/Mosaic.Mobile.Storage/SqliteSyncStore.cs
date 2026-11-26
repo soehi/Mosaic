@@ -4,159 +4,215 @@ using Microsoft.Data.Sqlite;
 namespace Mosaic.Mobile.Storage;
 
 /// <summary>
-/// SQLite projection. A page is applied in one transaction together with its
-/// cursor, so a crash can never leave "rows newer than the cursor" or the
-/// reverse. Rows are last-writer-wins by <c>serverRevision</c>, which also
-/// makes a replayed page idempotent.
+/// Account-isolated SQLite projection. Every page commits tasks, tombstones,
+/// cursor and page timestamps in one transaction. Server revision is the only
+/// ordering authority.
 /// </summary>
 public sealed class SqliteSyncStore : ISyncStore
 {
-    private const string CursorKey = "sync.cursor";
-    private const string LastSyncedKey = "sync.last_synced_at";
-    private const string MaxRevisionKey = "sync.max_server_revision";
-
     private readonly MobileDatabase _database;
 
-    public SqliteSyncStore(MobileDatabase database)
+    public SqliteSyncStore(MobileDatabase database, ProjectionIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(identity);
         _database = database;
+        Identity = identity;
     }
+
+    public ProjectionIdentity Identity { get; }
 
     public async Task<SyncState> GetStateAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
         return await ReadStateAsync(connection, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RecordAttemptAsync(
+        ProjectionFreshness freshness,
+        DateTimeOffset at,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE projection_meta
+            SET last_attempt_at = $at, freshness = $freshness
+            WHERE singleton = 1;
+            """;
+        command.Parameters.AddWithValue("$at", FormatDate(at));
+        command.Parameters.AddWithValue("$freshness", FreshnessKey(freshness));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ApplyPageAsync(SyncPage page, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
+        var nextCursor = ProjectionCursor.Validate(page.NextCursor);
+        ValidatePageTasks(page.Tasks);
+        ValidatePageTombstones(page.Tombstones);
+        var finalTasks = AggregateTasks(page.Tasks, page.Tombstones);
+
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
+        var state = await ReadStateAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (page.ExpectedCursor is not null
+            && !string.Equals(state.Cursor, page.ExpectedCursor, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The projection cursor changed before this page was committed.");
+        }
 
-        foreach (var task in page.Tasks.OrderBy(t => t.ServerRevision))
+        if (state.Cursor is not null
+            && string.Equals(state.Cursor, nextCursor, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The next cursor repeats the current cursor.");
+        }
+
+        foreach (var task in finalTasks.Values.OrderBy(t => t.Id))
         {
             await UpsertTaskAsync(connection, transaction, task, cancellationToken).ConfigureAwait(false);
         }
 
-        foreach (var tombstone in page.Tombstones.OrderBy(t => t.ServerRevision))
+        foreach (var tombstone in page.Tombstones.OrderBy(t => t.Id).ThenBy(t => t.ServerRevision))
         {
             await ApplyTombstoneAsync(connection, transaction, tombstone, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        foreach (var setting in page.Settings.OrderBy(s => s.ServerRevision))
-        {
-            await UpsertSettingAsync(connection, transaction, setting, cancellationToken).ConfigureAwait(false);
-        }
-
-        var state = await ReadStateAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        var maxRevision = page.Tasks.Select(t => t.ServerRevision)
+        var maxRevision = finalTasks.Values.Select(t => t.ServerRevision)
             .Concat(page.Tombstones.Select(t => t.ServerRevision))
-            .Concat(page.Settings.Select(s => s.ServerRevision))
             .DefaultIfEmpty(state.MaxServerRevision)
             .Max();
-
-        await WriteMetaAsync(connection, transaction, CursorKey, page.NextCursor ?? state.Cursor, cancellationToken)
-            .ConfigureAwait(false);
-        await WriteMetaAsync(connection, transaction, LastSyncedKey, FormatDate(page.SyncedAt), cancellationToken)
-            .ConfigureAwait(false);
-        await WriteMetaAsync(
-                connection,
-                transaction,
-                MaxRevisionKey,
-                Math.Max(state.MaxServerRevision, maxRevision).ToString(CultureInfo.InvariantCulture),
-                cancellationToken)
-            .ConfigureAwait(false);
-
+        await using var meta = connection.CreateCommand();
+        meta.Transaction = transaction;
+        // A committed page is not a completed run. Only CompleteSyncAsync may
+        // declare the projection ready, so HasMore=false alone cannot mark it.
+        meta.CommandText = """
+            UPDATE projection_meta
+            SET cursor = $cursor,
+                max_server_revision = $maxRevision,
+                last_attempt_at = $at,
+                last_successful_page_at = $at,
+                freshness = 'syncing'
+            WHERE singleton = 1;
+            """;
+        meta.Parameters.AddWithValue("$cursor", nextCursor);
+        meta.Parameters.AddWithValue("$maxRevision", Math.Max(state.MaxServerRevision, maxRevision));
+        meta.Parameters.AddWithValue("$at", FormatDate(page.SyncedAt));
+        await meta.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task ResetProjectionAsync(CancellationToken cancellationToken = default)
+    public async Task CompleteSyncAsync(DateTimeOffset at, CancellationToken cancellationToken = default)
     {
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        await ExecuteAsync(connection, transaction, "DELETE FROM tasks;", cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM task_tombstones;", cancellationToken)
-            .ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM settings;", cancellationToken).ConfigureAwait(false);
-        await DeleteMetaAsync(connection, transaction, CursorKey, cancellationToken).ConfigureAwait(false);
-        await DeleteMetaAsync(connection, transaction, MaxRevisionKey, cancellationToken).ConfigureAwait(false);
-
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE projection_meta
+            SET last_complete_sync_at = $at, freshness = 'ready'
+            WHERE singleton = 1 AND cursor IS NOT NULL;
+            """;
+        command.Parameters.AddWithValue("$at", FormatDate(at));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ClearAllAsync(CancellationToken cancellationToken = default)
     {
+        // Clearing keeps the owned projection file and its validated schema in
+        // place. Deleting the file would leave a live store pointing at an
+        // uninitialised database and could race a concurrent open.
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        await ExecuteAsync(connection, transaction, "DELETE FROM tasks;", cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM task_tombstones;", cancellationToken)
-            .ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM settings;", cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM outbox;", cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM meta;", cancellationToken).ConfigureAwait(false);
-
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM tasks;
+            DELETE FROM task_tombstones;
+            UPDATE projection_meta
+            SET cursor = NULL,
+                baseline_snapshot_id = NULL,
+                baseline_snapshot_server_revision = NULL,
+                baseline_snapshot_created_at = NULL,
+                max_server_revision = 0,
+                last_attempt_at = NULL,
+                last_complete_sync_at = NULL,
+                last_successful_page_at = NULL,
+                freshness = 'unverified'
+            WHERE singleton = 1;
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ReplaceProjectionAsync(
         IReadOnlyList<SyncedTask> tasks,
-        IReadOnlyList<StoredSetting> settings,
-        string? cursor,
+        ProjectionBaseline baseline,
+        DateTimeOffset restoredAt,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(tasks);
-        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(baseline);
+        var cursor = ProjectionCursor.Validate(baseline.Cursor);
+        ValidatePageTasks(tasks);
+        if (tasks.Select(t => t.Id).Distinct().Count() != tasks.Count)
+        {
+            throw new ArgumentException("The snapshot contains duplicate task ids.", nameof(tasks));
+        }
+
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
 
-        await ExecuteAsync(connection, transaction, "DELETE FROM tasks;", cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM task_tombstones;", cancellationToken)
-            .ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM settings;", cancellationToken).ConfigureAwait(false);
-
-        foreach (var task in tasks)
+        await using var clear = connection.CreateCommand();
+        clear.Transaction = transaction;
+        clear.CommandText = "DELETE FROM tasks; DELETE FROM task_tombstones;";
+        await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var task in tasks.OrderBy(t => t.Id))
         {
             await UpsertTaskAsync(connection, transaction, task, cancellationToken).ConfigureAwait(false);
         }
 
-        foreach (var setting in settings)
-        {
-            await UpsertSettingAsync(connection, transaction, setting, cancellationToken).ConfigureAwait(false);
-        }
-
-        var maxRevision = tasks.Select(t => t.ServerRevision)
-            .Concat(settings.Select(s => s.ServerRevision))
-            .DefaultIfEmpty(0)
-            .Max();
-        await WriteMetaAsync(connection, transaction, CursorKey, cursor, cancellationToken).ConfigureAwait(false);
-        await WriteMetaAsync(
-                connection,
-                transaction,
-                LastSyncedKey,
-                FormatDate(DateTimeOffset.UtcNow),
-                cancellationToken)
-            .ConfigureAwait(false);
-        await WriteMetaAsync(
-                connection,
-                transaction,
-                MaxRevisionKey,
-                maxRevision.ToString(CultureInfo.InvariantCulture),
-                cancellationToken)
-            .ConfigureAwait(false);
-
+        await using var meta = connection.CreateCommand();
+        meta.Transaction = transaction;
+        // A verified snapshot is a baseline, not a finished incremental run:
+        // completion timestamps stay empty and the state remains bootstrapping
+        // until the change stream from this cursor catches up.
+        meta.CommandText = """
+            UPDATE projection_meta
+            SET cursor = $cursor,
+                baseline_snapshot_id = $snapshot,
+                baseline_snapshot_server_revision = $revision,
+                baseline_snapshot_created_at = $created,
+                max_server_revision = $maxRevision,
+                last_attempt_at = $at,
+                last_complete_sync_at = NULL,
+                last_successful_page_at = NULL,
+                freshness = 'bootstrapping'
+            WHERE singleton = 1;
+            """;
+        meta.Parameters.AddWithValue("$cursor", cursor);
+        meta.Parameters.AddWithValue("$snapshot", baseline.SnapshotId);
+        meta.Parameters.AddWithValue("$revision", baseline.ServerRevision);
+        meta.Parameters.AddWithValue("$created", FormatDate(baseline.CreatedAtUtc));
+        meta.Parameters.AddWithValue("$maxRevision", baseline.ServerRevision);
+        meta.Parameters.AddWithValue("$at", FormatDate(restoredAt));
+        await meta.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -166,20 +222,22 @@ public sealed class SqliteSyncStore : ISyncStore
     {
         var (where, order) = filter switch
         {
-            MobileTaskFilter.Open => ("archived_at_utc IS NULL AND is_completed = 0", "created_at_utc DESC"),
-            MobileTaskFilter.Completed => ("archived_at_utc IS NULL AND is_completed = 1", "completed_at_utc DESC"),
-            MobileTaskFilter.Archived => ("archived_at_utc IS NOT NULL", "archived_at_utc DESC"),
-            _ => ("archived_at_utc IS NULL", "created_at_utc DESC"),
+            MobileTaskFilter.Open =>
+                ("archived_at_utc IS NULL AND is_completed = 0", "created_at_utc DESC, id"),
+            MobileTaskFilter.Completed =>
+                ("archived_at_utc IS NULL AND is_completed = 1", "completed_at_utc DESC, id"),
+            MobileTaskFilter.Archived =>
+                ("archived_at_utc IS NOT NULL", "archived_at_utc DESC, id"),
+            _ => ("archived_at_utc IS NULL", "created_at_utc DESC, id"),
         };
 
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             SELECT id, title, notes, is_completed, created_at_utc, updated_at_utc, revision,
                    completed_at_utc, archived_at_utc, restored_at_utc, server_revision, device_id
-            FROM tasks
-            WHERE {where}
-            ORDER BY {order};
+            FROM tasks WHERE {where} ORDER BY {order};
             """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var results = new List<SyncedTask>();
@@ -194,6 +252,7 @@ public sealed class SqliteSyncStore : ISyncStore
     public async Task<SyncedTask?> GetTaskAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, title, notes, is_completed, created_at_utc, updated_at_utc, revision,
@@ -205,33 +264,96 @@ public sealed class SqliteSyncStore : ISyncStore
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadTask(reader) : null;
     }
 
-    public async Task<IReadOnlyList<StoredSetting>> ListSettingsAsync(
-        CancellationToken cancellationToken = default)
-    {
-        await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT key, value_json, server_revision, updated_at_utc FROM settings ORDER BY key;";
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var results = new List<StoredSetting>();
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            results.Add(new StoredSetting(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.GetInt64(2),
-                reader.IsDBNull(3) ? null : ParseDate(reader.GetString(3))));
-        }
-
-        return results;
-    }
-
     public async Task<int> CountTasksAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RequireOwnerAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM tasks;";
-        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        return Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture);
+    }
+
+    private async Task RequireOwnerAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT owner_key FROM projection_meta WHERE singleton = 1;";
+        var owner = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(owner as string, Identity.OwnerKey, StringComparison.Ordinal))
+        {
+            throw new ProjectionOwnershipException(Identity, owner as string);
+        }
+    }
+
+    private static Dictionary<Guid, SyncedTask> AggregateTasks(
+        IEnumerable<SyncedTask> tasks,
+        IEnumerable<TaskTombstone> tombstones)
+    {
+        var final = new Dictionary<Guid, SyncedTask>();
+        foreach (var task in tasks)
+        {
+            if (task.ServerRevision == 0)
+            {
+                throw new ArgumentException("Incremental tasks require a positive server revision.");
+            }
+
+            if (final.TryGetValue(task.Id, out var current))
+            {
+                if (task.ServerRevision < current.ServerRevision)
+                {
+                    continue;
+                }
+
+                if (task.ServerRevision == current.ServerRevision && task != current)
+                {
+                    throw new ArgumentException(
+                        $"Conflicting task revisions for '{task.Id}' occurred in the same page.");
+                }
+            }
+
+            final[task.Id] = task;
+        }
+
+        // Server revisions, never payload revisions or arrival order, decide the
+        // final row. A delete wins an exact-revision tie. Aggregating tombstones
+        // first makes the result independent of input order.
+        foreach (var group in tombstones.GroupBy(t => t.Id))
+        {
+            var tombstone = group.OrderByDescending(t => t.ServerRevision).First();
+            if (!final.TryGetValue(tombstone.Id, out var task)
+                || tombstone.ServerRevision >= task.ServerRevision)
+            {
+                final.Remove(tombstone.Id);
+            }
+        }
+
+        return final;
+    }
+
+    private static void ValidatePageTasks(IEnumerable<SyncedTask> tasks)
+    {
+        foreach (var task in tasks)
+        {
+            if (task.Id == Guid.Empty || string.IsNullOrWhiteSpace(task.Title)
+                || task.Revision < 0 || task.ServerRevision < 0)
+            {
+                throw new ArgumentException("The page contains an invalid task.");
+            }
+        }
+    }
+
+    private static void ValidatePageTombstones(IEnumerable<TaskTombstone> tombstones)
+    {
+        foreach (var tombstone in tombstones)
+        {
+            if (tombstone.Id == Guid.Empty || tombstone.ServerRevision < 0)
+            {
+                throw new ArgumentException("The page contains an invalid tombstone.");
+            }
+        }
     }
 
     private static async Task UpsertTaskAsync(
@@ -240,17 +362,16 @@ public sealed class SqliteSyncStore : ISyncStore
         SyncedTask task,
         CancellationToken cancellationToken)
     {
-        // A tombstone newer than the incoming upsert wins; otherwise an older
-        // page replayed after the delete would resurrect the task.
         await using (var check = connection.CreateCommand())
         {
             check.Transaction = transaction;
             check.CommandText = "SELECT server_revision FROM task_tombstones WHERE id = $id;";
             check.Parameters.AddWithValue("$id", task.Id.ToString("D"));
             var buried = await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            if (buried is not null
-                && buried is not DBNull
-                && Convert.ToInt64(buried, CultureInfo.InvariantCulture) > task.ServerRevision)
+            // An exact-revision tombstone wins over an upsert from an earlier
+            // page: only a strictly newer task row can restore a deleted key.
+            if (buried is not null && buried is not DBNull
+                && Convert.ToInt64(buried, CultureInfo.InvariantCulture) >= task.ServerRevision)
             {
                 return;
             }
@@ -265,19 +386,58 @@ public sealed class SqliteSyncStore : ISyncStore
             VALUES ($id, $title, $notes, $completed, $created, $updated, $revision,
                     $completedAt, $archivedAt, $restoredAt, $serverRevision, $deviceId)
             ON CONFLICT(id) DO UPDATE SET
-                title = excluded.title,
-                notes = excluded.notes,
-                is_completed = excluded.is_completed,
-                created_at_utc = excluded.created_at_utc,
-                updated_at_utc = excluded.updated_at_utc,
-                revision = excluded.revision,
-                completed_at_utc = excluded.completed_at_utc,
-                archived_at_utc = excluded.archived_at_utc,
-                restored_at_utc = excluded.restored_at_utc,
-                server_revision = excluded.server_revision,
-                device_id = excluded.device_id
-            WHERE excluded.server_revision >= tasks.server_revision;
+                title = excluded.title, notes = excluded.notes, is_completed = excluded.is_completed,
+                created_at_utc = excluded.created_at_utc, updated_at_utc = excluded.updated_at_utc,
+                revision = excluded.revision, completed_at_utc = excluded.completed_at_utc,
+                archived_at_utc = excluded.archived_at_utc, restored_at_utc = excluded.restored_at_utc,
+                server_revision = excluded.server_revision, device_id = excluded.device_id
+            WHERE excluded.server_revision > tasks.server_revision;
             """;
+        AddTaskParameters(command, task);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var unbury = connection.CreateCommand();
+        unbury.Transaction = transaction;
+        unbury.CommandText = "DELETE FROM task_tombstones WHERE id = $id AND server_revision < $serverRevision;";
+        unbury.Parameters.AddWithValue("$id", task.Id.ToString("D"));
+        unbury.Parameters.AddWithValue("$serverRevision", task.ServerRevision);
+        await unbury.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task ApplyTombstoneAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        TaskTombstone tombstone,
+        CancellationToken cancellationToken)
+    {
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO task_tombstones (id, server_revision, deleted_at_utc)
+            VALUES ($id, $serverRevision, $deletedAt)
+            ON CONFLICT(id) DO UPDATE SET
+                server_revision = excluded.server_revision,
+                deleted_at_utc = excluded.deleted_at_utc
+            WHERE excluded.server_revision > task_tombstones.server_revision;
+            """;
+        insert.Parameters.AddWithValue("$id", tombstone.Id.ToString("D"));
+        insert.Parameters.AddWithValue("$serverRevision", tombstone.ServerRevision);
+        insert.Parameters.AddWithValue("$deletedAt", FormatNullable(tombstone.DeletedAtUtc));
+        await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var remove = connection.CreateCommand();
+        remove.Transaction = transaction;
+        remove.CommandText = """
+            DELETE FROM tasks
+            WHERE id = $id AND server_revision <= $serverRevision;
+            """;
+        remove.Parameters.AddWithValue("$id", tombstone.Id.ToString("D"));
+        remove.Parameters.AddWithValue("$serverRevision", tombstone.ServerRevision);
+        await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void AddTaskParameters(SqliteCommand command, SyncedTask task)
+    {
         command.Parameters.AddWithValue("$id", task.Id.ToString("D"));
         command.Parameters.AddWithValue("$title", task.Title);
         command.Parameters.AddWithValue("$notes", task.Notes);
@@ -290,69 +450,6 @@ public sealed class SqliteSyncStore : ISyncStore
         command.Parameters.AddWithValue("$restoredAt", FormatNullable(task.RestoredAtUtc));
         command.Parameters.AddWithValue("$serverRevision", task.ServerRevision);
         command.Parameters.AddWithValue("$deviceId", (object?)task.DeviceId ?? DBNull.Value);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-        // An upsert wins over an older tombstone.
-        await using var unbury = connection.CreateCommand();
-        unbury.Transaction = transaction;
-        unbury.CommandText = "DELETE FROM task_tombstones WHERE id = $id AND server_revision <= $serverRevision;";
-        unbury.Parameters.AddWithValue("$id", task.Id.ToString("D"));
-        unbury.Parameters.AddWithValue("$serverRevision", task.ServerRevision);
-        await unbury.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task ApplyTombstoneAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        TaskTombstone tombstone,
-        CancellationToken cancellationToken)
-    {
-        await using (var remove = connection.CreateCommand())
-        {
-            remove.Transaction = transaction;
-            remove.CommandText = "DELETE FROM tasks WHERE id = $id;";
-            remove.Parameters.AddWithValue("$id", tombstone.Id.ToString("D"));
-            await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await using var insert = connection.CreateCommand();
-        insert.Transaction = transaction;
-        insert.CommandText = """
-            INSERT INTO task_tombstones (id, server_revision, deleted_at_utc)
-            VALUES ($id, $serverRevision, $deletedAt)
-            ON CONFLICT(id) DO UPDATE SET
-                server_revision = excluded.server_revision,
-                deleted_at_utc = excluded.deleted_at_utc
-            WHERE excluded.server_revision >= task_tombstones.server_revision;
-            """;
-        insert.Parameters.AddWithValue("$id", tombstone.Id.ToString("D"));
-        insert.Parameters.AddWithValue("$serverRevision", tombstone.ServerRevision);
-        insert.Parameters.AddWithValue("$deletedAt", FormatNullable(tombstone.DeletedAtUtc));
-        await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task UpsertSettingAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        StoredSetting setting,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            INSERT INTO settings (key, value_json, server_revision, updated_at_utc)
-            VALUES ($key, $value, $serverRevision, $updatedAt)
-            ON CONFLICT(key) DO UPDATE SET
-                value_json = excluded.value_json,
-                server_revision = excluded.server_revision,
-                updated_at_utc = excluded.updated_at_utc
-            WHERE excluded.server_revision >= settings.server_revision;
-            """;
-        command.Parameters.AddWithValue("$key", setting.Key);
-        command.Parameters.AddWithValue("$value", setting.ValueJson);
-        command.Parameters.AddWithValue("$serverRevision", setting.ServerRevision);
-        command.Parameters.AddWithValue("$updatedAt", FormatNullable(setting.UpdatedAtUtc));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<SyncState> ReadStateAsync(
@@ -360,80 +457,60 @@ public sealed class SqliteSyncStore : ISyncStore
         SqliteTransaction? transaction,
         CancellationToken cancellationToken)
     {
-        var cursor = await ReadMetaAsync(connection, transaction, CursorKey, cancellationToken).ConfigureAwait(false);
-        var lastSynced = await ReadMetaAsync(connection, transaction, LastSyncedKey, cancellationToken)
-            .ConfigureAwait(false);
-        var maxRevision = await ReadMetaAsync(connection, transaction, MaxRevisionKey, cancellationToken)
-            .ConfigureAwait(false);
-        return new SyncState(
-            cursor,
-            lastSynced is null ? null : ParseDate(lastSynced),
-            long.TryParse(maxRevision, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0);
-    }
-
-    private static async Task<string?> ReadMetaAsync(
-        SqliteConnection connection,
-        SqliteTransaction? transaction,
-        string key,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "SELECT value FROM meta WHERE key = $key;";
-        command.Parameters.AddWithValue("$key", key);
-        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return value is null or DBNull ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
-    }
-
-    private static async Task WriteMetaAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string key,
-        string? value,
-        CancellationToken cancellationToken)
-    {
-        if (value is null)
-        {
-            // "No cursor" must read back as null, not as an empty string.
-            await DeleteMetaAsync(connection, transaction, key, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO meta (key, value) VALUES ($key, $value)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+            SELECT cursor, baseline_snapshot_id, baseline_snapshot_server_revision,
+                   baseline_snapshot_created_at, max_server_revision, last_attempt_at,
+                   last_complete_sync_at, last_successful_page_at, freshness
+            FROM projection_meta WHERE singleton = 1;
             """;
-        command.Parameters.AddWithValue("$key", key);
-        command.Parameters.AddWithValue("$value", value);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Projection identity metadata is missing.");
+        }
+
+        return new SyncState(
+            NullableString(reader, 0),
+            NullableString(reader, 1),
+            reader.IsDBNull(2) ? null : reader.GetInt64(2),
+            reader.IsDBNull(3) ? null : ParseDate(reader.GetString(3)),
+            reader.GetInt64(4),
+            reader.IsDBNull(5) ? null : ParseDate(reader.GetString(5)),
+            reader.IsDBNull(6) ? null : ParseDate(reader.GetString(6)),
+            reader.IsDBNull(7) ? null : ParseDate(reader.GetString(7)),
+            ParseFreshness(reader.GetString(8)));
     }
 
-    private static async Task DeleteMetaAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string key,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "DELETE FROM meta WHERE key = $key;";
-        command.Parameters.AddWithValue("$key", key);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
+    private static string? NullableString(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
 
-    private static async Task ExecuteAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string sql,
-        CancellationToken cancellationToken)
+    private static string FreshnessKey(ProjectionFreshness freshness) => freshness switch
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
+        ProjectionFreshness.Unverified => "unverified",
+        ProjectionFreshness.Bootstrapping => "bootstrapping",
+        ProjectionFreshness.Syncing => "syncing",
+        ProjectionFreshness.Ready => "ready",
+        ProjectionFreshness.Stale => "stale",
+        ProjectionFreshness.NeedsRestore => "needsrestore",
+        ProjectionFreshness.Failed => "failed",
+        ProjectionFreshness.SnapshotTooLarge => "snapshottoo_large",
+        _ => throw new ArgumentOutOfRangeException(nameof(freshness)),
+    };
+
+    private static ProjectionFreshness ParseFreshness(string value) => value switch
+    {
+        "unverified" => ProjectionFreshness.Unverified,
+        "bootstrapping" => ProjectionFreshness.Bootstrapping,
+        "syncing" => ProjectionFreshness.Syncing,
+        "ready" => ProjectionFreshness.Ready,
+        "stale" => ProjectionFreshness.Stale,
+        "needsrestore" => ProjectionFreshness.NeedsRestore,
+        "failed" => ProjectionFreshness.Failed,
+        "snapshottoo_large" => ProjectionFreshness.SnapshotTooLarge,
+        _ => throw new InvalidOperationException("Projection freshness metadata is invalid."),
+    };
 
     private static SyncedTask ReadTask(SqliteDataReader reader) => new()
     {

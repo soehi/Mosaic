@@ -116,6 +116,188 @@ public sealed class MosaicApiClient : IMosaicApi, IDisposable
         CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Delete, relativePath, null, authenticated, false, cancellationToken);
 
+    public Task<ApiResult<byte[]>> GetBytesAsync(
+        string relativePath,
+        long maxBytes,
+        bool authenticated = true,
+        bool retryTransient = false,
+        CancellationToken cancellationToken = default) =>
+        DownloadBoundedAsync(relativePath, maxBytes, authenticated, retryTransient, cancellationToken);
+
+    /// <summary>
+    /// Same retry/refresh policy as <see cref="ExchangeAsync"/>, but the success
+    /// body is read under a hard byte ceiling instead of being turned into a
+    /// string. Streaming with <see cref="HttpCompletionOption.ResponseHeadersRead"/>
+    /// means an oversized body is abandoned before it is buffered.
+    /// </summary>
+    private async Task<ApiResult<byte[]>> DownloadBoundedAsync(
+        string relativePath,
+        long maxBytes,
+        bool authenticated,
+        bool retryTransient,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
+        if (string.IsNullOrWhiteSpace(BaseUrl))
+        {
+            return ApiResult<byte[]>.Fail(0, ProtocolError("尚未配置服务器地址。"));
+        }
+
+        var uri = BuildUri(BaseUrl, relativePath);
+        var attempt = 0;
+        var refreshed = false;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            if (authenticated && TokenProvider is not null)
+            {
+                var token = TokenProvider.AccessToken
+                    ?? await TokenProvider.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(token))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
+            }
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                if (!retryTransient || attempt >= MaxAttempts)
+                {
+                    return ApiResult<byte[]>.Fail(0, TimeoutError());
+                }
+
+                await _delay(Backoff(attempt++), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+            catch (HttpRequestException)
+            {
+                if (!retryTransient || attempt >= MaxAttempts)
+                {
+                    return ApiResult<byte[]>.Fail(0, NetworkError());
+                }
+
+                await _delay(Backoff(attempt++), cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            using (response)
+            {
+                if (response.StatusCode == HttpStatusCode.Unauthorized
+                    && authenticated
+                    && !refreshed
+                    && TokenProvider is not null)
+                {
+                    refreshed = true;
+                    var token = await TokenProvider.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        continue;
+                    }
+                }
+
+                var retryAfter = ReadRetryAfter(response);
+                if (retryTransient
+                    && attempt < MaxAttempts
+                    && IsTransient(response.StatusCode))
+                {
+                    await _delay(retryAfter ?? Backoff(attempt++), cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var error = WireErrorDto.TryParse(text)
+                        ?? new WireErrorDto
+                        {
+                            Code = response.StatusCode == HttpStatusCode.NotFound
+                                ? WireErrorCodes.BackupNotFound
+                                : "http." + (int)response.StatusCode,
+                        };
+                    return ApiResult<byte[]>.Fail((int)response.StatusCode, error, retryAfter);
+                }
+
+                var declared = response.Content.Headers.ContentLength;
+                if (declared is > 0 && declared.Value > maxBytes)
+                {
+                    return ApiResult<byte[]>.Fail(
+                        (int)response.StatusCode,
+                        ResponseTooLarge(maxBytes));
+                }
+
+                byte[] bytes;
+                try
+                {
+                    bytes = await ReadBoundedAsync(response.Content, maxBytes, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (ContentTooLargeException)
+                {
+                    return ApiResult<byte[]>.Fail(
+                        (int)response.StatusCode,
+                        ResponseTooLarge(maxBytes));
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    return ApiResult<byte[]>.Fail((int)response.StatusCode, NetworkError());
+                }
+
+                return ApiResult<byte[]>.Ok(bytes, (int)response.StatusCode);
+            }
+        }
+    }
+
+    private static async Task<byte[]> ReadBoundedAsync(
+        HttpContent content,
+        long maxBytes,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var declared = content.Headers.ContentLength;
+        var capacity = declared is > 0 and <= int.MaxValue
+            ? (int)Math.Min(declared.Value, maxBytes)
+            : 0;
+        using var output = capacity > 0 ? new MemoryStream(capacity) : new MemoryStream();
+
+        var buffer = new byte[81920];
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (output.Length + read > maxBytes)
+            {
+                throw new ContentTooLargeException();
+            }
+
+            output.Write(buffer, 0, read);
+        }
+
+        if (output.TryGetBuffer(out var segment)
+            && segment.Offset == 0
+            && segment.Count == segment.Array!.Length)
+        {
+            return segment.Array;
+        }
+
+        return output.ToArray();
+    }
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method,
         string relativePath,
@@ -332,6 +514,13 @@ public sealed class MosaicApiClient : IMosaicApi, IDisposable
     private static WireErrorDto TimeoutError() =>
         new() { Code = LocalTransportCodes.Timeout, Message = "请求超时。" };
 
+    private static WireErrorDto ResponseTooLarge(long maxBytes) =>
+        new()
+        {
+            Code = WireErrorCodes.ClientResponseTooLarge,
+            Message = $"响应超过 {maxBytes} 字节上限。",
+        };
+
     public void Dispose()
     {
         if (_ownsHttp)
@@ -347,5 +536,9 @@ public sealed class MosaicApiClient : IMosaicApi, IDisposable
 
         public static ExchangeOutcome Failed(int statusCode, WireErrorDto error, TimeSpan? retryAfter = null) =>
             new(statusCode, null, error, retryAfter);
+    }
+
+    private sealed class ContentTooLargeException : Exception
+    {
     }
 }

@@ -1,4 +1,4 @@
-using Mosaic.Mobile.Sync;
+using Mosaic.Mobile.Presentation;
 
 namespace Mosaic.Mobile.App.Services;
 

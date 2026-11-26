@@ -1,6 +1,9 @@
+using Microsoft.Data.Sqlite;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Mosaic.Mobile.Auth;
 using Mosaic.Mobile.Storage;
 using Mosaic.Mobile.Sync;
@@ -59,10 +62,25 @@ internal static class Responses
     public static HttpResponseMessage Json(HttpStatusCode status, string body) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
-    public static HttpResponseMessage Error(HttpStatusCode status, string code) =>
-        Json(status, WireJson.Serialize(new WireErrorDto { Code = code }));
+    public static HttpResponseMessage Error(
+        HttpStatusCode status,
+        string code,
+        object? details = null) =>
+        Json(status, WireJson.Serialize(new WireErrorDto
+        {
+            Code = code,
+            Details = details is null
+                ? null
+                : JsonSerializer.SerializeToElement(details, WireJson.Options),
+        }));
 
     public static HttpResponseMessage Changes(string body) => Json(HttpStatusCode.OK, body);
+
+    public static HttpResponseMessage Bytes(HttpStatusCode status, string body) =>
+        new(status)
+        {
+            Content = new ByteArrayContent(Encoding.UTF8.GetBytes(body)),
+        };
 }
 
 internal sealed class TempDatabase : IDisposable
@@ -76,9 +94,10 @@ internal sealed class TempDatabase : IDisposable
             "mosaic-mobile-tests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_directory);
+        var identity = ProjectionIdentity.Create("https://example.test", "test-user");
         Database = new MobileDatabase(System.IO.Path.Combine(_directory, "mobile.db"));
-        Database.InitializeAsync().GetAwaiter().GetResult();
-        Store = new SqliteSyncStore(Database);
+        Database.InitializeAsync(identity).GetAwaiter().GetResult();
+        Store = new SqliteSyncStore(Database, identity);
     }
 
     public MobileDatabase Database { get; }
@@ -87,6 +106,7 @@ internal sealed class TempDatabase : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools();
         try
         {
             Directory.Delete(_directory, recursive: true);
@@ -133,6 +153,11 @@ internal static class TaskJson
             """;
     }
 
+    /// <summary>
+    /// Canonical 0.1.1 change row: <c>deleted</c> plus <c>createdAt</c> are the
+    /// authority; the legacy <c>operation</c>/<c>updatedAtUtc</c> pair is only a
+    /// fallback and must not appear here, so the strict projector is exercised.
+    /// </summary>
     public static string Change(
         string id,
         string title = "Task",
@@ -143,16 +168,88 @@ internal static class TaskJson
         long revision = 1) =>
         deleted
             ? $$"""
-              {"serverRevision":{{serverRevision}},"kind":"task","key":"{{id}}","operation":"delete","updatedAtUtc":"2026-11-19T09:00:00Z"}
+              {"serverRevision":{{serverRevision}},"kind":"task","key":"{{id}}","deleted":true,"createdAt":"2026-11-19T09:00:00Z"}
               """
             : $$"""
-              {"serverRevision":{{serverRevision}},"kind":"task","key":"{{id}}","operation":"upsert","payload":{{Build(id, title, completed, archivedAt, revision)}},"updatedAtUtc":"2026-11-19T09:00:00Z"}
+              {"serverRevision":{{serverRevision}},"kind":"task","key":"{{id}}","deleted":false,"createdAt":"2026-11-19T09:00:00Z","payload":{{Build(id, title, completed, archivedAt, revision)}}}
               """;
 
+    /// <summary>
+    /// A setting row: still valid on the wire, never projected by the mobile
+    /// client. The canonical shape is used so the projector's skip branch runs.
+    /// </summary>
     public static string Setting(string key, string valueJson, long serverRevision = 1) =>
         $$"""
-          {"serverRevision":{{serverRevision}},"kind":"setting","key":"{{key}}","operation":"upsert","payload":{"value":{{valueJson}}},"updatedAtUtc":"2026-11-19T09:00:00Z"}
+          {"serverRevision":{{serverRevision}},"kind":"setting","key":"{{key}}","deleted":false,"createdAt":"2026-11-19T09:00:00Z","payload":{"value":{{valueJson}} } }
           """;
+}
+
+internal static class SnapshotJson
+{
+    public const string Id = "snap-0001";
+    public const string Cursor = "snap-cursor-1";
+    public const string CreatedAt = "2026-11-19T10:00:00Z";
+
+    /// <summary>The verified snapshot body as the server would serve it.</summary>
+    public static string Body(
+        string snapshotId = Id,
+        string cursor = Cursor,
+        long serverRevision = 40,
+        params (string Id, string Title)[] tasks) =>
+        WireJson.Serialize(new BackupSnapshotDto
+        {
+            SnapshotId = snapshotId,
+            Cursor = cursor,
+            ServerRevision = serverRevision,
+            ItemCount = tasks.Length,
+            CreatedAt = DateTimeOffset.Parse(CreatedAt, System.Globalization.CultureInfo.InvariantCulture),
+            Items =
+            [
+                .. tasks.Select(task => new BackupItemDto
+                {
+                    Kind = "task",
+                    Key = task.Id,
+                    Revision = 1,
+                    Payload = JsonSerializer.SerializeToElement(
+                        new TaskItemDto
+                        {
+                            Id = Guid.Parse(task.Id),
+                            Title = task.Title,
+                            CreatedAtUtc = new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero),
+                            UpdatedAtUtc = new DateTimeOffset(2026, 11, 19, 9, 0, 0, TimeSpan.Zero),
+                            Revision = 1,
+                        },
+                        WireJson.Options),
+                }),
+            ],
+        });
+
+    /// <summary>
+    /// The manifest for a body. <paramref name="contentSha256"/> and
+    /// <paramref name="sizeBytes"/> default to the body's real values; pass an
+    /// override to build a manifest that disagrees with its body.
+    /// </summary>
+    public static string Manifest(
+        string body,
+        string snapshotId = Id,
+        string cursor = Cursor,
+        long serverRevision = 40,
+        int itemCount = 1,
+        long? sizeBytes = null,
+        string? contentSha256 = null) =>
+        WireJson.Serialize(new BackupManifestDto
+        {
+            SnapshotId = snapshotId,
+            Cursor = cursor,
+            ServerRevision = serverRevision,
+            ItemCount = itemCount,
+            SizeBytes = sizeBytes ?? Encoding.UTF8.GetByteCount(body),
+            ContentSha256 = contentSha256 ?? LowerHexSha256(body),
+            CreatedAt = DateTimeOffset.Parse(CreatedAt, System.Globalization.CultureInfo.InvariantCulture),
+        });
+
+    public static string LowerHexSha256(string body) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
 }
 
 internal static class Ids

@@ -492,6 +492,270 @@ public sealed class AuthSessionManagerTests
         Assert.Equal("user@example.com", manager.AccountEmail);
     }
 
+    [Fact]
+    public async Task Verify_identity_marks_user_id_verified()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request => Is(request, "/v1/auth/login")
+            ? Responses.Json(
+                HttpStatusCode.OK,
+                Responses.Session(accessExpires: time.GetUtcNow().AddHours(1)))
+            : Is(request, "/v1/auth/me")
+                ? Responses.Json(HttpStatusCode.OK, """{"user":{"id":"user-1","email":"user@example.com"}}""")
+                : Responses.Error(HttpStatusCode.NotFound, "server.not_found"));
+
+        using var api = TestApi.Create(handler);
+        using var manager = new AuthSessionManager(api, new TokenStore(new InMemorySecretStorage(), time), time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+        Assert.Null(manager.VerifiedUserId);
+
+        var result = await manager.VerifyIdentityAsync();
+
+        Assert.Equal(IdentityVerificationStatus.Verified, result.Status);
+        Assert.Equal("user-1", result.UserId);
+        Assert.Equal("user-1", manager.VerifiedUserId);
+    }
+
+    [Fact]
+    public async Task Verify_identity_401_rejects_and_clears_session()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request => Is(request, "/v1/auth/login")
+            ? Responses.Json(
+                HttpStatusCode.OK,
+                Responses.Session(accessExpires: time.GetUtcNow().AddHours(1)))
+            : Responses.Error(HttpStatusCode.Unauthorized, "auth.session_revoked"));
+
+        using var api = TestApi.Create(handler);
+        var storage = new InMemorySecretStorage();
+        var store = new TokenStore(storage, time);
+        using var manager = new AuthSessionManager(api, store, time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+
+        var result = await manager.VerifyIdentityAsync();
+
+        Assert.Equal(IdentityVerificationStatus.Rejected, result.Status);
+        Assert.Equal(AuthErrorKind.SessionRevoked, result.Error?.Kind);
+        Assert.Equal(AuthState.SessionExpired, manager.State);
+        Assert.True(manager.CacheReadOnly);
+        Assert.Null(manager.VerifiedUserId);
+        var load = await store.LoadAsync("https://example.test", CancellationToken.None);
+        Assert.Equal(SessionStoreStatus.Missing, load.Status);
+    }
+
+    [Fact]
+    public async Task Verify_identity_mismatch_rejects()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request => Is(request, "/v1/auth/login")
+            ? Responses.Json(
+                HttpStatusCode.OK,
+                Responses.Session(
+                    accessExpires: time.GetUtcNow().AddHours(1),
+                    userId: "user-1"))
+            : Responses.Json(HttpStatusCode.OK, """{"user":{"id":"user-2","email":"other@example.com"}}"""));
+
+        using var api = TestApi.Create(handler);
+        var storage = new InMemorySecretStorage();
+        var store = new TokenStore(storage, time);
+        using var manager = new AuthSessionManager(api, store, time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+
+        var result = await manager.VerifyIdentityAsync();
+
+        Assert.Equal(IdentityVerificationStatus.Rejected, result.Status);
+        Assert.Equal("auth.identity_mismatch", result.Error?.Code);
+        Assert.Equal(AuthState.SessionExpired, manager.State);
+        Assert.True(manager.CacheReadOnly);
+        var load = await store.LoadAsync("https://example.test", CancellationToken.None);
+        Assert.Equal(SessionStoreStatus.Missing, load.Status);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Verify_identity_failure_is_unavailable_and_keeps_session(bool httpError)
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request => Is(request, "/v1/auth/login")
+            ? Responses.Json(
+                HttpStatusCode.OK,
+                Responses.Session(accessExpires: time.GetUtcNow().AddHours(1)))
+            : httpError
+                ? Responses.Error(HttpStatusCode.InternalServerError, "server.internal")
+                : throw new HttpRequestException("offline"));
+
+        using var api = TestApi.Create(handler);
+        var storage = new InMemorySecretStorage();
+        var store = new TokenStore(storage, time);
+        using var manager = new AuthSessionManager(api, store, time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+
+        var result = await manager.VerifyIdentityAsync();
+
+        Assert.Equal(IdentityVerificationStatus.Unavailable, result.Status);
+        Assert.Equal(AuthState.SignedIn, manager.State);
+        Assert.False(manager.CacheReadOnly);
+        Assert.Null(manager.VerifiedUserId);
+        var load = await store.LoadAsync("https://example.test", CancellationToken.None);
+        Assert.Equal(SessionStoreStatus.Loaded, load.Status);
+    }
+
+    [Fact]
+    public async Task Refresh_with_different_user_id_is_rejected_as_identity_mismatch()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request =>
+        {
+            if (Is(request, "/v1/auth/login"))
+            {
+                return Responses.Json(
+                    HttpStatusCode.OK,
+                    Responses.Session(
+                        access: "access-1",
+                        refresh: "refresh-1",
+                        accessExpires: time.GetUtcNow().AddMinutes(-1),
+                        userId: "user-1"));
+            }
+
+            if (Is(request, "/v1/auth/refresh"))
+            {
+                return Responses.Json(
+                    HttpStatusCode.OK,
+                    Responses.Session(
+                        access: "access-2",
+                        refresh: "refresh-2",
+                        accessExpires: time.GetUtcNow().AddHours(1),
+                        userId: "user-2",
+                        email: "other@example.com"));
+            }
+
+            return Responses.Error(HttpStatusCode.NotFound, "server.not_found");
+        });
+
+        using var api = TestApi.Create(handler);
+        var storage = new InMemorySecretStorage();
+        var store = new TokenStore(storage, time);
+        using var manager = new AuthSessionManager(api, store, time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+
+        var token = await manager.RefreshAsync(CancellationToken.None);
+
+        Assert.Null(token);
+        Assert.Equal(AuthState.SessionExpired, manager.State);
+        Assert.True(manager.CacheReadOnly);
+        var load = await store.LoadAsync("https://example.test", CancellationToken.None);
+        Assert.Equal(SessionStoreStatus.Missing, load.Status);
+    }
+
+    [Fact]
+    public async Task Sign_out_publishes_local_data_cleared_before_state_changed()
+    {
+        var time = new TestTimeProvider();
+        var handler = new StubHandler(request =>
+        {
+            if (Is(request, "/v1/auth/login"))
+            {
+                return Responses.Json(
+                    HttpStatusCode.OK,
+                    Responses.Session(accessExpires: time.GetUtcNow().AddHours(1)));
+            }
+
+            return Responses.NoContent();
+        });
+
+        using var api = TestApi.Create(handler);
+        var storage = new InMemorySecretStorage();
+        using var manager = new AuthSessionManager(api, new TokenStore(storage, time), time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+
+        var order = new List<string>();
+        manager.LocalDataCleared += (_, reason) =>
+        {
+            Assert.Empty(order);
+            order.Add($"cleared:{reason}");
+        };
+        manager.StateChanged += (_, args) =>
+        {
+            if (args.State == AuthState.SignedOut)
+            {
+                Assert.Single(order);
+                order.Add($"state:{args.ReasonCode}");
+            }
+        };
+
+        await manager.SignOutAsync(allDevices: false, localOnly: true);
+
+        Assert.Equal(["cleared:sign_out", "state:sign_out"], order);
+        Assert.Equal(AuthState.SignedOut, manager.State);
+    }
+
+    [Fact]
+    public async Task Account_switch_publishes_local_data_cleared_before_state_changed()
+    {
+        var time = new TestTimeProvider();
+        var loginCount = 0;
+        var handler = new StubHandler(request =>
+        {
+            if (Is(request, "/v1/auth/login"))
+            {
+                loginCount++;
+                return Responses.Json(
+                    HttpStatusCode.OK,
+                    loginCount == 1
+                        ? Responses.Session(
+                            access: "access-1",
+                            refresh: "refresh-1",
+                            accessExpires: time.GetUtcNow().AddHours(1),
+                            userId: "user-1")
+                        : Responses.Session(
+                            access: "access-2",
+                            refresh: "refresh-2",
+                            accessExpires: time.GetUtcNow().AddHours(1),
+                            userId: "user-2",
+                            email: "other@example.com"));
+            }
+
+            return Responses.Error(HttpStatusCode.NotFound, "server.not_found");
+        });
+
+        using var api = TestApi.Create(handler);
+        var storage = new InMemorySecretStorage();
+        using var manager = new AuthSessionManager(api, new TokenStore(storage, time), time);
+        await manager.InitializeAsync("https://example.test");
+        await manager.SignInAsync("user@example.com", "password1234", "Pixel");
+        Assert.Equal("user-1", manager.UserId);
+
+        var order = new List<string>();
+        manager.LocalDataCleared += (_, reason) =>
+        {
+            Assert.Empty(order);
+            Assert.Equal("identity_switched", reason);
+            order.Add("cleared");
+        };
+        manager.StateChanged += (_, args) =>
+        {
+            if (args.ReasonCode == "identity_switched")
+            {
+                Assert.Single(order);
+                Assert.Equal("user-2", args.UserId);
+                order.Add("state");
+            }
+        };
+
+        var result = await manager.SignInAsync("other@example.com", "password1234", "Pixel");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("user-2", manager.UserId);
+        Assert.Equal(["cleared", "state"], order);
+    }
+
     [Theory]
     [InlineData("", false)]
     [InlineData("not a url", false)]

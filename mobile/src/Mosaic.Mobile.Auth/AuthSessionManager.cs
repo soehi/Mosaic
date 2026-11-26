@@ -11,11 +11,47 @@ public enum AuthState
     SessionExpired,
 }
 
+/// <summary>
+/// One auth transition. <paramref name="UserId"/> and <paramref name="Generation"/>
+/// are captured under the same lock as the state, so a handler can tell which
+/// account the event belongs to and drop an out-of-order delivery instead of
+/// re-reading properties that a later transition may already have overwritten.
+/// Both are optional so existing positional constructions keep compiling.
+/// </summary>
 public sealed record AuthStateChangedEventArgs(
     AuthState State,
     string? AccountEmail,
     bool CacheReadOnly,
-    string? ReasonCode);
+    string? ReasonCode,
+    string? UserId = null,
+    long Generation = 0);
+
+/// <summary>Outcome of confirming that the session belongs to the account it claims.</summary>
+public enum IdentityVerificationStatus
+{
+    Verified = 0,
+
+    /// <summary>The server refused the token or named a different account; the session is gone.</summary>
+    Rejected,
+
+    /// <summary>The check could not be completed (offline, 5xx, no id in the reply).</summary>
+    Unavailable,
+}
+
+public sealed record IdentityVerificationResult(
+    IdentityVerificationStatus Status,
+    string? UserId,
+    AuthError? Error)
+{
+    public static IdentityVerificationResult Verified(string userId) =>
+        new(IdentityVerificationStatus.Verified, userId, null);
+
+    public static IdentityVerificationResult Rejected(AuthError? error) =>
+        new(IdentityVerificationStatus.Rejected, null, error);
+
+    public static IdentityVerificationResult Unavailable(AuthError? error) =>
+        new(IdentityVerificationStatus.Unavailable, null, error);
+}
 
 public sealed record SignOutResult(bool Completed, AuthError? Error)
 {
@@ -50,6 +86,8 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
     private bool _cacheReadOnly;
     private string? _storeDiagnostic;
     private Task<RefreshOutcome>? _refreshTask;
+    private long _generation;
+    private bool _identityVerified;
 
     public AuthSessionManager(MosaicApiClient api, TokenStore tokenStore, TimeProvider? time = null)
     {
@@ -97,6 +135,23 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             lock (_gate)
             {
                 return _session?.EffectiveUser?.Id ?? _stored?.UserId;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The id confirmed by <c>GET v1/auth/me</c> for the current session. Null
+    /// until that check succeeds; a sign-in, refresh, expiry or sign-out resets it.
+    /// Projection files may only be keyed on a value returned here or, when the
+    /// server is unreachable, on the encrypted stored session's id.
+    /// </summary>
+    public string? VerifiedUserId
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _identityVerified ? _session?.EffectiveUser?.Id ?? _stored?.UserId : null;
             }
         }
     }
@@ -593,34 +648,89 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             return applied;
         }
 
-        // Verify the account identity. A transport failure keeps the session
-        // (tokens came over TLS from the poll) but records the deferred check.
-        var me = await _api.GetAsync<MeResponseDto>("v1/auth/me", authenticated: true, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        if (me.IsSuccess && me.Value?.EffectiveUser is { } user)
+        // /auth/me is the only trusted identity source. A transport failure keeps
+        // the session (tokens came over TLS from the poll) but records the check
+        // as deferred; a 401 or an account mismatch invalidates it.
+        var verified = await VerifyIdentityAsync(cancellationToken).ConfigureAwait(false);
+        if (verified.Status == IdentityVerificationStatus.Rejected)
         {
-            lock (_gate)
-            {
-                if (_session is not null)
-                {
-                    _session = _session with { User = user };
-                }
-            }
+            return AuthResult<SessionDto>.Fail(verified.Error ?? AuthError.StorageUnavailable);
+        }
 
-            SetState(AuthState.SignedIn, "device_verified");
-        }
-        else if (me.StatusCode == 401)
-        {
-            await ExpireAsync("device_verify_rejected", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
-            return AuthResult<SessionDto>.Fail(
-                AuthError.FromApi(me.StatusCode, me.Error, me.RetryAfter, isRefresh: true));
-        }
-        else
-        {
-            SetState(AuthState.SignedIn, "device_verification_deferred");
-        }
+        SetState(
+            AuthState.SignedIn,
+            verified.Status == IdentityVerificationStatus.Verified
+                ? "device_verified"
+                : "device_verification_deferred");
 
         return AuthResult<SessionDto>.Ok(session);
+    }
+
+    /// <summary>
+    /// Confirms the current token belongs to the account it claims. This is the
+    /// gate before a projection file is opened: 401 or a different id destroys the
+    /// session, while an offline/5xx reply is non-fatal and lets the caller fall
+    /// back to the encrypted stored id.
+    /// </summary>
+    public async Task<IdentityVerificationResult> VerifyIdentityAsync(
+        CancellationToken cancellationToken = default)
+    {
+        string? expected;
+        lock (_gate)
+        {
+            expected = _session?.EffectiveUser?.Id ?? _stored?.UserId;
+        }
+
+        if (string.IsNullOrWhiteSpace(expected))
+        {
+            await ExpireAsync("identity_missing", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
+            return IdentityVerificationResult.Rejected(
+                new AuthError(AuthErrorKind.SessionRevoked, "auth.identity_missing"));
+        }
+
+        var me = await _api.GetAsync<MeResponseDto>(
+                "v1/auth/me",
+                authenticated: true,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!me.IsSuccess)
+        {
+            var error = AuthError.FromApi(me.StatusCode, me.Error, me.RetryAfter, isRefresh: true);
+            if (me.StatusCode == 401 || error.Kind == AuthErrorKind.SessionRevoked)
+            {
+                await ExpireAsync("identity_rejected", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
+                return IdentityVerificationResult.Rejected(error);
+            }
+
+            return IdentityVerificationResult.Unavailable(error);
+        }
+
+        var confirmed = me.Value?.EffectiveUser?.Id;
+        if (string.IsNullOrWhiteSpace(confirmed))
+        {
+            return IdentityVerificationResult.Unavailable(
+                new AuthError(AuthErrorKind.Protocol, LocalTransportCodes.Protocol));
+        }
+
+        if (!string.Equals(confirmed, expected, StringComparison.Ordinal))
+        {
+            await ExpireAsync("identity_mismatch", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
+            return IdentityVerificationResult.Rejected(
+                new AuthError(AuthErrorKind.SessionRevoked, "auth.identity_mismatch"));
+        }
+
+        lock (_gate)
+        {
+            // The account might have changed while the request was in flight;
+            // only mark the id verified for the session that was checked.
+            if (string.Equals(_session?.EffectiveUser?.Id ?? _stored?.UserId, expected, StringComparison.Ordinal))
+            {
+                _identityVerified = true;
+            }
+        }
+
+        return IdentityVerificationResult.Verified(confirmed);
     }
 
     // --- IAccessTokenProvider ---
@@ -703,12 +813,28 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
                 return RefreshOutcome.Failed(new AuthError(AuthErrorKind.Protocol, LocalTransportCodes.Protocol));
             }
 
+            // Refresh is not allowed to move the session to a different account:
+            // the refresh token belongs to `stored.UserId`, so a response naming
+            // somebody else is a replay/mix-up and must not be persisted.
+            var refreshedId = refreshed!.EffectiveUser?.Id;
+            if (string.IsNullOrWhiteSpace(refreshedId))
+            {
+                return RefreshOutcome.Failed(new AuthError(AuthErrorKind.Protocol, LocalTransportCodes.Protocol));
+            }
+
+            if (!string.IsNullOrWhiteSpace(stored.UserId)
+                && !string.Equals(refreshedId, stored.UserId, StringComparison.Ordinal))
+            {
+                await ExpireAsync("identity_mismatch", cacheReadOnly: true, clearTokens: true).ConfigureAwait(false);
+                return RefreshOutcome.Failed(new AuthError(AuthErrorKind.SessionRevoked, "auth.identity_mismatch"));
+            }
+
             var updated = stored with
             {
                 RefreshToken = newRefresh!,
                 RefreshTokenExpiresAt = refreshed!.RefreshTokenExpiresAt,
                 AccountEmail = refreshed.EffectiveUser?.Email ?? stored.AccountEmail,
-                UserId = refreshed.EffectiveUser?.Id ?? stored.UserId,
+                UserId = refreshedId,
             };
 
             lock (_gate)
@@ -774,12 +900,30 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             return AuthResult<SessionDto>.Fail(new AuthError(AuthErrorKind.Protocol, LocalTransportCodes.Protocol));
         }
 
+        // Sign-in is the only path that legitimately installs a different
+        // account. Detect that switch *before* overwriting the encrypted session
+        // so the old account's on-device projection can be cleared by the
+        // LocalDataCleared event instead of silently surviving under the new one.
+        string? previousUserId;
+        string? previousServer;
+        lock (_gate)
+        {
+            previousUserId = _stored?.UserId;
+            previousServer = _stored?.ServerUrl;
+        }
+
+        var incomingId = session.EffectiveUser?.Id;
+        var switchingAccount = !string.IsNullOrWhiteSpace(previousUserId)
+            && !string.IsNullOrWhiteSpace(incomingId)
+            && string.Equals(previousServer, _serverUrl, StringComparison.Ordinal)
+            && !string.Equals(previousUserId, incomingId, StringComparison.Ordinal);
+
         var stored = new StoredSession
         {
             ServerUrl = _serverUrl,
             DeviceId = deviceId,
             AccountEmail = session.EffectiveUser?.Email,
-            UserId = session.EffectiveUser?.Id,
+            UserId = incomingId,
             RefreshToken = refreshToken!,
             RefreshTokenExpiresAt = session.RefreshTokenExpiresAt,
             SavedAtUtc = _time.GetUtcNow(),
@@ -814,9 +958,22 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             _deviceId = deviceId;
             _cacheReadOnly = false;
             _storeDiagnostic = null;
+            _identityVerified = false;
         }
 
-        SetState(AuthState.SignedIn, "signed_in");
+        if (switchingAccount)
+        {
+            // Erase the outgoing account's projection before publishing the new
+            // identity. Subscribers that read the current auth state on
+            // StateChanged would otherwise clear the incoming account's store.
+            LocalDataCleared?.Invoke(this, "identity_switched");
+            SetState(AuthState.SignedIn, "identity_switched");
+        }
+        else
+        {
+            SetState(AuthState.SignedIn, "signed_in");
+        }
+
         return AuthResult<SessionDto>.Ok(session);
     }
 
@@ -874,6 +1031,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             {
                 _session = null;
                 _stored = null;
+                _identityVerified = false;
                 if (cacheReadOnly)
                 {
                     _cacheReadOnly = true;
@@ -911,6 +1069,7 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
                 _session = null;
                 _stored = null;
                 _cacheReadOnly = false;
+                _identityVerified = false;
             }
         }
         finally
@@ -918,11 +1077,15 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             _transition.Release();
         }
 
-        SetState(AuthState.SignedOut, reason);
         if (clearCache)
         {
+            // Publish the cache-clear first, while the outgoing account is still
+            // identifiable. Subscribers reconcile on StateChanged and would
+            // otherwise close the projection before it could be erased.
             LocalDataCleared?.Invoke(this, reason);
         }
+
+        SetState(AuthState.SignedOut, reason);
     }
 
     private void ClearMemory()
@@ -935,19 +1098,30 @@ public sealed class AuthSessionManager : IAccessTokenProvider, IDisposable
             _cacheReadOnly = false;
             _storeDiagnostic = null;
             _refreshTask = null;
+            _identityVerified = false;
         }
     }
 
     private void SetState(AuthState state, string? reason)
     {
+        AuthStateChangedEventArgs args;
         lock (_gate)
         {
             _state = state;
+            _generation++;
+
+            // Snapshot identity and generation together with the state: a handler
+            // that re-reads the properties may already see a later transition.
+            args = new AuthStateChangedEventArgs(
+                state,
+                _session?.EffectiveUser?.Email ?? _stored?.AccountEmail,
+                _cacheReadOnly,
+                reason,
+                _session?.EffectiveUser?.Id ?? _stored?.UserId,
+                _generation);
         }
 
-        StateChanged?.Invoke(
-            this,
-            new AuthStateChangedEventArgs(state, AccountEmail, CacheReadOnly, reason));
+        StateChanged?.Invoke(this, args);
     }
 
     private static bool TryGetTokens(SessionDto? session, out string? accessToken, out string? refreshToken)

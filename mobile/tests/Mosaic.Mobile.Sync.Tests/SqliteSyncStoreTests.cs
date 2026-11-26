@@ -30,42 +30,96 @@ public sealed class SqliteSyncStoreTests
     private static SyncPage Page(
         IEnumerable<SyncedTask>? tasks = null,
         IEnumerable<TaskTombstone>? tombstones = null,
-        IEnumerable<StoredSetting>? settings = null,
-        string? cursor = "cursor-1") =>
-        new(tasks?.ToArray() ?? [], tombstones?.ToArray() ?? [], settings?.ToArray() ?? [], cursor, Now);
+        string cursor = "cursor-1",
+        bool hasMore = false,
+        string? expectedCursor = null) =>
+        new(tasks?.ToArray() ?? [], tombstones?.ToArray() ?? [], cursor, hasMore, Now, expectedCursor);
 
     [Fact]
     public async Task Apply_page_writes_projection_and_cursor()
     {
         using var fixture = new TempDatabase();
 
-        await fixture.Store.ApplyPageAsync(Page(
-            tasks: [Task(Ids.One, 3)],
-            settings: [new StoredSetting("ui.language", "\"English\"", 4, Now)]));
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 3)]));
 
         var state = await fixture.Store.GetStateAsync();
         var tasks = await fixture.Store.ListTasksAsync(MobileTaskFilter.All);
-        var settings = await fixture.Store.ListSettingsAsync();
 
         Assert.Equal("cursor-1", state.Cursor);
-        Assert.Equal(4, state.MaxServerRevision);
-        Assert.NotNull(state.LastSyncedAt);
+        Assert.Equal(3, state.MaxServerRevision);
+        Assert.Equal(ProjectionFreshness.Syncing, state.Freshness);
+        Assert.Null(state.LastCompleteSyncAt);
+        Assert.Equal(Now, state.LastSuccessfulPageAt);
         Assert.Single(tasks);
         Assert.Equal("Task", tasks[0].Title);
-        Assert.Single(settings);
-        Assert.Equal("\"English\"", settings[0].ValueJson);
     }
 
     [Fact]
-    public async Task Replaying_the_same_page_is_idempotent()
+    public async Task Completing_a_run_marks_ready_and_records_completion()
     {
         using var fixture = new TempDatabase();
-        var page = Page(tasks: [Task(Ids.One, 3)]);
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 3)], hasMore: false));
 
-        await fixture.Store.ApplyPageAsync(page);
-        await fixture.Store.ApplyPageAsync(page);
+        await fixture.Store.CompleteSyncAsync(Now.AddMinutes(1));
 
-        Assert.Equal(1, await fixture.Store.CountTasksAsync());
+        var state = await fixture.Store.GetStateAsync();
+        Assert.Equal(ProjectionFreshness.Ready, state.Freshness);
+        Assert.Equal(Now.AddMinutes(1), state.LastCompleteSyncAt);
+        Assert.Equal("cursor-1", state.Cursor);
+    }
+
+    [Fact]
+    public async Task Complete_without_a_cursor_never_claims_ready()
+    {
+        using var fixture = new TempDatabase();
+
+        await fixture.Store.CompleteSyncAsync(Now);
+
+        var state = await fixture.Store.GetStateAsync();
+        Assert.NotEqual(ProjectionFreshness.Ready, state.Freshness);
+        Assert.Null(state.LastCompleteSyncAt);
+    }
+
+    [Fact]
+    public async Task A_page_without_completion_never_marks_ready()
+    {
+        using var fixture = new TempDatabase();
+
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 3)], hasMore: false));
+
+        var state = await fixture.Store.GetStateAsync();
+        Assert.Equal(ProjectionFreshness.Syncing, state.Freshness);
+        Assert.Null(state.LastCompleteSyncAt);
+        Assert.Null(state.LastCompleteSyncAt);
+        Assert.Single(await fixture.Store.ListTasksAsync(MobileTaskFilter.All));
+    }
+
+    [Fact]
+    public async Task A_repeated_next_cursor_is_rejected_without_side_effects()
+    {
+        using var fixture = new TempDatabase();
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 3)]));
+        var stateBefore = await fixture.Store.GetStateAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.ApplyPageAsync(
+            Page(tasks: [Task(Ids.One, 4)], cursor: "cursor-1")));
+
+        Assert.Equal(stateBefore, await fixture.Store.GetStateAsync());
+        Assert.Equal("3", (await fixture.Store.GetTaskAsync(Guid.Parse(Ids.One)))?.ServerRevision.ToString());
+    }
+
+    [Fact]
+    public async Task An_unexpected_cursor_leaves_the_projection_untouched()
+    {
+        using var fixture = new TempDatabase();
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 3)]));
+        var stateBefore = await fixture.Store.GetStateAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.ApplyPageAsync(
+            Page(tasks: [Task(Ids.Two, 4)], cursor: "cursor-2", expectedCursor: "stale-cursor")));
+
+        Assert.Equal(stateBefore, await fixture.Store.GetStateAsync());
+        Assert.Null(await fixture.Store.GetTaskAsync(Guid.Parse(Ids.Two)));
     }
 
     [Fact]
@@ -74,10 +128,11 @@ public sealed class SqliteSyncStoreTests
         using var fixture = new TempDatabase();
         await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 5, "New")]));
 
-        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 2, "Old")]));
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 2, "Old")], cursor: "cursor-2"));
 
         var task = await fixture.Store.GetTaskAsync(Guid.Parse(Ids.One));
         Assert.Equal("New", task?.Title);
+        Assert.Equal(5, task?.ServerRevision);
     }
 
     [Fact]
@@ -86,16 +141,29 @@ public sealed class SqliteSyncStoreTests
         using var fixture = new TempDatabase();
         await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 1)]));
         await fixture.Store.ApplyPageAsync(Page(
-            tombstones: [new TaskTombstone(Guid.Parse(Ids.One), 3, Now)]));
+            tombstones: [new TaskTombstone(Guid.Parse(Ids.One), 3, Now)], cursor: "cursor-2"));
 
         Assert.Equal(0, await fixture.Store.CountTasksAsync());
 
-        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 2, "Resurrected")]));
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 2, "Resurrected")], cursor: "cursor-3"));
         Assert.Equal(0, await fixture.Store.CountTasksAsync());
 
-        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 4, "Revived")]));
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 4, "Revived")], cursor: "cursor-4"));
         var task = await fixture.Store.GetTaskAsync(Guid.Parse(Ids.One));
         Assert.Equal("Revived", task?.Title);
+    }
+
+    [Fact]
+    public async Task Exact_revision_tombstone_wins_its_tie()
+    {
+        using var fixture = new TempDatabase();
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 1)]));
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 3, "Late")], cursor: "cursor-2"));
+
+        await fixture.Store.ApplyPageAsync(Page(
+            tombstones: [new TaskTombstone(Guid.Parse(Ids.One), 3, Now)], cursor: "cursor-3"));
+
+        Assert.Equal(0, await fixture.Store.CountTasksAsync());
     }
 
     [Fact]
@@ -123,68 +191,82 @@ public sealed class SqliteSyncStoreTests
     }
 
     [Fact]
-    public async Task Replace_projection_discards_previous_rows()
+    public async Task Replace_projection_keeps_a_baseline_not_a_completed_sync()
     {
         using var fixture = new TempDatabase();
         await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 1)]));
 
         await fixture.Store.ReplaceProjectionAsync(
             [Task(Ids.Two, 0, "Snapshot")],
-            [new StoredSetting("appearance.theme", "\"Dark\"", 0, Now)],
-            cursor: null);
+            new ProjectionBaseline("snap-1", 12, Now, "cursor-snap"),
+            Now);
 
         Assert.Equal("Snapshot", (await fixture.Store.GetTaskAsync(Guid.Parse(Ids.Two)))?.Title);
         Assert.Null(await fixture.Store.GetTaskAsync(Guid.Parse(Ids.One)));
         var state = await fixture.Store.GetStateAsync();
-        Assert.Null(state.Cursor);
-        Assert.Single(await fixture.Store.ListSettingsAsync());
+        Assert.Equal("cursor-snap", state.Cursor);
+        Assert.Equal("snap-1", state.BaselineSnapshotId);
+        Assert.Equal(12, state.BaselineServerRevision);
+        Assert.Equal(ProjectionFreshness.Bootstrapping, state.Freshness);
+        Assert.Null(state.LastCompleteSyncAt);
+        Assert.Null(state.LastSuccessfulPageAt);
+        Assert.Equal(Now, state.LastAttemptAt);
     }
 
     [Fact]
-    public async Task Reset_projection_keeps_last_synced_but_clears_cursor()
+    public async Task Snapshot_tasks_with_a_zero_revision_are_accepted()
     {
         using var fixture = new TempDatabase();
-        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 1)]));
 
-        await fixture.Store.ResetProjectionAsync();
+        await fixture.Store.ReplaceProjectionAsync(
+            [Task(Ids.One, 0)],
+            new ProjectionBaseline("snap-1", 12, Now, "cursor-snap"),
+            Now);
 
-        var state = await fixture.Store.GetStateAsync();
-        Assert.Equal(0, await fixture.Store.CountTasksAsync());
-        Assert.Null(state.Cursor);
-        Assert.NotNull(state.LastSyncedAt);
+        Assert.Equal(0, (await fixture.Store.GetTaskAsync(Guid.Parse(Ids.One)))?.ServerRevision);
     }
 
     [Fact]
-    public async Task Clear_all_removes_everything()
+    public async Task Clear_all_resets_the_projection_but_keeps_the_store_usable()
     {
         using var fixture = new TempDatabase();
         await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.One, 1)]));
+        await fixture.Store.CompleteSyncAsync(Now);
 
         await fixture.Store.ClearAllAsync();
 
         var state = await fixture.Store.GetStateAsync();
         Assert.Equal(0, await fixture.Store.CountTasksAsync());
-        Assert.Empty(await fixture.Store.ListSettingsAsync());
         Assert.Null(state.Cursor);
-        Assert.Null(state.LastSyncedAt);
+        Assert.Null(state.BaselineSnapshotId);
+        Assert.Null(state.LastAttemptAt);
+        Assert.Null(state.LastCompleteSyncAt);
+        Assert.Null(state.LastSuccessfulPageAt);
+        Assert.Equal(ProjectionFreshness.Unverified, state.Freshness);
+        Assert.Equal(0, state.MaxServerRevision);
+
+        await fixture.Store.ApplyPageAsync(Page(tasks: [Task(Ids.Two, 2)]));
+        Assert.Equal("cursor-1", (await fixture.Store.GetStateAsync()).Cursor);
+        Assert.Equal(1, await fixture.Store.CountTasksAsync());
     }
 
     [Fact]
-    public async Task Initialize_is_idempotent()
+    public async Task Initialize_is_idempotent_for_a_validated_identity()
     {
         using var fixture = new TempDatabase();
 
-        await fixture.Database.InitializeAsync();
-        await fixture.Database.InitializeAsync();
+        await fixture.Database.InitializeAsync(fixture.Store.Identity);
+        await fixture.Database.InitializeAsync(fixture.Store.Identity);
 
         Assert.Equal(0, await fixture.Store.CountTasksAsync());
     }
 
     [Fact]
-    public async Task Newer_schema_is_refused()
+    public async Task Newer_schema_is_refused_and_preserved()
     {
         using var fixture = new TempDatabase();
-        await using (var connection = new SqliteConnection($"Data Source={fixture.Database.DataSource}"))
+        var dataSource = fixture.Database.DataSource;
+        await using (var connection = new SqliteConnection($"Data Source={dataSource}"))
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
@@ -192,6 +274,7 @@ public sealed class SqliteSyncStoreTests
             await command.ExecuteNonQueryAsync();
         }
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Database.InitializeAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Database.InitializeAsync(fixture.Store.Identity));
     }
 }

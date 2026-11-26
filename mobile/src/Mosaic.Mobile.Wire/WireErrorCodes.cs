@@ -42,6 +42,13 @@ public static class WireErrorCodes
     public const string EmailNotConfigured = "email.not_configured";
     public const string EmailDeliveryFailed = "email.delivery_failed";
 
+    // --- Snapshot bootstrap (server backup surface) ---
+    public const string BackupNotFound = "backup.not_found";
+    public const string BackupCorrupt = "backup.corrupt";
+
+    /// <summary>Local code: the response body exceeded the caller's byte budget.</summary>
+    public const string ClientResponseTooLarge = "client.response_too_large";
+
     /// <summary>Any code that means "the stored session can no longer be used".</summary>
     public static bool IsSessionGone(string? code) => code is
         AuthSessionRevoked or AuthSessionExpired or AuthRequired

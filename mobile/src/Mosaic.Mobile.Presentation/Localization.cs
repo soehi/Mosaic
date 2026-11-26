@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Globalization;
-using Mosaic.Mobile.Sync;
 
 namespace Mosaic.Mobile.Presentation;
 
@@ -48,23 +47,27 @@ public static class StringKeys
     public const string TaskArchived = "tasks.status.archived";
     public const string TaskCompleted = "tasks.status.completed";
     public const string TaskOpen = "tasks.status.open";
-    public const string SwitchedToAll = "tasks.notice.switchedToAll";
 
     public const string SyncNow = "sync.now";
     public const string Syncing = "sync.syncing";
-    public const string SyncSucceeded = "sync.succeeded";
+    public const string SyncReady = "sync.ready";
+    public const string SyncBootstrapping = "sync.bootstrapping";
+    public const string SyncEmpty = "sync.empty";
+    public const string SyncIncomplete = "sync.incomplete";
     public const string SyncIdle = "sync.idle";
     public const string SyncOffline = "sync.offline";
     public const string SyncNeedsSignIn = "sync.needsSignIn";
-    public const string SyncRebuildRequired = "sync.rebuildRequired";
+    public const string SyncNeedsRestore = "sync.needsRestore";
+    public const string SyncSnapshotVanished = "sync.snapshotVanished";
+    public const string SyncSnapshotTooLarge = "sync.snapshotTooLarge";
     public const string SyncFailed = "sync.failed";
     public const string LastSyncedNever = "sync.lastSyncedNever";
     public const string LastSyncedAt = "sync.lastSyncedAt";
     public const string ReadOnlyCache = "sync.readOnlyCache";
     public const string OfflineContinue = "sync.offlineContinue";
-    public const string RebuildFromSnapshot = "sync.rebuildFromSnapshot";
-    public const string RebuildConfirm = "sync.rebuildConfirm";
-    public const string RebuildDone = "sync.rebuildDone";
+    public const string ProjectionMismatch = "projection.mismatch";
+    public const string ProjectionRejected = "projection.rejected";
+    public const string ProjectionUnavailable = "projection.unavailable";
 
     public const string Server = "server.title";
     public const string ServerUrl = "server.url";
@@ -161,7 +164,6 @@ public static class StringKeys
     public const string ThemeFollowSystem = "settings.theme.system";
     public const string ThemeLight = "settings.theme.light";
     public const string ThemeDark = "settings.theme.dark";
-    public const string HighContrastDowngraded = "settings.theme.highContrast";
     public const string Language = "settings.language";
     public const string LanguageFollowSystem = "settings.language.system";
     public const string LanguageChinese = "settings.language.chinese";
@@ -217,22 +219,26 @@ public sealed class LocalizationService : INotifyPropertyChanged
             [StringKeys.TaskArchived] = ("已归档", "Archived"),
             [StringKeys.TaskCompleted] = ("已完成", "Completed"),
             [StringKeys.TaskOpen] = ("未完成", "Open"),
-            [StringKeys.SwitchedToAll] = ("当前筛选已无任务，已切回“全部”。", "The current filter is empty, so the list switched to All."),
             [StringKeys.SyncNow] = ("立即同步", "Sync now"),
             [StringKeys.Syncing] = ("正在同步…", "Syncing…"),
-            [StringKeys.SyncSucceeded] = ("已是最新", "Up to date"),
+            [StringKeys.SyncReady] = ("已是最新", "Up to date"),
+            [StringKeys.SyncBootstrapping] = ("正在从云端快照恢复…", "Restoring from the cloud snapshot…"),
+            [StringKeys.SyncEmpty] = ("云端还没有任务。", "There are no tasks on the server yet."),
+            [StringKeys.SyncIncomplete] = ("还有更多改动未同步，稍后会继续。", "More changes are waiting; syncing continues shortly."),
             [StringKeys.SyncIdle] = ("尚未同步", "Not synced yet"),
             [StringKeys.SyncOffline] = ("离线：显示上次同步的缓存。", "Offline: showing the last synced cache."),
             [StringKeys.SyncNeedsSignIn] = ("登录已失效，请重新登录。", "Your session ended. Sign in again."),
-            [StringKeys.SyncRebuildRequired] = ("本地同步基线需要重建。", "The local sync baseline needs rebuilding."),
+            [StringKeys.SyncNeedsRestore] = ("同步基线已失效，请重新登录以恢复。", "The sync baseline is invalid. Sign in again to restore it."),
+            [StringKeys.SyncSnapshotVanished] = ("云端快照已被删除，请稍后重试。", "The cloud snapshot is gone. Try again later."),
+            [StringKeys.SyncSnapshotTooLarge] = ("云端快照超出手机端上限，请先在桌面端精简数据。", "The cloud snapshot exceeds the phone limit. Reduce the data on the desktop first."),
             [StringKeys.SyncFailed] = ("同步失败，稍后重试。", "Sync failed. Try again later."),
             [StringKeys.LastSyncedNever] = ("从未同步", "Never synced"),
             [StringKeys.LastSyncedAt] = ("上次同步：{0}", "Last synced: {0}"),
             [StringKeys.ReadOnlyCache] = ("只读缓存：重新登录后才能同步。", "Read-only cache: sign in again to sync."),
             [StringKeys.OfflineContinue] = ("不连接服务器，离线使用", "Continue offline without a server"),
-            [StringKeys.RebuildFromSnapshot] = ("从云端快照重建", "Rebuild from cloud snapshot"),
-            [StringKeys.RebuildConfirm] = ("这会用云端快照覆盖本机缓存，确定继续？", "This replaces the local cache with the cloud snapshot. Continue?"),
-            [StringKeys.RebuildDone] = ("已从快照恢复。", "Restored from snapshot."),
+            [StringKeys.ProjectionMismatch] = ("本地缓存属于其他账号，已隔离；本账号将重新同步。", "The local cache belonged to another account and was set aside; this account will sync fresh."),
+            [StringKeys.ProjectionRejected] = ("旧版缓存未通过校验，已原样保留；本次将重新同步。", "The previous cache failed validation and was left untouched; this account will sync fresh."),
+            [StringKeys.ProjectionUnavailable] = ("本地缓存无法打开，请重启应用后重试。", "The local cache could not be opened. Restart the app and try again."),
             [StringKeys.Server] = ("服务器", "Server"),
             [StringKeys.ServerUrl] = ("服务器地址", "Server address"),
             [StringKeys.Connect] = ("连接", "Connect"),
@@ -321,7 +327,6 @@ public sealed class LocalizationService : INotifyPropertyChanged
             [StringKeys.ThemeFollowSystem] = ("跟随系统", "Follow system"),
             [StringKeys.ThemeLight] = ("浅色", "Light"),
             [StringKeys.ThemeDark] = ("深色", "Dark"),
-            [StringKeys.HighContrastDowngraded] = ("云端的“高对比度”主题已按“跟随系统”显示。", "The cloud High contrast theme is shown as Follow system."),
             [StringKeys.Language] = ("语言", "Language"),
             [StringKeys.LanguageFollowSystem] = ("跟随系统", "Follow system"),
             [StringKeys.LanguageChinese] = ("中文", "Chinese"),

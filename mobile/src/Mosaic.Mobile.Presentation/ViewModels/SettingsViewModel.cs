@@ -8,53 +8,43 @@ namespace Mosaic.Mobile.Presentation;
 
 /// <summary>
 /// Appearance and language are device preferences; everything else in this page
-/// reflects what the server last sent. There is no write path in phase one.
+/// reflects the projection owned by <see cref="ProjectionSession"/>. There is no
+/// write path in phase one, so the only actions are a foreground sync and a
+/// preference change.
 /// </summary>
 public sealed partial class SettingsViewModel : ViewModelBase
 {
     private readonly AuthSessionManager _auth;
-    private readonly PortableSettings _settings;
-    private readonly SyncEngine _sync;
+    private readonly ProjectionSession _session;
     private readonly AppThemeService _theme;
-    private readonly BackupRestoreService _backups;
-    private readonly ISyncStore _store;
     private readonly Func<bool> _systemDark;
     private readonly Func<string> _systemLanguage;
     private int _cachedTaskCount;
 
     public SettingsViewModel(
         AuthSessionManager auth,
-        PortableSettings settings,
-        SyncEngine sync,
+        ProjectionSession session,
         AppThemeService theme,
-        BackupRestoreService backups,
-        ISyncStore store,
         LocalizationService localizer,
         Func<bool>? systemDark = null,
         Func<string>? systemLanguage = null)
         : base(localizer)
     {
         ArgumentNullException.ThrowIfNull(auth);
-        ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(sync);
+        ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(theme);
-        ArgumentNullException.ThrowIfNull(backups);
-        ArgumentNullException.ThrowIfNull(store);
         _auth = auth;
-        _settings = settings;
-        _sync = sync;
+        _session = session;
         _theme = theme;
-        _backups = backups;
-        _store = store;
         _systemDark = systemDark ?? (() => false);
         _systemLanguage = systemLanguage ?? (() => "zh-Hans");
 
-        _settings.Changed += OnSettingsChanged;
         _auth.StateChanged += OnAuthChanged;
-        _sync.StatusChanged += OnSyncStatusChanged;
+        _session.StatusChanged += OnSyncStatusChanged;
+        _session.Changed += OnProjectionChanged;
 
-        ThemeChoice = settings.Theme;
-        LanguageChoice = settings.Language;
+        ThemeChoice = theme.Preference;
+        LanguageChoice = localizer.Preference;
     }
 
     [ObservableProperty]
@@ -79,12 +69,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private string noticeText = string.Empty;
 
     [ObservableProperty]
-    private bool highContrastNoticeVisible;
-
-    [ObservableProperty]
-    private bool rebuildConfirmVisible;
-
-    [ObservableProperty]
     private bool isBusy;
 
     [ObservableProperty]
@@ -102,8 +86,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public string TitleText => T(StringKeys.Settings);
 
     public string ThemeDarkText => T(StringKeys.ThemeDark);
-
-    public string HighContrastText => T(StringKeys.HighContrastDowngraded);
 
     public string LanguageTitle => T(StringKeys.Language);
 
@@ -125,14 +107,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public string SyncNowText => T(StringKeys.SyncNow);
 
-    public string RebuildText => T(StringKeys.RebuildFromSnapshot);
-
-    public string RebuildConfirmText => T(StringKeys.RebuildConfirm);
-
-    public string ConfirmText => T(StringKeys.Confirm);
-
-    public string CancelText => T(StringKeys.Cancel);
-
     public string LocalHintText => T(StringKeys.LocalPreferenceHint);
 
     [RelayCommand]
@@ -140,12 +114,19 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         ServerText = string.IsNullOrWhiteSpace(_auth.ServerUrl) ? "—" : _auth.ServerUrl;
         AccountText = _auth.AccountEmail ?? T(StringKeys.AccountSignedOut);
-        LastSyncedText = SyncStatusText.LastSynced(Localizer, _sync.Status.LastSyncedAt);
-        _cachedTaskCount = await _store.CountTasksAsync().ConfigureAwait(true);
+
+        // The projection is per account and can be closed at any moment; read the
+        // store once and fall back to an empty count instead of holding a stale one.
+        var store = _session.Store;
+        _cachedTaskCount = store is null
+            ? 0
+            : await store.CountTasksAsync().ConfigureAwait(true);
+
         CachedTasksText = F(StringKeys.CachedTasks, _cachedTaskCount);
-        HighContrastNoticeVisible = _settings.HighContrastDowngraded;
-        ThemeChoice = _settings.Theme;
-        LanguageChoice = _settings.Language;
+        LastSyncedText = SyncStatusText.LastSynced(Localizer, _session.Status.LastSyncedAt);
+        NoticeText = ProjectionStatusText.Describe(Localizer, _session.Failure);
+        ThemeChoice = _theme.Preference;
+        LanguageChoice = Localizer.Preference;
     }
 
     public void SetVersion(string version) => VersionText = version;
@@ -157,7 +138,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ThemeFollowText));
         OnPropertyChanged(nameof(ThemeLightText));
         OnPropertyChanged(nameof(ThemeDarkText));
-        OnPropertyChanged(nameof(HighContrastText));
         OnPropertyChanged(nameof(LanguageTitle));
         OnPropertyChanged(nameof(LanguageFollowText));
         OnPropertyChanged(nameof(LanguageChineseText));
@@ -168,14 +148,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(VersionLabel));
         OnPropertyChanged(nameof(AppDescriptionText));
         OnPropertyChanged(nameof(SyncNowText));
-        OnPropertyChanged(nameof(RebuildText));
-        OnPropertyChanged(nameof(RebuildConfirmText));
-        OnPropertyChanged(nameof(ConfirmText));
-        OnPropertyChanged(nameof(CancelText));
         OnPropertyChanged(nameof(LocalHintText));
         AccountText = _auth.AccountEmail ?? T(StringKeys.AccountSignedOut);
-        LastSyncedText = SyncStatusText.LastSynced(Localizer, _sync.Status.LastSyncedAt);
         CachedTasksText = F(StringKeys.CachedTasks, _cachedTaskCount);
+        NoticeText = ProjectionStatusText.Describe(Localizer, _session.Failure);
     }
 
     [RelayCommand]
@@ -207,7 +183,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         ErrorText = string.Empty;
         NoticeText = string.Empty;
-        if (_auth.State != AuthState.SignedIn)
+        var engine = _session.Engine;
+        if (_auth.State != AuthState.SignedIn || engine is null)
         {
             ErrorText = T(StringKeys.SyncNeedsSignIn);
             return;
@@ -216,7 +193,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            var report = await _sync.SyncOnceAsync().ConfigureAwait(true);
+            var report = await engine.SyncOnceAsync().ConfigureAwait(true);
             if (!report.Succeeded && report.Error is { } error)
             {
                 ErrorText = error.Kind switch
@@ -228,47 +205,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
                 return;
             }
 
-            NoticeText = T(StringKeys.SyncSucceeded);
-            await LoadAsync().ConfigureAwait(true);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    [RelayCommand]
-    private void BeginRebuild()
-    {
-        if (_auth.State != AuthState.SignedIn)
-        {
-            ErrorText = T(StringKeys.SyncNeedsSignIn);
-            return;
-        }
-
-        ErrorText = string.Empty;
-        RebuildConfirmVisible = true;
-    }
-
-    [RelayCommand]
-    private void CancelRebuild() => RebuildConfirmVisible = false;
-
-    [RelayCommand]
-    private async Task ConfirmRebuildAsync()
-    {
-        RebuildConfirmVisible = false;
-        IsBusy = true;
-        try
-        {
-            var restore = await _backups.RestoreLatestAsync(_store).ConfigureAwait(true);
-            if (!restore.Restored)
-            {
-                ErrorText = T(StringKeys.SyncFailed);
-                return;
-            }
-
-            NoticeText = T(StringKeys.RebuildDone);
-            await _sync.SyncOnceAsync().ConfigureAwait(true);
+            NoticeText = SyncStatusText.Describe(Localizer, _session.Status);
             await LoadAsync().ConfigureAwait(true);
         }
         finally
@@ -279,17 +216,17 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
     public override void Dispose()
     {
-        _settings.Changed -= OnSettingsChanged;
         _auth.StateChanged -= OnAuthChanged;
-        _sync.StatusChanged -= OnSyncStatusChanged;
+        _session.StatusChanged -= OnSyncStatusChanged;
+        _session.Changed -= OnProjectionChanged;
         base.Dispose();
     }
 
-    private void OnSettingsChanged(object? sender, EventArgs e)
+    private void OnProjectionChanged(object? sender, EventArgs e)
     {
-        HighContrastNoticeVisible = _settings.HighContrastDowngraded;
-        ThemeChoice = _settings.Theme;
-        LanguageChoice = _settings.Language;
+        // Opening, switching or closing the projection changes the cached count
+        // and the failure notice, so re-read both.
+        _ = LoadAsync();
     }
 
     private void OnAuthChanged(object? sender, AuthStateChangedEventArgs e)

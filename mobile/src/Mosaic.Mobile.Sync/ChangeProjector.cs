@@ -1,130 +1,174 @@
 using System.Text.Json;
+using Mosaic.Mobile.Auth;
 using Mosaic.Mobile.Storage;
 using Mosaic.Mobile.Wire;
 
 namespace Mosaic.Mobile.Sync;
 
-public sealed record ProjectionResult(
-    SyncPage Page,
-    int ChangeCount,
-    IReadOnlyList<string> Diagnostics);
+public sealed record ProjectionResult(SyncPage Page, int ChangeCount);
 
 /// <summary>
-/// Translates wire changes into storage projections. Unknown kinds, unknown
-/// settings and malformed payloads are skipped with a diagnostic: an old app
-/// must never delete data because a newer server added something it does not
-/// understand.
+/// Translates one wire page into a storage page. Strict by design: anything the
+/// client cannot interpret exactly rejects the whole page, so a partial commit
+/// can never move the cursor past a change it did not apply. Settings are not
+/// projected — the mobile app owns no portable settings any more — but they are
+/// still valid rows, so they are skipped rather than treated as protocol errors.
 /// </summary>
 public static class ChangeProjector
 {
-    private const int MaxDiagnostics = 20;
-
-    public static ProjectionResult Project(SyncChangesResponseDto? response, DateTimeOffset syncedAt)
+    public static ProjectionResult Project(
+        SyncChangesResponseDto? response,
+        DateTimeOffset syncedAt,
+        string? expectedCursor)
     {
-        var tasks = new List<SyncedTask>();
-        var tombstones = new List<TaskTombstone>();
-        var settings = new List<StoredSetting>();
-        var diagnostics = new List<string>();
+        if (response is null)
+        {
+            throw new SyncProtocolException(
+                LocalTransportCodes.Protocol,
+                "同步响应为空。");
+        }
+
+        var nextCursor = response.NextCursor;
+        if (string.IsNullOrWhiteSpace(nextCursor))
+        {
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应缺少下一页游标。");
+        }
+
+        var tasks = new Dictionary<Guid, SyncedTask>();
+        var tombstones = new Dictionary<Guid, TaskTombstone>();
         var count = 0;
 
-        foreach (var change in response?.Changes ?? [])
+        foreach (var change in response.Changes ?? [])
         {
-            var operation = change.ResolvedOperation;
-            if (operation == ChangeOperation.Unknown)
+            switch (change.ResolvedKind)
             {
-                Add(diagnostics, $"operation_unknown:{change.Operation}");
+                case ChangeKind.Unknown:
+                    throw new SyncProtocolException(
+                        WireErrorCodes.SyncInvalid,
+                        "同步响应包含未知的变更类别。");
+                case ChangeKind.Setting:
+                    // The server still syncs desktop settings; this client keeps
+                    // no copy of them and must not fail on keys it never reads.
+                    continue;
+            }
+
+            if (change.ResolvedOperation == ChangeOperation.Unknown)
+            {
+                throw new SyncProtocolException(
+                    WireErrorCodes.SyncInvalid,
+                    "同步响应包含未知的变更操作。");
+            }
+
+            if (change.ServerRevision <= 0)
+            {
+                throw new SyncProtocolException(
+                    WireErrorCodes.SyncInvalid,
+                    "增量变更缺少正的服务器版本号。");
+            }
+
+            if (!Guid.TryParse(change.Key, out var id) || id == Guid.Empty)
+            {
+                throw new SyncProtocolException(
+                    WireErrorCodes.SyncInvalid,
+                    "同步响应的任务标识无效。");
+            }
+
+            if (change.ResolvedOperation == ChangeOperation.Delete)
+            {
+                ApplyTombstone(
+                    id,
+                    new TaskTombstone(
+                        id,
+                        change.ServerRevision,
+                        change.CreatedAt ?? change.UpdatedAtUtc),
+                    tasks,
+                    tombstones);
+                count++;
                 continue;
             }
 
-            switch (change.ResolvedKind)
-            {
-                case ChangeKind.Task:
-                    if (ProjectTask(change, operation, syncedAt, tasks, tombstones, diagnostics))
-                    {
-                        count++;
-                    }
-
-                    break;
-                case ChangeKind.Setting:
-                    if (ProjectSetting(change, operation, settings, diagnostics))
-                    {
-                        count++;
-                    }
-
-                    break;
-                default:
-                    Add(diagnostics, $"kind_unknown:{change.Kind}");
-                    break;
-            }
+            var task = ReadTask(change, id, syncedAt);
+            ApplyTask(id, task, tasks, tombstones);
+            count++;
         }
 
-        var page = new SyncPage(
-            tasks,
-            tombstones,
-            settings,
-            response?.NextCursor,
-            syncedAt);
-        return new ProjectionResult(page, count, diagnostics);
+        return new ProjectionResult(
+            new SyncPage(
+                tasks.Values.ToList(),
+                tombstones.Values.ToList(),
+                nextCursor,
+                response.HasMore,
+                syncedAt,
+                expectedCursor),
+            count);
     }
 
-    private static bool ProjectTask(
-        ChangeDto change,
-        ChangeOperation operation,
-        DateTimeOffset syncedAt,
-        List<SyncedTask> tasks,
-        List<TaskTombstone> tombstones,
-        List<string> diagnostics)
+    private static SyncedTask ReadTask(ChangeDto change, Guid id, DateTimeOffset syncedAt)
     {
-        if (!Guid.TryParse(change.Key, out var keyId))
+        if (change.Payload is not { ValueKind: JsonValueKind.Object } element)
         {
-            Add(diagnostics, "task_key_invalid");
-            return false;
-        }
-
-        if (operation == ChangeOperation.Delete)
-        {
-            tombstones.Add(new TaskTombstone(keyId, change.ServerRevision, change.EffectiveTimestamp));
-            return true;
-        }
-
-        if (change.Payload is not { ValueKind: JsonValueKind.Object } payloadElement)
-        {
-            Add(diagnostics, "task_payload_missing");
-            return false;
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应的任务负载缺失。");
         }
 
         TaskItemDto? payload;
         try
         {
-            payload = payloadElement.Deserialize<TaskItemDto>(WireJson.Options);
+            payload = element.Deserialize<TaskItemDto>(WireJson.Options);
         }
         catch (JsonException)
         {
-            Add(diagnostics, "task_payload_invalid");
-            return false;
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应的任务负载无法解析。");
         }
 
         if (payload is null)
         {
-            Add(diagnostics, "task_payload_invalid");
-            return false;
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应的任务负载为空。");
         }
 
-        if (payload.Id is { } payloadId && payloadId != keyId)
+        if (payload.Id is { } payloadId && payloadId != id)
         {
-            Add(diagnostics, "task_key_mismatch");
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应的任务标识与负载不一致。");
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Title))
+        {
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应的任务缺少标题。");
+        }
+
+        if (payload.Revision < 0)
+        {
+            throw new SyncProtocolException(
+                WireErrorCodes.SyncInvalid,
+                "同步响应的任务版本号无效。");
         }
 
         var createdAt = payload.CreatedAtUtc
             ?? payload.UpdatedAtUtc
-            ?? change.EffectiveTimestamp
+            ?? change.CreatedAt
+            ?? change.UpdatedAtUtc
             ?? syncedAt;
-        var updatedAt = payload.UpdatedAtUtc ?? change.EffectiveTimestamp ?? createdAt;
+        var updatedAt = payload.UpdatedAtUtc
+            ?? payload.CreatedAtUtc
+            ?? change.CreatedAt
+            ?? change.UpdatedAtUtc
+            ?? createdAt;
 
-        tasks.Add(new SyncedTask
+        return new SyncedTask
         {
-            Id = keyId,
-            Title = payload.Title ?? string.Empty,
+            Id = id,
+            Title = payload.Title,
             Notes = payload.Notes ?? string.Empty,
             IsCompleted = payload.IsCompleted,
             CreatedAtUtc = createdAt,
@@ -135,63 +179,75 @@ public static class ChangeProjector
             RestoredAtUtc = payload.RestoredAtUtc,
             ServerRevision = change.ServerRevision,
             DeviceId = change.DeviceId,
-        });
-        return true;
+        };
     }
 
-    private static bool ProjectSetting(
-        ChangeDto change,
-        ChangeOperation operation,
-        List<StoredSetting> settings,
-        List<string> diagnostics)
+    /// <summary>
+    /// Same-page aggregation follows the server's authority order: higher
+    /// <c>serverRevision</c> wins, an equal revision is a delete, and two
+    /// different payloads at one revision mean the page cannot be trusted.
+    /// </summary>
+    private static void ApplyTask(
+        Guid id,
+        SyncedTask candidate,
+        Dictionary<Guid, SyncedTask> tasks,
+        Dictionary<Guid, TaskTombstone> tombstones)
     {
-        var key = change.Key;
-        if (string.IsNullOrWhiteSpace(key))
+        if (tombstones.TryGetValue(id, out var tombstone))
         {
-            Add(diagnostics, "setting_key_invalid");
-            return false;
-        }
-
-        if (!PortableSettingKeys.IsKnown(key))
-        {
-            // Unknown keys are expected as the desktop grows; ignore quietly
-            // for behaviour but keep a bounded diagnostic for support.
-            Add(diagnostics, $"setting_unknown:{key}");
-            return false;
-        }
-
-        string valueJson;
-        if (operation == ChangeOperation.Delete)
-        {
-            valueJson = "null";
-        }
-        else
-        {
-            if (change.Payload is not { ValueKind: JsonValueKind.Object } payload
-                || !payload.TryGetProperty("value", out var value))
+            if (tombstone.ServerRevision >= candidate.ServerRevision)
             {
-                Add(diagnostics, "setting_payload_invalid");
-                return false;
+                return;
             }
 
-            valueJson = value.GetRawText();
+            tombstones.Remove(id);
         }
 
-        settings.Add(new StoredSetting(
-            key,
-            valueJson,
-            change.ServerRevision,
-            change.EffectiveTimestamp));
-        return true;
+        if (tasks.TryGetValue(id, out var existing))
+        {
+            if (existing.ServerRevision > candidate.ServerRevision)
+            {
+                return;
+            }
+
+            if (existing.ServerRevision == candidate.ServerRevision)
+            {
+                if (!existing.Equals(candidate))
+                {
+                    throw new SyncProtocolException(
+                        WireErrorCodes.SyncConflict,
+                        "同步响应在同一版本上给出了不同的任务内容。");
+                }
+
+                return;
+            }
+        }
+
+        tasks[id] = candidate;
     }
 
-    private static void Add(List<string> diagnostics, string value)
+    private static void ApplyTombstone(
+        Guid id,
+        TaskTombstone candidate,
+        Dictionary<Guid, SyncedTask> tasks,
+        Dictionary<Guid, TaskTombstone> tombstones)
     {
-        if (diagnostics.Count >= MaxDiagnostics)
+        if (tombstones.TryGetValue(id, out var existing)
+            && existing.ServerRevision >= candidate.ServerRevision)
         {
-            diagnostics.RemoveAt(0);
+            return;
         }
 
-        diagnostics.Add(value);
+        if (tasks.TryGetValue(id, out var task))
+        {
+            if (task.ServerRevision > candidate.ServerRevision)
+            {
+                return;
+            }
+
+            tasks.Remove(id);
+        }
+
+        tombstones[id] = candidate;
     }
 }

@@ -3,7 +3,6 @@ using Mosaic.Mobile.App.Pages;
 using Mosaic.Mobile.App.Services;
 using Mosaic.Mobile.Auth;
 using Mosaic.Mobile.Presentation;
-using Mosaic.Mobile.Storage;
 using Mosaic.Mobile.Sync;
 
 namespace Mosaic.Mobile.App;
@@ -25,7 +24,7 @@ public static class MauiProgram
 
     private static void ConfigureDeviceFacts()
     {
-        var version = "0.1.1";
+        var version = "0.2.0";
         try
         {
             version = AppInfo.Current.VersionString;
@@ -50,10 +49,6 @@ public static class MauiProgram
         services.AddSingleton<AppPreferences>();
         services.AddSingleton<LocalizationService>();
         services.AddSingleton<AppThemeService>();
-        services.AddSingleton(sp => new MobileDatabase(
-            Path.Combine(FileSystem.AppDataDirectory, "mosaic-mobile.db")));
-        services.AddSingleton<SqliteSyncStore>();
-        services.AddSingleton<ISyncStore>(sp => sp.GetRequiredService<SqliteSyncStore>());
         services.AddSingleton<ISecretStorage>(_ => CreateSecretStorage());
         services.AddSingleton(sp => new TokenStore(sp.GetRequiredService<ISecretStorage>()));
 
@@ -69,9 +64,19 @@ public static class MauiProgram
         services.AddSingleton<DeviceFlowClient>();
         services.AddSingleton<DeviceApprovalService>();
 
-        services.AddSingleton<PortableSettings>();
-        services.AddSingleton<BackupRestoreService>();
-        services.AddSingleton<SyncEngine>();
+        services.AddSingleton<SnapshotBootstrapService>();
+
+        // MosaicApp takes StartupService in its constructor, so ProjectionSession
+        // is resolved before the first SynchronizationContext is installed.
+        // Without an explicit UI context its Post runs inline on a worker thread
+        // and ObservableCollection mutations from sync events cross threads.
+        services.AddSingleton<MainThreadSynchronizationContext>();
+        services.AddSingleton(sp => new ProjectionSession(
+            sp.GetRequiredService<IMosaicApi>(),
+            sp.GetRequiredService<SnapshotBootstrapService>(),
+            FileSystem.AppDataDirectory,
+            null,
+            sp.GetRequiredService<MainThreadSynchronizationContext>()));
 
         services.AddSingleton<TaskListViewModel>();
         services.AddSingleton<AccountViewModel>();
@@ -82,7 +87,17 @@ public static class MauiProgram
         services.AddTransient<DeviceAuthorizeViewModel>();
         services.AddTransient<DeviceSignInViewModel>();
 
-        services.AddSingleton<StartupService>();
+        // StartupService may first be resolved from MosaicApp's constructor,
+        // before MAUI installs a SynchronizationContext. Use the same main-thread
+        // adapter as ProjectionSession so auth events always reach the UI thread.
+        services.AddSingleton(sp => new StartupService(
+            sp.GetRequiredService<ProjectionSession>(),
+            sp.GetRequiredService<AuthSessionManager>(),
+            sp.GetRequiredService<TaskListViewModel>(),
+            sp.GetRequiredService<AppPreferences>(),
+            sp.GetRequiredService<LocalizationService>(),
+            sp.GetRequiredService<AppThemeService>(),
+            sp.GetRequiredService<MainThreadSynchronizationContext>()));
         services.AddSingleton<AppShell>();
         services.AddSingleton<TasksPage>();
         services.AddSingleton<AccountPage>();
@@ -104,6 +119,32 @@ public static class MauiProgram
     private static ISecretStorage CreateSecretStorage() =>
         new UnsupportedSecretStorage();
 #endif
+}
+
+/// <summary>
+/// Marshals projection events back to the UI thread even when the singleton was
+/// first resolved during <see cref="MosaicApp"/> construction (before MAUI has
+/// installed a synchronization context).
+/// </summary>
+internal sealed class MainThreadSynchronizationContext : SynchronizationContext
+{
+    public override void Post(SendOrPostCallback d, object? state)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        MainThread.BeginInvokeOnMainThread(() => d(state));
+    }
+
+    public override void Send(SendOrPostCallback d, object? state)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        if (MainThread.IsMainThread)
+        {
+            d(state);
+            return;
+        }
+
+        MainThread.InvokeOnMainThreadAsync(() => d(state)).GetAwaiter().GetResult();
+    }
 }
 
 /// <summary>Only reached on targets without a secure store; sessions are unavailable.</summary>

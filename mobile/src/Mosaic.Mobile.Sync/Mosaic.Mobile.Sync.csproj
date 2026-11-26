@@ -2,7 +2,7 @@
   <PropertyGroup>
     <RootNamespace>Mosaic.Mobile.Sync</RootNamespace>
     <AssemblyName>Mosaic.Mobile.Sync</AssemblyName>
-    <Description>Read-only incremental sync, portable setting whitelist and snapshot bootstrap.</Description>
+    <Description>Read-only incremental sync and verified snapshot bootstrap for the per-account projection.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Mosaic.Mobile.Wire\Mosaic.Mobile.Wire.csproj" />

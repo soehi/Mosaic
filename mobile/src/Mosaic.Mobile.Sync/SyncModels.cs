@@ -4,14 +4,25 @@ using Mosaic.Mobile.Wire;
 
 namespace Mosaic.Mobile.Sync;
 
+/// <summary>
+/// What the UI needs to know about the projection. <see cref="Ready"/> means a
+/// complete run finished (<c>HasMore=false</c>, every page applied) against a
+/// known cursor. <see cref="Incomplete"/> means the page budget ran out first:
+/// the cursor advanced but the projection has not caught up yet.
+/// </summary>
 public enum SyncStatusType
 {
     Idle = 0,
     Syncing,
-    Succeeded,
+    Ready,
+    Bootstrapping,
+    Empty,
+    Incomplete,
     Offline,
     NeedsSignIn,
-    RebuildRequired,
+    NeedsRestore,
+    SnapshotVanished,
+    SnapshotTooLarge,
     Failed,
 }
 
@@ -31,6 +42,9 @@ public enum SyncErrorKind
     Protocol,
     Cancelled,
     NotFound,
+    SnapshotTooLarge,
+    SnapshotVanished,
+    Corrupt,
 }
 
 public sealed record SyncError(SyncErrorKind Kind, string? Code)
@@ -38,14 +52,30 @@ public sealed record SyncError(SyncErrorKind Kind, string? Code)
     public static SyncError Cancelled { get; } = new(SyncErrorKind.Cancelled, "client.cancelled");
 }
 
+/// <summary>
+/// A wire response the projection cannot accept without losing data integrity.
+/// The page is rejected whole; nothing is committed. <see cref="Code"/> is a
+/// machine code, never server prose.
+/// </summary>
+public sealed class SyncProtocolException : InvalidOperationException
+{
+    public SyncProtocolException(string code, string message)
+        : base(message)
+    {
+        Code = code;
+    }
+
+    public string Code { get; }
+}
+
 public sealed record SyncReport(
     bool Succeeded,
     int Pages,
     int Changes,
-    bool RebuiltFromSnapshot,
-    bool NeedsSnapshot,
+    bool Bootstrapped,
+    bool Incomplete,
     SyncError? Error,
-    DateTimeOffset? LastSyncedAt)
+    DateTimeOffset? LastCompleteSyncAt)
 {
     public static SyncReport Failure(SyncError error) =>
         new(false, 0, 0, false, false, error, null);

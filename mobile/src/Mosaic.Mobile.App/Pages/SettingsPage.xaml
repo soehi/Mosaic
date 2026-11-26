@@ -28,9 +28,6 @@
           <Button Text="{Binding ThemeDarkText}" Style="{StaticResource SecondaryButton}"
                   Command="{Binding SetThemeCommand}" CommandParameter="Dark" />
         </HorizontalStackLayout>
-        <Label Text="{Binding HighContrastText}"
-               IsVisible="{Binding HighContrastNoticeVisible}"
-               Style="{StaticResource MutedLabel}" />
       </VerticalStackLayout>
 
       <VerticalStackLayout Spacing="6">
@@ -51,18 +48,6 @@
           <Label Text="{Binding LastSyncedText}" Style="{StaticResource MutedLabel}" />
           <Label Text="{Binding CachedTasksText}" Style="{StaticResource MutedLabel}" />
           <Button Text="{Binding SyncNowText}" Command="{Binding SyncNowCommand}" />
-          <Button Text="{Binding RebuildText}" Style="{StaticResource SecondaryButton}"
-                  Command="{Binding BeginRebuildCommand}" />
-          <Border Style="{StaticResource Card}" IsVisible="{Binding RebuildConfirmVisible}">
-            <VerticalStackLayout Spacing="8">
-              <Label Text="{Binding RebuildConfirmText}" />
-              <HorizontalStackLayout Spacing="8">
-                <Button Text="{Binding ConfirmText}" Command="{Binding ConfirmRebuildCommand}" />
-                <Button Text="{Binding CancelText}" Style="{StaticResource SecondaryButton}"
-                        Command="{Binding CancelRebuildCommand}" />
-              </HorizontalStackLayout>
-            </VerticalStackLayout>
-          </Border>
         </VerticalStackLayout>
       </Border>
 

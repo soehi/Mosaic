@@ -5,13 +5,14 @@ using Mosaic.Mobile.Wire;
 namespace Mosaic.Mobile.Sync;
 
 /// <summary>
-/// Foreground, read-only incremental sync.
+/// Foreground, read-only incremental sync over the per-account projection.
 ///
-/// One run at a time: a pull-to-refresh joins the in-flight run. Pages are
-/// applied in a transaction that also stores the cursor. On
-/// <c>sync.cursor_invalid</c> the projection is cleared and rebuilt from the
-/// latest snapshot; if that also fails the next run simply starts from an empty
-/// cursor, and a second invalid cursor in the same run stops instead of looping.
+/// One run at a time: a pull-to-refresh joins the in-flight run. A run with no
+/// cursor bootstraps from the latest verified snapshot first (or starts from the
+/// server's beginning when no snapshot exists), then pulls pages until
+/// <c>hasMore=false</c> or the page budget is spent. Each page is committed in
+/// one transaction together with its cursor, so the stored cursor can never run
+/// ahead of the stored rows.
 /// </summary>
 public sealed class SyncEngine
 {
@@ -20,8 +21,7 @@ public sealed class SyncEngine
 
     private readonly IMosaicApi _api;
     private readonly ISyncStore _store;
-    private readonly BackupRestoreService _backups;
-    private readonly PortableSettings _settings;
+    private readonly SnapshotBootstrapService _bootstrap;
     private readonly TimeProvider _time;
     private readonly object _gate = new();
 
@@ -32,18 +32,15 @@ public sealed class SyncEngine
     public SyncEngine(
         IMosaicApi api,
         ISyncStore store,
-        BackupRestoreService backups,
-        PortableSettings settings,
+        SnapshotBootstrapService bootstrap,
         TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(store);
-        ArgumentNullException.ThrowIfNull(backups);
-        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(bootstrap);
         _api = api;
         _store = store;
-        _backups = backups;
-        _settings = settings;
+        _bootstrap = bootstrap;
         _time = time ?? TimeProvider.System;
     }
 
@@ -62,16 +59,24 @@ public sealed class SyncEngine
         }
     }
 
-    /// <summary>Offline start: apply the cached settings projection and last sync time.</summary>
+    /// <summary>
+    /// Offline start: reflect the persisted projection freshness and the last
+    /// completed run without touching the network.
+    /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         var state = await _store.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        var settings = await _store.ListSettingsAsync(cancellationToken).ConfigureAwait(false);
-        _settings.ApplyAll(settings);
+
+        var status = state.Freshness switch
+        {
+            ProjectionFreshness.NeedsRestore => SyncStatusType.NeedsRestore,
+            ProjectionFreshness.SnapshotTooLarge => SyncStatusType.SnapshotTooLarge,
+            _ => SyncStatusType.Idle,
+        };
 
         lock (_gate)
         {
-            _status = new SyncStatusSnapshot(SyncStatusType.Idle, state.LastSyncedAt, 0, null);
+            _status = new SyncStatusSnapshot(status, state.LastCompleteSyncAt, 0, null);
         }
 
         RaiseStatus();
@@ -108,11 +113,32 @@ public sealed class SyncEngine
         TaskCompletionSource<SyncReport> completion,
         CancellationToken cancellationToken)
     {
-        var report = await RunCoreAsync(cancellationToken).ConfigureAwait(false);
-        lock (_gate)
+        SyncReport report;
+        try
         {
-            _running = null;
-            _current = null;
+            report = await RunCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // RunCoreAsync already maps ordinary failures; this is the last
+            // guard so a single run can never leave the single-flight latch on.
+            SetStatus(SyncStatusType.Failed, 0, "sync.local_failure");
+            report = new SyncReport(
+                false,
+                0,
+                0,
+                false,
+                false,
+                new SyncError(SyncErrorKind.Protocol, "sync.local_failure"),
+                null);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _running = null;
+                _current = null;
+            }
         }
 
         completion.TrySetResult(report);
@@ -127,68 +153,110 @@ public sealed class SyncEngine
             _current = linked;
         }
 
-        SetStatus(SyncStatusType.Syncing, 0, null);
-
+        var token = linked.Token;
         var pages = 0;
         var changes = 0;
-        var rebuilt = false;
-        var sawCursorInvalid = false;
+        var bootstrapped = false;
+        var incomplete = false;
+        var startedWithoutCursor = false;
 
         try
         {
-            var state = await _store.GetStateAsync(linked.Token).ConfigureAwait(false);
+            var state = await _store.GetStateAsync(token).ConfigureAwait(false);
             var cursor = state.Cursor;
+            startedWithoutCursor = cursor is null;
 
-            while (pages < MaxPagesPerRun)
+            if (cursor is null)
             {
-                linked.Token.ThrowIfCancellationRequested();
+                SetStatus(SyncStatusType.Bootstrapping, changes, null);
 
-                var path =
-                    $"v1/sync/changes?cursor={Uri.EscapeDataString(cursor ?? string.Empty)}&limit={PageSize}";
+                var (bootstrap, restored) = await RunBootstrapAsync(token).ConfigureAwait(false);
+                if (bootstrap.Outcome == SnapshotBootstrapOutcome.Restored)
+                {
+                    bootstrapped = true;
+                    changes += bootstrap.TaskCount;
+                    cursor = restored.Cursor;
+                }
+                else if (bootstrap.Outcome != SnapshotBootstrapOutcome.NoSnapshot)
+                {
+                    return await FailBootstrapAsync(bootstrap, pages, changes, token).ConfigureAwait(false);
+                }
+            }
+
+            if (!bootstrapped)
+            {
+                SetStatus(SyncStatusType.Syncing, changes, null);
+            }
+
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+
+                // A first-ever run without a snapshot must not send an empty
+                // `cursor=` parameter: the server treats that as a malformed
+                // cursor, not as "start from the beginning".
+                var path = cursor is null
+                    ? $"v1/sync/changes?limit={PageSize}"
+                    : $"v1/sync/changes?cursor={Uri.EscapeDataString(cursor)}&limit={PageSize}";
+
                 var result = await _api
                     .GetAsync<SyncChangesResponseDto>(
                         path,
                         authenticated: true,
                         retryTransient: true,
-                        linked.Token)
+                        token)
                     .ConfigureAwait(false);
 
                 if (!result.IsSuccess)
                 {
                     if (result.StatusCode == 401)
                     {
-                        SetStatus(SyncStatusType.NeedsSignIn, 0, result.ErrorCode ?? "auth.session_expired");
-                        return new SyncReport(false, pages, changes, rebuilt, false, SyncErrorMapper.FromApi(result.StatusCode, result.Error), null);
+                        SetStatus(SyncStatusType.NeedsSignIn, changes, result.ErrorCode);
+                        return new SyncReport(
+                            false,
+                            pages,
+                            changes,
+                            bootstrapped,
+                            false,
+                            new SyncError(
+                                SyncErrorKind.SessionExpired,
+                                result.ErrorCode ?? WireErrorCodes.AuthSessionExpired),
+                            null);
                     }
 
-                    if (IsCursorInvalid(result))
+                    if (cursor is not null && IsCursorInvalid(result))
                     {
-                        if (sawCursorInvalid)
+                        // Rebuild at most once per run. A second rejected cursor
+                        // means the snapshot itself is unusable; stop instead of
+                        // looping.
+                        if (bootstrapped)
                         {
-                            // Do not loop: report that a manual rebuild is needed.
-                            SetStatus(SyncStatusType.RebuildRequired, 0, WireErrorCodes.SyncCursorInvalid);
-                            return new SyncReport(false, pages, changes, rebuilt, true, new SyncError(SyncErrorKind.Protocol, WireErrorCodes.SyncCursorInvalid), null);
+                            return await FailRestoreAsync(pages, changes, bootstrapped, token)
+                                .ConfigureAwait(false);
                         }
 
-                        sawCursorInvalid = true;
-                        await _store.ResetProjectionAsync(linked.Token).ConfigureAwait(false);
-                        _settings.ResetAll();
+                        SetStatus(SyncStatusType.Bootstrapping, changes, null);
 
-                        var restore = await _backups.RestoreLatestAsync(_store, linked.Token).ConfigureAwait(false);
-                        if (restore.Restored)
+                        var (bootstrap, rebuilt) = await RunBootstrapAsync(token).ConfigureAwait(false);
+                        if (bootstrap.Outcome == SnapshotBootstrapOutcome.Restored)
                         {
-                            rebuilt = true;
-                            cursor = restore.Cursor;
-                            changes += restore.TaskCount;
-                        }
-                        else
-                        {
-                            // No snapshot: rebuild from an empty cursor next pass.
-                            cursor = null;
+                            bootstrapped = true;
+                            changes += bootstrap.TaskCount;
+                            cursor = rebuilt.Cursor;
+                            continue;
                         }
 
-                        pages++;
-                        continue;
+                        if (bootstrap.Outcome == SnapshotBootstrapOutcome.NoSnapshot)
+                        {
+                            // The local cursor is unknown to the server and no
+                            // snapshot exists to replace it: never fall back to
+                            // an unverified empty cursor.
+                            return await FailRestoreAsync(pages, changes, bootstrapped, token)
+                                .ConfigureAwait(false);
+                        }
+
+                        return await FailBootstrapAsync(bootstrap, pages, changes, token)
+                            .ConfigureAwait(false);
                     }
 
                     var error = SyncErrorMapper.FromApi(result.StatusCode, result.Error);
@@ -196,38 +264,63 @@ public sealed class SyncEngine
                         error.Kind == SyncErrorKind.Offline ? SyncStatusType.Offline : SyncStatusType.Failed,
                         changes,
                         error.Code);
-                    return new SyncReport(false, pages, changes, rebuilt, false, error, null);
+                    return new SyncReport(false, pages, changes, bootstrapped, false, error, null);
                 }
 
-                var projection = ChangeProjector.Project(result.Value, _time.GetUtcNow());
-                linked.Token.ThrowIfCancellationRequested();
-                await _store.ApplyPageAsync(projection.Page, linked.Token).ConfigureAwait(false);
-                _settings.ApplyAll(projection.Page.Settings);
+                var projection = ChangeProjector.Project(result.Value, _time.GetUtcNow(), cursor);
+                token.ThrowIfCancellationRequested();
+                await _store.ApplyPageAsync(projection.Page, token).ConfigureAwait(false);
 
-                changes += projection.ChangeCount;
-                cursor = projection.Page.NextCursor ?? cursor;
                 pages++;
+                changes += projection.ChangeCount;
+                cursor = projection.Page.NextCursor;
 
-                if (result.Value?.HasMore != true)
+                if (!projection.Page.HasMore)
                 {
+                    break;
+                }
+
+                if (pages >= MaxPagesPerRun)
+                {
+                    incomplete = true;
                     break;
                 }
             }
 
-            var lastSynced = _time.GetUtcNow();
-            SetStatus(SyncStatusType.Succeeded, changes, null);
-            lock (_gate)
+            if (incomplete)
             {
-                _status = _status with { LastSyncedAt = lastSynced };
+                // The cursor advanced but the projection has not caught up. The
+                // freshness stays "syncing" and the run is not marked complete.
+                SetStatus(SyncStatusType.Incomplete, changes, null);
+                return new SyncReport(true, pages, changes, bootstrapped, true, null, null);
             }
 
-            RaiseStatus();
-            return new SyncReport(true, pages, changes, rebuilt, false, null, lastSynced);
+            var completedAt = _time.GetUtcNow();
+            await _store.CompleteSyncAsync(completedAt, token).ConfigureAwait(false);
+
+            var finalStatus = startedWithoutCursor && changes == 0 && !bootstrapped
+                ? SyncStatusType.Empty
+                : SyncStatusType.Ready;
+            SetStatus(finalStatus, changes, null, completedAt);
+
+            return new SyncReport(true, pages, changes, bootstrapped, false, null, completedAt);
         }
         catch (OperationCanceledException)
         {
             SetStatus(SyncStatusType.Idle, changes, LocalTransportCodes.Cancelled);
-            return new SyncReport(false, pages, changes, rebuilt, false, SyncError.Cancelled, null);
+            return new SyncReport(false, pages, changes, bootstrapped, false, SyncError.Cancelled, null);
+        }
+        catch (SyncProtocolException exception)
+        {
+            SetStatus(SyncStatusType.Failed, changes, exception.Code);
+            return new SyncReport(
+                false,
+                pages,
+                changes,
+                bootstrapped,
+                false,
+                new SyncError(SyncErrorKind.Protocol, exception.Code),
+                null);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -237,11 +330,82 @@ public sealed class SyncEngine
                 false,
                 pages,
                 changes,
-                rebuilt,
+                bootstrapped,
                 false,
                 new SyncError(SyncErrorKind.Protocol, "sync.local_failure"),
                 null);
         }
+    }
+
+    private async Task<(SnapshotBootstrapResult Result, SyncState State)> RunBootstrapAsync(
+        CancellationToken cancellationToken)
+    {
+        var result = await _bootstrap.BootstrapAsync(_store, cancellationToken).ConfigureAwait(false);
+        var state = await _store.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        return (result, state);
+    }
+
+    private async Task<SyncReport> FailBootstrapAsync(
+        SnapshotBootstrapResult result,
+        int pages,
+        int changes,
+        CancellationToken cancellationToken)
+    {
+        var (status, freshness, error) = result.Outcome switch
+        {
+            SnapshotBootstrapOutcome.SnapshotVanished => (
+                SyncStatusType.SnapshotVanished,
+                ProjectionFreshness.NeedsRestore,
+                new SyncError(SyncErrorKind.SnapshotVanished, WireErrorCodes.BackupNotFound)),
+            SnapshotBootstrapOutcome.SnapshotTooLarge => (
+                SyncStatusType.SnapshotTooLarge,
+                ProjectionFreshness.SnapshotTooLarge,
+                new SyncError(SyncErrorKind.SnapshotTooLarge, WireErrorCodes.ClientResponseTooLarge)),
+            SnapshotBootstrapOutcome.Corrupt => (
+                SyncStatusType.NeedsRestore,
+                ProjectionFreshness.NeedsRestore,
+                new SyncError(SyncErrorKind.Corrupt, WireErrorCodes.BackupCorrupt)),
+            _ => (
+                SyncStatusType.Failed,
+                ProjectionFreshness.Failed,
+                result.Error ?? new SyncError(SyncErrorKind.Protocol, "sync.local_failure")),
+        };
+
+        // A 401 during bootstrap is a session problem, not a projection
+        // problem: without a valid session no later run can succeed, so the UI
+        // must offer sign-in instead of a restore action.
+        if (error.Kind == SyncErrorKind.SessionExpired)
+        {
+            status = SyncStatusType.NeedsSignIn;
+        }
+
+        await _store
+            .RecordAttemptAsync(freshness, _time.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+        SetStatus(status, changes, error.Code);
+
+        return new SyncReport(false, pages, changes, false, false, error, null);
+    }
+
+    private async Task<SyncReport> FailRestoreAsync(
+        int pages,
+        int changes,
+        bool bootstrapped,
+        CancellationToken cancellationToken)
+    {
+        await _store
+            .RecordAttemptAsync(ProjectionFreshness.NeedsRestore, _time.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+        SetStatus(SyncStatusType.NeedsRestore, changes, WireErrorCodes.SyncCursorInvalid);
+
+        return new SyncReport(
+            false,
+            pages,
+            changes,
+            bootstrapped,
+            false,
+            new SyncError(SyncErrorKind.Protocol, WireErrorCodes.SyncCursorInvalid),
+            null);
     }
 
     /// <summary>
@@ -259,11 +423,19 @@ public sealed class SyncEngine
         || (result.StatusCode == 410
             && result.ErrorCode is null or WireErrorCodes.SyncInvalid or WireErrorCodes.SyncCursorInvalid);
 
-    private void SetStatus(SyncStatusType status, int changeCount, string? code)
+    private void SetStatus(
+        SyncStatusType status,
+        int changeCount,
+        string? code,
+        DateTimeOffset? lastSyncedAt = null)
     {
         lock (_gate)
         {
-            _status = new SyncStatusSnapshot(status, _status.LastSyncedAt, changeCount, code);
+            _status = new SyncStatusSnapshot(
+                status,
+                lastSyncedAt ?? _status.LastSyncedAt,
+                changeCount,
+                code);
         }
 
         RaiseStatus();

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <RootNamespace>Mosaic.Mobile.Storage</RootNamespace>
     <AssemblyName>Mosaic.Mobile.Storage</AssemblyName>
-    <Description>Rebuildable local projection (tasks, settings, tombstones) and the reserved outbox.</Description>
+    <Description>Account-isolated rebuildable task projection, tombstones and legacy cache migration.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />

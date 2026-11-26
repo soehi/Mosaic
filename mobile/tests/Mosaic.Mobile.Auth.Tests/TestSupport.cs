@@ -67,7 +67,8 @@ internal static class Responses
         string refresh = "refresh-1",
         DateTimeOffset? accessExpires = null,
         DateTimeOffset? refreshExpires = null,
-        string email = "user@example.com") =>
+        string email = "user@example.com",
+        string userId = "user-1") =>
         WireJson.Serialize(new SessionDto
         {
             AccessToken = access,
@@ -76,7 +77,7 @@ internal static class Responses
             RefreshTokenExpiresAt = refreshExpires ?? DateTimeOffset.UtcNow.AddDays(30),
             User = new UserDto
             {
-                Id = "user-1",
+                Id = userId,
                 Email = email,
                 CreatedAt = DateTimeOffset.UtcNow.AddDays(-1),
             },
