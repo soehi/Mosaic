@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="widget_label">Mosaic tasks</string>
-    <string name="widget_description">Open Mosaic tasks and mark them complete or archived.</string>
-</resources>

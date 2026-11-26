@@ -1,47 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFrameworks>net10.0-android;net10.0-ios</TargetFrameworks>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
     <OutputType>Exe</OutputType>
-    <UseMaui>true</UseMaui>
-    <SingleProject>true</SingleProject>
     <RootNamespace>Mosaic.Mobile.App</RootNamespace>
     <AssemblyName>Mosaic.Mobile.App</AssemblyName>
+    <Description>Headless Android host: desktop widget and receivers only, no Activity.</Description>
 
-    <ApplicationTitle>Mosaic</ApplicationTitle>
-    <!-- Store package name confirmed by the user; changing it after release is not possible. -->
+    <!-- Same store package as 0.2.x so an install upgrades in place; versionCode 4 was 0.2.1. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
-    <ApplicationDisplayVersion>0.2.1</ApplicationDisplayVersion>
-    <ApplicationVersion>4</ApplicationVersion>
+    <ApplicationDisplayVersion>0.3.0</ApplicationDisplayVersion>
+    <ApplicationVersion>5</ApplicationVersion>
 
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">26</SupportedOSPlatformVersion>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
-
-    <!-- The MAUI head is not part of the workload-free build; central versions
-         from the mobile tree would otherwise require a MAUI package pin. -->
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <MauiVersion>10.0.20</MauiVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Reflection-based System.Text.Json plus SQLitePCLRaw are trimmed unsafely. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
   </PropertyGroup>
-
   <ItemGroup>
-    <MauiIcon Include="Resources\AppIcon\appicon.svg" Color="#4F46E5" />
-    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#121116" BaseSize="128,128" />
-    <MauiImage Include="Resources\Images\*" />
-    <MauiFont Include="Resources\Fonts\*" />
-    <MauiAsset Include="Resources\Raw\*" />
+    <ProjectReference Include="..\Mosaic.Mobile.Core\Mosaic.Mobile.Core.csproj" />
+    <ProjectReference Include="..\Mosaic.Mobile.Wire\Mosaic.Mobile.Wire.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Mosaic.Mobile.Auth\Mosaic.Mobile.Auth.csproj" />
-    <ProjectReference Include="..\Mosaic.Mobile.Sync\Mosaic.Mobile.Sync.csproj" />
-    <ProjectReference Include="..\Mosaic.Mobile.Storage\Mosaic.Mobile.Storage.csproj" />
-    <ProjectReference Include="..\Mosaic.Mobile.Presentation\Mosaic.Mobile.Presentation.csproj" />
-  </ItemGroup>
-
 </Project>

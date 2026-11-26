@@ -1,124 +1,128 @@
-# Mosaic 手机端第一版实施记录（2026-11-19）
+# 手机端 0.3.0 实施记录
 
-版本：手机端 0.1.1（对齐服务端 0.1.1 最终 wire）；基线协议：服务端 0.1.1 提交 `4a223be` / 共享协议文档；实施范围：`mobile/` 与 `docs/mobile-auth-sync-plan.md`。
+日期：2026-11-26
+分支：`claude/mobile-rebuild-8c92e7`
+备份 tag：`backup/mobile-pre-refactor-20261126` → `8bc0acdee39fcb643e0461165ee0ba230c7e52a6`
+版本：`0.3.0` / Android `versionCode=5` / 包名 `app.mosaic.tasks`
+需求基线：`docs/mobile-refactor-plan.md`（未修改）
 
 ## 1. 根因位置
 
-### 1.1 第一版缺失（已交付）
-
-手机端此前完全不存在：仓库只有桌面 WPF 实现（`Mosaic.sln` 无手机项目，`src/` 无网络/认证/跨设备同步模块），因此没有可复用的凭证保护、`/v1` 客户端、任务缓存与账户界面。本次新增独立 `mobile/` 解决方案与全部实现，未修改 `src/`、`tests/`、`build/`、`server/`。
-
-### 1.2 与服务端 0.1.1 最终 wire 的偏差（本次修复）
-
-第一版按旧的冻结样例实现，服务端 0.1.1 定稿后以下位置行为不一致，触发条件与原因如下：
-
-- `mobile/src/Mosaic.Mobile.Wire/SyncDtos.cs` 旧 `ChangePushDto`/`SyncPushRequestDto(string? DeviceId, List<ChangePushDto> Changes)`：按批量写入建模，而服务端只接受单条 `POST /v1/sync/changes`，请求体为 `{deviceId,kind,key,payload,deleted,baseServerRevision,clientRevision,idempotencyKey}`；旧模型无法表达 `deleted`，且响应缺少 `{change,replayed}` 的冲突/重放语义。
-- `mobile/src/Mosaic.Mobile.Sync/SyncEngine.cs` `SyncOnceAsync`：只把 `410`/`sync.cursor_invalid` 当游标失效；服务端对无法识别的游标返回 `400 sync.invalid`（可带 `details.requiresSnapshot=true`），旧逻辑会把它当普通失败，导致永远无法自愈。
-- `mobile/src/Mosaic.Mobile.Auth/DeviceFlow.cs` `DeviceFlowPollingSession` 构造函数：要求 `verificationUri` 非空且忽略 `verificationUriComplete`，手机页面会打开不含授权码的链接；`SlowDown` 固定加 5 秒，忽略服务端 `200 {"status":"slow_down","interval":...}` 返回的间隔。
-- `mobile/src/Mosaic.Mobile.Auth/AuthSessionManager.cs` `ApplySessionAsync`/`RefreshCore`：只读取 `session.User`，而服务端会话同时返回 `expiresIn` 与 `account{userId,email,displayName}`，缺少 `user` 或绝对过期时间时会把有效会话判为协议错误。
-- `mobile/src/Mosaic.Mobile.Auth/AuthErrors.cs` `AuthError.Classify` 与 `mobile/src/Mosaic.Mobile.Wire/WireErrorCodes.cs`：仍以旧别名为主要常量（`auth.code_invalid`、`auth.password_policy` 等），缺少 `sync.invalid`、`auth.required`、`auth.session_expired`、`auth.invalid_refresh` 的规范分类，新增服务端码会落到通用协议错误。
-- `mobile/src/Mosaic.Mobile.Presentation/ViewModels/DeviceViewModels.cs` `DeviceSignInViewModel.OpenLink`：使用不含授权码的 `VerificationUri`。
-- `mobile/src/Mosaic.Mobile.Wire/SessionDtos.cs` `MeResponseDto`：只解析嵌套 `user`，而 `/v1/auth/me` 返回账户字段在根级。
+| 编号 | 根因位置 | 触发条件与出错原因 |
+|---|---|---|
+| R1 | `docs/mobile-refactor-plan.md:41`（旧版 `:10-16`） | 把“组件（卡片）”直接等同于 Android AppWidget，漏掉流体云。 |
+| R2 | 旧 `mobile/src/Mosaic.Mobile.Presentation/ViewModels/TaskListViewModel.cs`、`mobile/src/Mosaic.Mobile.App/Controls/TaskCardView.xaml`（已随 `mobile/` 删除） | 把 App UI 当作同步主路径；无 UI 场景下的会话恢复与动作入口不可用。 |
+| R3 | `8bc0acd` 中 `TaskWidgetActionReceiver.OnReceive`（已删除） | 动作集含取消归档、版本锁死 0.2.1、以保留 `mobile/` 为前提。 |
+| R4 | 代码库检索对 `流体云\|Live Updates\|实况窗` 零命中 | 调研只覆盖仓库代码，缺少平台决策与权限前置。 |
+| R5 | `docs/releases/v0.2.0-mobile.md`、`docs/releases/v0.2.1-mobile.md` | 承诺 App UI、覆盖升级与 v2 投影继承；`mobile/` 全量删除后全部失效，已标注“已作废”。 |
+| R6 | 旧 `mobile/src/Mosaic.Mobile.App/Platforms/Android/Widgets/WidgetTaskRepository.cs`（已删除） | 依赖旧投影 schema 与 `ProjectionStoreFactory`；删除后必须重建数据访问边界。 |
+| R7 | 本轮实现中新发现：旧快照校验用“响应字节 SHA256”对比 `contentSha256`，而服务端哈希算的是规范化条目内容（`server/src/Mosaic.Server/Backups/JsonCanonicalizer.cs`） | 旧客户端校验逻辑与服务器算法不一致；新实现改为客户端复算规范化摘要（`BackupCanonicalizer`），并把 manifest 与 snapshot 的 id/条目数/cursor 一起比对。 |
 
 ## 2. 改动位置
 
-新增目录 `mobile/`，关键文件与职责：
+### 删除
 
-### 2.1 构建与解决方案
+- `mobile/` 全部 125 个文件（`git rm -r mobile`）。
+- `docs/mobile-auth-sync-plan.md`、`docs/releases/v0.2.0-mobile.md`、`docs/releases/v0.2.1-mobile.md` 顶部加“已作废”说明（内容保留供历史追溯）。
 
-- `mobile/Directory.Build.props`、`mobile/Directory.Packages.props`：手机树独立的 TFM/版本/包管理，阻断根目录桌面设置。
-- `mobile/Mosaic.Mobile.sln`：全部 10 个项目（含 App 头）。
-- `mobile/Mosaic.Mobile.Core.slnf`：无 MAUI 工作负载时可构建/测试的 9 个项目。
-- `mobile/tests/.editorconfig`：仅关闭 xUnit1051（测试内显式 `CancellationToken.None`），保留阻塞调用检查。
+### 新增
 
-### 2.2 Wire（`mobile/src/Mosaic.Mobile.Wire`）
+| 文件 | 类型 / 方法 | 职责 |
+|---|---|---|
+| `mobile/Directory.Build.props`、`Directory.Packages.props` | — | 手机端独立版本 0.3.0、独立包版本，阻断桌面 net10.0/0.18.x 设置 |
+| `mobile/src/Mosaic.Mobile.Wire/WireJson.cs` | `WireJson.Options` | 全站 JSON 配置（camelCase、忽略未知成员） |
+| `mobile/src/Mosaic.Mobile.Wire/WireError.cs` | `WireError.TryParse`、`WireErrorCodes` | 错误信封解析（`details` 优先、根级回退）、本地错误码 |
+| `mobile/src/Mosaic.Mobile.Wire/AuthDtos.cs`、`SyncDtos.cs`、`BackupDtos.cs` | DTO | `/v1` 契约 |
+| `mobile/src/Mosaic.Mobile.Core/Api/ApiResponse.cs`、`HttpMosaicApi.cs` | `HttpMosaicApi.SendAsync`、`GetBytesAsync`、`HttpMosaicApiFactory.Create` | HTTPS 传输、禁止重定向、响应体上限、传输失败/取消分类 |
+| `mobile/src/Mosaic.Mobile.Core/Configuration/ServerAddress.cs`、`ServerConfiguration.cs` | `ServerAddress.TryNormalize`、`IServerConfigProvider` | 仅 HTTPS；仅回环允许 http；拒绝 credentials/query/fragment |
+| `mobile/src/Mosaic.Mobile.Core/Auth/SecretStorage.cs`、`StoredSession.cs`、`TokenStore.cs` | `ISecretStorage`、`TokenStore.LoadSessionAsync/SaveSessionAsync/GetOrCreateDeviceIdAsync` | 令牌按 `sha256(origin)` 前缀隔离存放 |
+| `mobile/src/Mosaic.Mobile.Core/Auth/SessionManager.cs` | `RestoreAsync`、`RefreshCoreAsync`、`VerifyIdentityCoreAsync`、`InvalidateAsync` | 无 UI 会话恢复、401 清令牌、`/v1/auth/me` 身份校验 |
+| `mobile/src/Mosaic.Mobile.Core/Projection/ProjectionIdentity.cs` | `Create` | `sha256(normalizedOrigin + "\0" + userId)` |
+| `mobile/src/Mosaic.Mobile.Core/Projection/SyncedTask.cs` | `TaskPayload.TryRead`、`SetComplete`、`SetArchived` | 保留未知字段的 payload 读改写 |
+| `mobile/src/Mosaic.Mobile.Core/Projection/TaskProjection.cs` | `OpenAsync`、`ReplaceAsync`、`ApplyChangesAsync`、`ApplyServerTaskAsync`、`FindAsync`、`ListVisibleAsync`、`CountAsync` | 只读投影；owner/schema 校验；不匹配即隔离 |
+| `mobile/src/Mosaic.Mobile.Core/Sync/BackupCanonicalizer.cs` | `Serialize`、`ComputeSha256Hex` | 复刻服务端规范化摘要 |
+| `mobile/src/Mosaic.Mobile.Core/Sync/SnapshotBootstrapService.cs` | `RunAsync` | 备份引导；每任务 `serverRevision=0` |
+| `mobile/src/Mosaic.Mobile.Core/Sync/IncrementalSyncService.cs` | `RunAsync` | 游标分页；只应用 task 变更 |
+| `mobile/src/Mosaic.Mobile.Core/Commands/TaskCommandService.cs` | `ExecuteAsync` | 唯一写路径；串行化双击；409/401/离线语义；幂等重放 |
+| `mobile/src/Mosaic.Mobile.Core/Cards/CardAction.cs`、`CardModel.cs`、`FluidCloud.cs` | `CardActionCodec`、`CardModelBuilder`、`IFluidCloudAdapter` | 三个动作白名单、卡片文本模型、流体云边界 |
+| `mobile/src/Mosaic.Mobile.Core/MobileKernel.cs` | `ResolveAsync`、`RefreshAsync`、`ExecuteAsync` | 冷启动编排：配置 → 会话 → 投影 → 引导/拉取 → 卡片 |
+| `mobile/src/Mosaic.Mobile.App/MosaicApplication.cs` | `OnCreate` | 唯一入口；无 Activity |
+| `mobile/src/Mosaic.Mobile.App/MobileServices.cs` | `Initialize`、`Fallback` | 进程级组合根 |
+| `mobile/src/Mosaic.Mobile.App/Platform/AndroidSecretStorage.cs` | `ReadAsync`、`WriteAsync`、`DeleteAsync`、`PurgeLegacyKey` | Keystore AES/GCM |
+| `mobile/src/Mosaic.Mobile.App/Platform/AndroidServerConfigProvider.cs` | `GetAsync` | 可替换连接边界 |
+| `mobile/src/Mosaic.Mobile.App/Platform/LegacyInstallCleanup.cs` | `Run` | 旧目录/旧偏好/旧密钥一次性退役，不迁移 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/TaskWidgetProvider.cs` | `OnUpdate`、`OnAppWidgetOptionsChanged` | `goAsync` + 8 秒预算 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetActionReceiver.cs` | `OnReceive` | 仅接受三个动作；`exported=false` |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRenderer.cs` | `Render`、`TaskIntent` | RemoteViews；request code `(taskId, action)`；FLAG_IMMUTABLE |
+| `mobile/src/Mosaic.Mobile.App/FluidCloud/AndroidFluidCloudAdapter.cs` | `Status`、`PublishAsync` | 明确 Blocked，不发布 |
+| `mobile/AndroidManifest.xml` + `Resources/**` | — | 无 Activity；两个非导出接收器；widget meta-data；禁明文；禁备份 |
+| `mobile/tests/Mosaic.Mobile.Tests/**` | 37 个测试 | 见 §4 |
 
-- `WireJson.Options`：camelCase、忽略未知字段、容忍尾部逗号。
-- `WireErrorDto`：`code/message/traceId/details`、`RequiresSnapshot`、`DetailsAs<T>()`（读取 `details.current`）。
-- `WireErrorCodes`：服务端 0.1.1 规范码（含 `sync.invalid`）+ 旧别名 + `IsSessionGone`。
-- `AuthDtos`、`SessionDtos`、`DeviceDtos`、`SyncDtos`、`TaskItemDto`、`BackupDtos`：`/v1` DTO；`SessionDto` 支持 `expiresIn`/`account` 超集并 `Normalize`；`DevicePollResponseDto.Interval`；`SyncDtos` 为单条写入 + `{change,replayed}` + `SyncConflictCurrentDto`。
-- `ChangeDto.ResolvedOperation/ResolvedKind/EffectiveTimestamp`：同时兼容 `operation/deleted` 与 `updatedAtUtc/createdAt`。
-- `SessionListParser.Parse`：数组或 `{sessions:[]}` 两种信封。
-- `DeviceFlowStateParser`：未知状态不崩溃。
+### 修改
 
-### 2.3 Auth（`mobile/src/Mosaic.Mobile.Auth`）
+- `docs/implementation-status.md`：新增本节摘要。
+- 新增 `docs/releases/v0.3.0-mobile.md`。
 
-- `MosaicApiClient`：唯一 HTTP 所有者；Bearer、401 单次刷新重试、GET 指数退避、`Retry-After`、错误信封解析、URL 构造。
-- `ServerAddress.TryNormalize/IsLoopback`：HTTPS 强制，HTTP 仅回环。
-- `TokenStore.LoadAsync/SaveAsync/ClearAsync/GetOrCreateDeviceIdAsync`：按服务器哈希隔离，仅持久化 refresh token/deviceId/serverUrl/账号/过期时间；损坏或不可解密时删除并返回 `Unavailable`。
-- `ISecretStorage`、`StoredSession`、`SessionLoadResult`：平台加密存储抽象。
-- `AuthSessionManager`：登录、验证码登录、注册、忘记/重置密码、登出（含仅本地）、账号删除、会话列表/撤销/全部撤销、`IAccessTokenProvider` 单飞刷新、离线保留令牌、拒绝时清令牌并只读标记、`LocalDataCleared` 事件。
-- `DeviceFlowClient`、`DeviceFlowPollingSession`、`DeviceApprovalService`：两种 Device Flow；`AuthorizationUri` 优先 `verificationUriComplete`；`slow_down`（200 + `interval`）与 429 都按返回间隔递增、过期、切后台 `Stop/RunAsync` 恢复、批准后原子落盘再 `/auth/me` 校验。
-- `AuthSessionManager.RevokeAllSessionsAsync(bool keepCurrent)`：无 body 撤销全部；`{keepCurrent:true}` 时保留本地会话。
-- `AuthInputRules`、`DeviceUserCodes`、`SecretRedactor`：与服务端一致的 rune 计数/字母表/脱敏。
-- `AuthError`/`AuthResult`、`IMosaicApi`、`ApiResult`。
+## 3. 阶段 0 结论
 
-### 2.4 Storage（`mobile/src/Mosaic.Mobile.Storage`）
+见 `mobile/docs/platform-decision.md`：OPPO 流体云阻塞（无凭证、文档受限、无真机）；Android 16 Live Updates 与 HarmonyOS 实况窗不作为替代；`IFluidCloudAdapter` 边界保留，卡片显示“流体云不可用”，不用 AppWidget 冒充。
 
-- `MobileDatabase`：WAL、`PRAGMA user_version=1`、拒绝更新版本库、`tasks/task_tombstones/settings/meta/outbox` 建表。
-- `SqliteSyncStore`：页 + 游标同事务；`serverRevision` LWW；tombstone 阻止旧 upsert 复活；过滤（全部/未完成/已完成/归档）；`ResetProjectionAsync`/`ReplaceProjectionAsync`/`ClearAllAsync`。
+## 4. 验收矩阵
 
-### 2.5 Sync（`mobile/src/Mosaic.Mobile.Sync`）
+| ID | 结果 | 证据 / 说明 |
+|---|---|---|
+| P01 | 完成 | `mobile/docs/platform-decision.md` |
+| P02 | 完成（判定不可实现） | 同上；适配器 `AndroidFluidCloudAdapter` 返回 Blocked |
+| H01 | 代码完成，真机未验证 | 冷启动只经过 `MosaicApplication.OnCreate` → `MobileKernel`；无 Activity |
+| H02 | 完成 | 合并清单无 `<activity>`；无 App 内列表/设置页 |
+| H03 | 完成 | `IServerConfigProvider` / `AndroidServerConfigProvider`；卡片层不读服务器地址 |
+| H04 | 完成（自动化测试） | `ProjectionTests`：owner 不匹配、损坏文件隔离、缺失显示 NeedsRestore |
+| H05 | 部分自动化 | 401 清令牌（`KernelTests`、`TaskCommandTests`）；换号/卸载重装未在真机验证 |
+| D01 | 完成（自动化测试） | `CardTests`、`ProjectionTests`：只列未归档、空状态、无备注/账号 |
+| D02 | 完成（自动化测试） | `TaskCommandTests.Complete_*` |
+| D03 | 完成（自动化测试） | `TaskCommandTests.Archive_*`；`deleted=false`，无 tombstone |
+| D04 | 完成 | 动作枚举只有 Complete/Archive/Refresh |
+| W01 | 未验证（无真机） | 清单中 provider 与 meta-data 已检查 |
+| W02 | 未验证（无真机） | 布局只含数量/标题/状态；深浅色资源已提供 |
+| W03 | 代码完成，未验证 | 接收器 `exported=false`、白名单、request code；`CardTests` 覆盖解析与 request code |
+| F01 | 不可实现 | 平台阻塞 |
+| F02 | 不可实现 | 同上 |
+| F03 | 代码完成，未验证 | Blocked 状态与卡片文案；AppWidget 独立可用 |
+| S01 | 完成（自动化测试） | `TaskCommandTests`：离线/401/409，失败不写本地 |
+| S02 | 完成（自动化测试） | `TaskCommandTests.Replayed_*` |
+| S03 | 完成（静态核查） | 无日志输出、无 WebView、仅 HTTPS、禁备份；真机抓包未做 |
+| M01 | 完成 | `mobile/` 125 文件删除；旧文档标“已作废”；tag 存在 |
+| M02 | 记录见 §5 | 覆盖安装/卸载重装/换号/撤销设备中仅代码路径覆盖，真机未验证 |
+| B01 | 完成 | 见 §6；未设 `DOTNET_CLI_UI_LANGUAGE` |
+| B02 | 完成 | 单次提交含源码、测试、发布说明、实施记录、根因与改动位置 |
 
-- `ChangeProjector.Project`：任务/设置/墓碑投影；未知 kind/设置、坏 key/payload 跳过并诊断。
-- `PortableSettings` + `PortableSettingKeys`：规划 §7.2 的 14 个键；类型/范围校验；未知值保留旧值；`HighContrast→FollowSystem`；null 重置；`ResetAll`。
-- `SyncEngine`：`limit=200`、单次最多 20 页、单飞合并、取消、401→需登录、游标失效→清投影 + 快照重建（`410 sync.cursor_invalid`，或 `400 sync.invalid` 且 `details.requiresSnapshot=true`）、二次失效停止、状态事件、离线保留游标；普通 `400 sync.invalid` 不清空投影。
-- `SyncWriteClient`：单条 `POST /v1/sync/changes`；`Applied/Replayed/Conflict/Rejected/SignedOut`；解析 `409 sync.conflict` 的 `details.current`；写入 UI 与 outbox 排空留待第二阶段。
-- `BackupRestoreService`：`/v1/backups/latest` + 快照下载 → 手机自有投影；快照条目 `serverRevision=0`，后续增量可覆盖。
+## 5. 迁移验收
 
-### 2.6 Presentation（`mobile/src/Mosaic.Mobile.Presentation`）
+| 场景 | 实现行为 | 验证 |
+|---|---|---|
+| 覆盖安装（0.2.x → 0.3.0） | 包名相同、versionCode 5 > 4；首次启动 `LegacyInstallCleanup.Run` 把 `files/projections/` 改名为 `retired-projections-v2-<ts>`，删除 `mosaic_secure` 偏好与旧 Keystore 别名，然后标记完成 | 代码路径与单测覆盖退役标记；**未在真机验证** |
+| 卸载重装 | 数据目录清空，需重新配置与重建投影 | 未验证 |
+| 换号 | 投影按 owner hash 分开；旧文件不匹配新账号即隔离；旧 PendingIntent 按 taskId 在当前账号投影中查找，查不到即拒绝 | `ProjectionTests` 覆盖 owner 隔离；旧 PendingIntent 未做真机验证 |
+| 撤销设备 | 401 → 清令牌 → 卡片“会话已失效” | `KernelTests` 覆盖刷新 401 |
+| 无备份 | `SnapshotBootstrapService` 返回 NoSnapshot → 卡片 `NeedsRestore`，不展示旧缓存 | `KernelTests`/`SyncTests` 覆盖错误分支；真机未验证 |
+| 回滚 | 代码回滚到 `backup/mobile-pre-refactor-20261126` 或 revert 本提交；旧 APK 需卸载后安装（versionCode 回退不允许覆盖安装），旧投影文件仍在 `retired-projections-v2-*` 下且新代码不读取 | 未验证 |
 
-- `LocalizationService`：中英双语文案表、跟随系统、切换事件、可绑定索引器。
-- `AppThemeService`：跟随系统/浅/深解析。
-- `TaskListViewModel`、`AccountViewModel`、`SignInViewModel`、`RegisterViewModel`、`ForgotPasswordViewModel`、`DeviceAuthorizeViewModel`、`DeviceSignInViewModel`、`SettingsViewModel`：页面状态、校验、错误本地化、两步确认（撤销全部/删除账号/批准桌面/仅本地登出/快照重建）。
-- `AuthErrorText`、`SyncStatusText`、`MobileDeviceInfo`。
+## 6. 构建与测试
 
-### 2.7 App（`mobile/src/Mosaic.Mobile.App`，MAUI 头）
+```powershell
+dotnet build mobile/src/Mosaic.Mobile.Core/Mosaic.Mobile.Core.csproj -c Release
+dotnet build mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj -c Release -p:AndroidSdkDirectory="D:\Android\Sdk" -p:JavaSdkDirectory="C:\Program Files\Microsoft\jdk-21.0.13.102-hotspot"
+dotnet test mobile/tests/Mosaic.Mobile.Tests/Mosaic.Mobile.Tests.csproj -c Release
+```
 
-- `MauiProgram`：DI 组装（DB、存储、API、认证、同步、视图模型、页面）。
-- `MosaicApp`、`AppShell`、`StartupService`、`AppPreferences`：启动顺序（DB→偏好→会话→缓存设置→首个前台同步）、前后台暂停/恢复、非机密偏好持久化。
-- `Pages/*`：任务、账户、设置、登录、注册、忘记密码、授权桌面、手机 Device Flow；浅深主题/中英文绑定；控件带 `SemanticProperties.Description` 或可见文本。
-- `Platforms/Android/AndroidSecretStorage`：AndroidKeyStore AES-GCM，密钥名作 AAD，密文在私有 SharedPreferences；备份规则与 data-extraction 规则排除该文件；manifest 默认禁明文，仅回环域名例外。
-- `Platforms/iOS/IosSecretStorage`：Keychain `AfterFirstUnlockThisDeviceOnly`。
-- `Platforms/Android/MainActivity|MainApplication|AndroidManifest`、`Platforms/iOS/AppDelegate|Program|Info.plist`。
-- `Converters/NotEmptyConverter`、`Resources/Styles/*`。
+结果：Core/Wire/测试 0 警告 0 错误；Android 宿主构建成功并产出 `app.mosaic.tasks-Signed.apk`；定向测试 37 通过 / 0 失败（Release，未设置 `DOTNET_CLI_UI_LANGUAGE`）。
 
-### 2.8 测试（`mobile/tests`）
+未验证：真机/模拟器交互、真实服务端联调、覆盖安装与卸载重装、流体云降级观感、抓包确认仅 HTTPS。
 
-- Wire 21 项：服务端/冻结两种变更形状、错误信封、未知字段/枚举、会话列表两种信封、请求序列化、快照、会话超集（`expiresIn`/`account`）、`/auth/me` 两种形状、`slow_down` 间隔、`device/info` 新字段、单条写入省略 `payload`、`{change,replayed}` 与 `details.current`、`revoke-all {keepCurrent}`。
-- Auth 71 项：地址校验、输入规则、脱敏、令牌存取/隔离/损坏/不可用、登录/刷新单飞/拒绝/网络失败、登出三种路径、重置密码、账号删除、会话列表、Device Flow 状态机与授权页、`slow_down` 间隔下界、完整授权链接回退、`keepCurrent` 保留会话、规范码/别名分类。
-- Sync 37 项：投影、白名单、SQLite 事务/幂等/LWW/tombstone/过滤/迁移、引擎分页/401/游标失效/二次失效/离线/并发合并/取消、`400 sync.invalid` 带/不带 `requiresSnapshot`、单条写入成功/重放/冲突/登出。
-- Presentation 14 项：主题解析、跟随系统语言、错误文案、同步状态文案。
+## 7. 安全自查
 
-## 3. 对已有安装/数据的影响
-
-- 不影响桌面或服务端：未修改其源码、数据库、配置或安装包。
-- 手机数据库为全新独立文件，`user_version=1`；重装或清除数据后由服务器快照/增量重建。
-- 卸载重装会生成新的本地 deviceId（Keystore/Keychain 密钥随应用数据销毁），符合规划。
-- 切换到另一服务器前必须先登出；已登录时 `AuthSessionManager.ConfigureServer` 拒绝切换，避免跨账号复用缓存。
-- Android 备份被整体禁用（`allowBackup=false`）并额外排除令牌文件。
-
-## 4. 验证记录
-
-已在本机执行并通过：
-
-- 版本号：`mobile/Directory.Build.props`、`ApplicationDisplayVersion`、`CFBundleShortVersionString`、`MauiProgram`/`MobileDeviceInfo` 回退值统一为 `0.1.1`（构建号 2）。
-- 发布材料：`mobile/docs/releases/v0.1.1.md`；Android 打包脚本骨架 `mobile/build/package-android.ps1`（仅通过语法校验，未执行）。
-- `dotnet build mobile/Mosaic.Mobile.Core.slnf`：0 警告、0 错误。
-- `dotnet test` 四个测试工程：Wire 21、Auth 71、Sync 37、Presentation 14，共 143 项全部通过。
-- 未修改 `src/`、`tests/`、`build/`、`server/`；文档只更新 `docs/mobile-auth-sync-plan.md` 与 `mobile/docs/`。
-
-**未验证**：
-
-- Android Release 已编译通过（`android-arm64`，compileSdk/targetSdk 36，minSdk 26，versionCode 2 / versionName 0.1.1；4 个 XamlC 编译绑定建议警告、0 错误）。
-- 已在真机（OPPO PKG110）完成端到端验证：安装启动、三页导航、中英切换、深浅主题、真实注册与登录、Keystore 会话持久化（强停重启仍在）、真实增量同步拉取服务端任务。验证中发现并修复 7 个运行时缺陷（DI 注册、AppShell 构造时序、本地化索引器、Tab 标题绑定、深色页面底色、RefreshView 指示器、Keystore 取键）。
-- 未验证：iOS 未构建；Device Flow 未在真机走通；写路径仅在服务端侧验证。
-- 未对接真实 TLS 服务端；认证/设备流/同步/写入用本地 fake HTTP 验证（服务端端点已就绪）。
-- 真实 SMTP、推送、后台同步（规划为第二阶段）未实现。
-- 应用包名已确认：`app.mosaic.tasks`（`Mosaic.Mobile.App.csproj` 的 `ApplicationId` 与 iOS `CFBundleIdentifier` 一致）；上架渠道与合规材料（隐私政策、账号删除入口审核材料）仍待准备。
-
-## 5. 第二阶段预留
-
-- `outbox` 表（id/kind/item_key/operation/payload/base_server_revision/client_revision/idempotency_key/state/时间）已建，未启用。
-- `SyncWriteClient` 已按服务端 0.1.1 单条写入实现并有契约测试；离线编辑、outbox 排空与冲突选择 UI 尚未接入。
-- 推送与后台同步未接。
+- 令牌、deviceCode、userCode、邮箱不进入日志；项目中没有日志框架调用。
+- `android:allowBackup="false"` + `dataExtractionRules` 排除全部文件/偏好。
+- 无 WebView、无密码输入面。
+- `network_security_config` 明文关闭（仅回环例外），`usesCleartextTraffic="false"`。
+- 不读取桌面 `mosaic.sqlite`，不引用桌面程序集；手机端只消费 `/v1`。

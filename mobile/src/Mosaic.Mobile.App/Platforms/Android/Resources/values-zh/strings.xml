@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="widget_label">Mosaic 待办</string>
-    <string name="widget_description">查看 Mosaic 待办，并标记完成或归档。</string>
-</resources>

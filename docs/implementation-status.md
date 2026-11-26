@@ -1,5 +1,26 @@
 ﻿# Mosaic：实施与验证记录
 
+## 手机端 0.3.0：无界面客户端重建（2026-11-26）
+
+`mobile/` 全量删除后按 `docs/mobile-refactor-plan.md` 重建：无 Activity 的 Android 客户端，只保留桌面小组件与流体云适配器边界；任务展示源为服务端备份 + 增量变更的只读投影，唯一写路径是单任务 `POST /v1/sync/changes`（`baseServerRevision`、`clientRevision`、`idempotencyKey`）。流体云判定为阻塞（无 OPPO 凭证与真机），保留 `IFluidCloudAdapter` 并显示“不可用”，未用 AppWidget 冒充。版本 0.3.0 / `versionCode=5`，不沿用 0.2.1 / 4。
+
+**根因位置**
+
+1. 需求术语未核对就把“组件（卡片）”等同于 AppWidget，并且以 App UI 为主路径：`docs/mobile-refactor-plan.md:41-43`（R1–R3）。
+2. 旧发布说明承诺 App UI 与 v2 投影继承：`docs/releases/v0.2.0-mobile.md`、`docs/releases/v0.2.1-mobile.md`（R5，现已标注“已作废”）。
+3. 旧 widget 数据访问依赖被删除的投影类型：旧 `WidgetTaskRepository.cs` 与 `ProjectionStoreFactory`（R6，已随 `mobile/` 删除）。
+4. 旧快照校验用响应字节哈希对比服务端“规范化条目”哈希，算法不一致：`server/src/Mosaic.Server/Backups/JsonCanonicalizer.cs` 对照旧 `SnapshotBootstrapService`（R7，新实现改为客户端复算规范化摘要）。
+
+**改动位置**
+
+- 删除：`mobile/` 125 个文件（`git rm -r mobile`）；旧文档加“已作废”说明。
+- 新增 `mobile/src/Mosaic.Mobile.Wire`（`WireJson`、`WireError`、DTO）、`Mosaic.Mobile.Core`（`MobileKernel`、`SessionManager`、`TaskProjection`、`SnapshotBootstrapService`、`IncrementalSyncService`、`TaskCommandService`、`CardModel`/`IFluidCloudAdapter`）、`Mosaic.Mobile.App`（`MosaicApplication`、`TaskWidgetProvider`、`WidgetActionReceiver`、`WidgetRenderer`、`AndroidSecretStorage`、`AndroidServerConfigProvider`、`LegacyInstallCleanup`、`AndroidFluidCloudAdapter`）、`mobile/tests/Mosaic.Mobile.Tests`（37 项）。
+- 迁移：首次启动把旧 `files/projections/` 改名为 `retired-projections-v2-<ts>`，删除旧偏好 `mosaic_secure` 与旧 Keystore 别名；**不迁移**旧投影/令牌，升级后从服务器备份重建。
+- 新增发布说明 `docs/releases/v0.3.0-mobile.md`；完整记录见 `mobile/docs/implementation-status.md` 与 `mobile/docs/platform-decision.md`。
+
+**验证**：`Mosaic.Mobile.Core`、`Mosaic.Mobile.App` 构建 0 警告 0 错误；`Mosaic.Mobile.Tests` 37 项通过。真机交互、覆盖安装、流体云与联调未验证。
+
+
 ## 0.18.14：任务查询分页投影、主列表差量更新与整表恢复批量通知（2026-11-24）
 
 本轮落实性能评审里优先级最高的三项：任务查询收窄为投影 + `LIMIT`/`COUNT`、主列表改为按 Id 差量更新行、整份备份恢复只发一次批量变更通知。附带把发布校验的历史长度上限从 20000 放宽到 40000 字符——0.18.13 之后整条发布历史已达 19959 字符，任何新条目都会在验证阶段被拒绝。数据目录、设置键与模块装配均未变。

@@ -1,8 +1,9 @@
 <Project>
   <!--
-    Mobile tree owns its build settings. This file stops the repository-root
-    Directory.Build.props from applying net10.0 / desktop versioning to MAUI
-    projects, while keeping the same language and warning standards.
+    The mobile tree owns its build settings. This file stops the repository-root
+    Directory.Build.props from applying desktop versioning and lock files to the
+    Android target, while keeping the same language and warning standards.
+    Mobile versioning is independent of the desktop 0.18.x line.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -14,7 +15,7 @@
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
     <Deterministic>true</Deterministic>
     <UseSharedCompilation>false</UseSharedCompilation>
-    <Version>0.2.1</Version>
+    <Version>0.3.0</Version>
     <Authors>Mosaic</Authors>
     <Product>Mosaic Mobile</Product>
   </PropertyGroup>
