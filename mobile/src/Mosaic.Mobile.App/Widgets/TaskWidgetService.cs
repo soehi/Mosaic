@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Appwidget;
 using Android.Content;
+using Android.Util;
 using Android.Widget;
 using Mosaic.Mobile.Core.Cards;
 
@@ -11,8 +12,13 @@ namespace Mosaic.Mobile.App.Widgets;
 /// supported way to give an app widget a real vertical scroll gesture: plain
 /// RemoteViews cannot receive touch events, so a custom swipe would have to be
 /// faked with clickable areas and would not scroll.
+///
+/// This service must be exported. The launcher is a different UID and binds to
+/// it with <c>RemoteViewsService.SERVICE_INTERFACE</c>; with
+/// <c>exported="false"</c> the bind silently fails, the <c>ListView</c> never
+/// receives its factory, and the card shows only its background.
 /// </summary>
-[Service(Exported = false, Permission = "android.permission.BIND_REMOTEVIEWS")]
+[Service(Exported = true, Permission = "android.permission.BIND_REMOTEVIEWS")]
 public sealed class TaskWidgetService : RemoteViewsService
 {
     public override IRemoteViewsFactory OnGetViewFactory(Intent? intent)
@@ -31,6 +37,8 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
     private IReadOnlyList<WidgetRow> _rows = [];
 
     private WidgetTaskGroup _group = WidgetTaskGroup.Pending;
+
+    private WidgetRowLayout _layout = new(1, 104);
 
     public TaskRowFactory(Context context, int appWidgetId)
     {
@@ -51,7 +59,11 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
     public void OnDataSetChanged()
     {
         _group = WidgetGroupStore.Get(_context, AppWidgetId);
-        _rows = LoadRows(_context, _group);
+        _layout = Measure(_context, AppWidgetId);
+        _rows = LoadRows(_context, _group)
+            .Take(_layout.Rows)
+            .ToList();
+        WidgetDiagnostics.LogOptions(_context, AppWidgetId);
     }
 
     public void OnDestroy()
@@ -101,6 +113,21 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
     public int ViewTypeCount => 2;
 
     public long GetItemId(int position) => position;
+
+    private static WidgetRowLayout Measure(Context context, int appWidgetId)
+    {
+        var densityDpi = context.Resources?.DisplayMetrics?.DensityDpi switch
+        {
+            null => 160,
+            var density => (int)density,
+        };
+        var manager = AppWidgetManager.GetInstance(context);
+        var options = manager?.GetAppWidgetOptions(appWidgetId);
+        var reported = options?.GetInt(AppWidgetManager.OptionAppwidgetMinHeight, -1) ?? -1;
+        var height = WidgetRowGeometry.ReportedHeightToPixels(reported, densityDpi);
+        var divider = Math.Max(1, densityDpi / 160);
+        return WidgetRowGeometry.Compute(height, densityDpi, divider);
+    }
 
     private static IReadOnlyList<WidgetRow> LoadRows(Context context, WidgetTaskGroup group)
     {

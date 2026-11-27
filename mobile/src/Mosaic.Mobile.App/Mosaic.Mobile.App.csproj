@@ -9,8 +9,8 @@
 
     <!-- Same store package as 0.2.x so an install upgrades in place; versionCode 4 was 0.2.1. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
-    <ApplicationDisplayVersion>0.3.3</ApplicationDisplayVersion>
-    <ApplicationVersion>8</ApplicationVersion>
+    <ApplicationDisplayVersion>0.3.4</ApplicationDisplayVersion>
+    <ApplicationVersion>9</ApplicationVersion>
 
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <!-- Trimming stays on: with PublishTrimmed=false the assembly store's type

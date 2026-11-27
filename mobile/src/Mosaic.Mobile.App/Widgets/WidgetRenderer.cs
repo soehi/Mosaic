@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Appwidget;
 using Android.Content;
+using Android.Util;
 using Mosaic.Mobile.Core.Cards;
 
 namespace Mosaic.Mobile.App.Widgets;
@@ -24,6 +25,7 @@ internal static class WidgetRenderer
 
         try
         {
+            Log.Info(WidgetDiagnostics.Tag, "Render start for id=" + appWidgetId);
             var views = new RemoteViews(context.PackageName, Resource.Layout.widget_tasks);
             var adapter = new Intent(context, typeof(TaskWidgetService));
             adapter.PutExtra(AppWidgetManager.ExtraAppwidgetId, appWidgetId);
@@ -39,9 +41,11 @@ internal static class WidgetRenderer
             manager.UpdateAppWidget(appWidgetId, views);
             manager.NotifyAppWidgetViewDataChanged(appWidgetId, Resource.Id.widget_list);
 #pragma warning restore CA1422
+            Log.Info(WidgetDiagnostics.Tag, "Render done for id=" + appWidgetId);
         }
         catch (Exception exception) when (exception is Java.Lang.Exception or InvalidOperationException or ArgumentException)
         {
+            Log.Warn(WidgetDiagnostics.Tag, "Render failed, falling back: " + exception.Message);
             RenderSafe(context, manager, appWidgetId, model);
         }
     }

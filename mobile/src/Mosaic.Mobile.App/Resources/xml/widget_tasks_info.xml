@@ -4,6 +4,8 @@
   (4 cells x 70dp - 30dp). targetCellWidth/Height are the API 31+ hints that
   make a fresh placement land on 4x1; the launcher may still clamp the span to
   the screen width, which is a device limit, not a config error.
+  The 140dp maximum is exactly two usable rows plus the 16dp card padding;
+  a taller card would gain whitespace, not another task.
   resizeMode is vertical only: the widget never gets narrower or wider.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"

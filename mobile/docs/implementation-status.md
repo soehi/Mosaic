@@ -324,3 +324,38 @@ AppWidget 的长按由 launcher 持有，`RemoteViews` 没有 long-click API，�
 ### 10.6 未验证
 
 真机 arm64、宽屏 4×1/4×2 实际格数、流体云（仍阻塞）、真实服务端联调下的分组切换。
+
+## 11. 0.3.4：可见行数修复（4×1 恰好 1 行、4×2 恰好 2 行）
+
+用户核验 0.3.3 后指出：实测组件实例高度约 127dp，`ListView` 里出现了第 3 行半截被裁，`shots/80-final-verify.png` 能看到第四行只露出上半截。这不是"两条"。
+
+### 11.1 根因位置
+
+| 编号 | 根因位置 | 触发条件与出错原因 |
+|---|---|---|
+| R22 | `Resources/layout/widget_task_row.xml`（0.3.2 起） | `layout_height="52dp"` 写死，而 `ListView` 是 `match_parent`，`RemoteViewsFactory` 不按可用高度限制行数，`ListView` 就按容器高度塞尽可能多的行，最后一行被裁 |
+| R23 | `Widgets/TaskWidgetService.cs`（0.3.2 起） | `Exported = false`。Launcher 是不同 UID，`bindService` 对非导出服务静默失败，`ListView` 永远拿不到 factory，卡片只剩 background。这是"重装后黑块"的真正根因，之前误记为 launcher 缓存 |
+
+### 11.2 改动位置
+
+| 文件 | 改动 |
+|---|---|
+| `Mosaic.Mobile.Core/Cards/WidgetRowGeometry.cs`（新增） | `ReportedHeightToPixels`：把 launcher 报告的 `OPTION_APPWIDGET_MIN_HEIGHT` 从 px 映射到声明范围（40–140dp）；`Compute`：`≥100dp → 2 行`，否则 1 行，上限 2 行；行高 = `(可用高度 - 分隔线) / 行数`（px），保证整行无半截 |
+| `Mosaic.Mobile.App/Widgets/TaskWidgetService.cs` | `Exported = true`（R23）；`OnDataSetChanged` 先 `Measure` 再 `Take(_layout.Rows)` 截断；`WidgetDiagnostics.LogOptions` 输出 launcher 给的 options |
+| `Mosaic.Mobile.App/Widgets/WidgetDiagnostics.cs`（新增） | 统一 logcat tag `MosaicWidget`，输出 `minW/maxW/minH/maxH` |
+| `Mosaic.Mobile.App/Widgets/WidgetRenderer.cs` | `Render` 入口/出口/失败各打一条日志，便于无头诊断 |
+| `Resources/xml/widget_tasks_info.xml` | 注释说明 140dp 上限 = 两行 + 16dp 内边距 |
+| `Mosaic.Mobile.App.csproj`、`Directory.Build.props` | 版本 0.3.4 / `versionCode=9` |
+| `tests/Mosaic.Mobile.Tests/WidgetRowGeometryTests.cs`（新增） | 81 项测试覆盖：行数阈值、整行像素高度、上限保护、短卡片降级、报告值钳制、密度回退、实测值（209px → 2 行 × 103px） |
+
+### 11.3 迁移
+
+- 分组偏好 `widget_prefs` 不变；快照 v4 格式不变。
+- 升级后首次刷新会重新计算行数并截断，无需用户操作。
+- 回滚：`git revert`；设备侧 `versionCode` 不能从 9 回退到 8，需卸载后装 0.3.3。
+
+### 11.4 无头 adb 验证
+
+**当前阻塞**：MuMu 模拟器 adb 服务持续 offline，无法安装和截图。模拟器进程存在但 adb 守护进程未响应。已尝试 kill-server / start-server / disconnect / connect / restart，均无效。需要用户手动重启 MuMu 或检查模拟器设置。
+
+代码状态：0.3.4 编译通过，81 项单元测试通过，APK 已生成。端到端验证待模拟器恢复后补。
