@@ -1,5 +1,28 @@
 # Mosaic：实施与验证记录
 
+## 桌面 0.19.5 候选的配对诊断修复（2026-11-27）
+
+**根因位置**
+
+- 正式部署分支 `fix/peek-detach-0.18.8` 的已核对提交 `2018b9e` 在 `server/src/Mosaic.Server/ServerApplication.cs` 没有注册 `MapMobilePairing`。扫码下载和配对入口此前实测返回 404。最新复查 `/health` 和下载页均连接超时，运行中容器的镜像提交及挂载待核对。
+- `769f181:src/Modules/Auth/Mosaic.Auth.Wpf/Views/MobilePairingWindow.cs` 的 `Start`、`SendAsync` 将令牌失效、配对入口缺失和服务不可用映射为同一提示。`AuthChanged` 在首次刷新将会话置为 `SignedOut` 时关窗，用户看不到重新登录提示。
+- `769f181:server/src/Mosaic.Server/Auth/MobilePairingEndpoints.cs:13` 将缺少有效发布清单与反代未使请求成为 HTTPS 都报告为 `mobile.unavailable`。两个仓库 Compose 文件只声明了 `/data` 卷，正式 APK 及清单需要单独的只读挂载。
+
+**改动位置与验证**
+
+| 文件 | 改动 |
+|---|---|
+| `src/Modules/Auth/Mosaic.Auth.Wpf/Views/MobilePairingWindow.cs` | `Start`、`SendAsync`、`FailureText` 区分重新登录、尚未上线、包或清单未就绪、HTTPS 配置和连接错误。`AuthChanged` 让首次刷新失效的窗口保留提示。 |
+| `src/Modules/Auth/Mosaic.Auth.Wpf/Localization/en.xaml`、`Localization/zh.xaml` | 新增四类 `Auth.Mobile` 提示的英中资源。 |
+| `server/src/Mosaic.Server/Auth/MobilePairingEndpoints.cs` | `MapMobilePairing` 分别返回 `mobile.unavailable` 和 `mobile.https_required`。 |
+| `tests/Mosaic.Wpf.Tests/AccountViewModelTests.cs` | STA/Dispatcher 中打开实际配对窗，使用 HTTP 替身覆盖六类响应、刷新签出、二维码和六位码批准。账户类 43 项通过。 |
+| `server/tests/Mosaic.Server.Tests/MobilePairingTests.cs` | 临时 Kestrel 验证缺清单、直接 HTTP、受信及未受信反代，保留同账户单次兑换并读取四条备份任务和一条增量的集成覆盖。服务端 99 项通过。 |
+| `docs/releases/v0.3.5-mobile.md`、`docs/implementation-status.md` | 说明窗口提示、反代与只读发布目录的安装条件，记录此次隔离验收和回滚。 |
+
+以真实 Android Debug 签名测试包验证隔离 Kestrel 的二维码 URL、HTTPS 落地页、APK 全量和 Range 下载，以及 `assetlinks.json` 的包名和签名。隔离 APK 与清单设置文件只读，下载件为 10,984,947 字节，SHA-256 `02cab71ba014ea890ba5d28c6acd2f7f29ceaaf874f14d5e8f9ba5d82a3d6c09`，重新验签及包名、版本核查通过。Android 设备关联、扫码安装、客户端首次同步与正式容器挂载待验证。两条 ADB 连接仍为 `offline`，现有 APK 的签名仅适用于隔离验收。
+
+本轮沿用候选数据库迁移 4 和每用户 MSI 升级流程。候选源码用 `git revert` 回退本提交即可。若首次将候选部署到低版本服务端，升级前须对持久化 SQLite 做一致性备份并保留对应主密钥，验证可恢复性。退回旧服务端需停服并恢复升级前备份与对应配置，恢复会回退备份后的写入。正式验收需核对镜像对应提交、代理地址及 HTTPS、只读挂载和正式签名，并用 Android 实机完成首次同步。
+
 ## 桌面 0.19.5 候选与手机端 0.3.5 配对
 
 以 `2018b9e` 为候选基线，该提交包含已发布的 `v0.19.4`，再纳入 `a00ccdb` 的 Android 客户端、服务端配对和 WPF 账户入口。

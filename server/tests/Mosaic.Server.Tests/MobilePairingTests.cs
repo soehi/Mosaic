@@ -133,7 +133,47 @@ public sealed class MobilePairingTests
         using var pairing = await host.PostAsync(Pair("start"));
         using var download = await host.GetAsync("/device/mobile.apk");
         Assert.Equal(HttpStatusCode.ServiceUnavailable, pairing.StatusCode);
+        Assert.Equal("mobile.unavailable", (await TestServerHost.JsonAsync(pairing)).GetProperty("code").GetString());
         Assert.Equal(HttpStatusCode.NotFound, download.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Forwarded_https_enables_pairing_only_from_the_configured_proxy(bool trusted)
+    {
+        await using var host = await TestServerHost.StartAsync(options =>
+        {
+            ConfigureRelease(options);
+            options.TrustedProxies = [trusted ? "127.0.0.1" : "192.0.2.1"];
+        });
+        var (_, _, desktop) = await host.RegisterAsync();
+        var access = TestServerHost.AccessToken(desktop);
+        using var direct = await host.PostAsync(Pair("start"), token: access);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, direct.StatusCode);
+        Assert.Equal("mobile.https_required", (await TestServerHost.JsonAsync(direct)).GetProperty("code").GetString());
+
+        using var start = new HttpRequestMessage(HttpMethod.Post, Pair("start"));
+        start.Headers.Authorization = new("Bearer", access);
+        start.Headers.Add("X-Forwarded-For", "192.0.2.2");
+        start.Headers.Add("X-Forwarded-Proto", "https");
+        using var response = await host.Client.SendAsync(start);
+        using var association = new HttpRequestMessage(HttpMethod.Get, "/.well-known/assetlinks.json");
+        association.Headers.Add("X-Forwarded-For", "192.0.2.2");
+        association.Headers.Add("X-Forwarded-Proto", "https");
+        using var assetLinks = await host.Client.SendAsync(association);
+        if (trusted)
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.StartsWith("https://mosaic.test/device/mobile/connect#", (await TestServerHost.JsonAsync(response)).GetProperty("url").GetString());
+            Assert.Equal(HttpStatusCode.OK, assetLinks.StatusCode);
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.Equal("mobile.https_required", (await TestServerHost.JsonAsync(response)).GetProperty("code").GetString());
+            Assert.Equal(HttpStatusCode.NotFound, assetLinks.StatusCode);
+        }
     }
 
     private static async Task<string> StartAsync(TestServerHost host, string access)

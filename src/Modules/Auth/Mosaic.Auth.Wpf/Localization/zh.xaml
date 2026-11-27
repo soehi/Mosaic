@@ -2,6 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <sys:String x:Key="Auth.Mobile.Title">下载手机组件</sys:String>
+    <sys:String x:Key="Auth.Mobile.SignIn">登录已失效。请在「账户与备份」重新登录后再打开此窗口。</sys:String>
+    <sys:String x:Key="Auth.Mobile.RouteMissing">当前服务器还未上线手机组件配对。服务器更新后请再试。</sys:String>
+    <sys:String x:Key="Auth.Mobile.ReleaseMissing">服务器已支持配对，但手机组件安装包或发布清单尚未就绪。</sys:String>
+    <sys:String x:Key="Auth.Mobile.HttpsRequired">手机组件配对需要 HTTPS。请检查服务器地址和反向代理的 HTTPS 配置。</sys:String>
     <sys:String x:Key="Auth.Navigation">账户</sys:String>
     <sys:String x:Key="Auth.Title">账户与备份</sys:String>
     <sys:String x:Key="Auth.Subtitle">登录后可把任务与可移植设置备份到服务器，并在其他设备上恢复。不登录也可以完全离线使用，本机数据不受影响。</sys:String>

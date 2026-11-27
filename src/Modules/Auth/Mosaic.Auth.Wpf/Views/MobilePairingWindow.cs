@@ -20,6 +20,7 @@ internal sealed class MobilePairingWindow : Window
 
     private readonly IAuthApi _auth;
     private readonly AuthState _initial;
+    private readonly HttpClient _http;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Image _qr = new() { Width = 260, Height = 260, Margin = new Thickness(0, 16, 0, 16), Visibility = Visibility.Collapsed };
@@ -32,9 +33,12 @@ internal sealed class MobilePairingWindow : Window
     private bool _closed;
     private bool _approving;
 
-    public MobilePairingWindow(IAuthApi auth)
+    public MobilePairingWindow(IAuthApi auth) : this(auth, Http) { }
+
+    internal MobilePairingWindow(IAuthApi auth, HttpClient http)
     {
         _auth = auth;
+        _http = http;
         _initial = auth.State;
         Title = Text("Title", "下载手机组件");
         Width = 402;
@@ -77,10 +81,15 @@ internal sealed class MobilePairingWindow : Window
         Loaded -= Start;
         try
         {
-            if (_initial.Server?.Scheme != Uri.UriSchemeHttps || !IsSameAccount())
-                throw new PairingUnavailableException();
+            if (_initial.Server?.Scheme != Uri.UriSchemeHttps)
+                throw new PairingUnavailableException("HttpsRequired");
+            if (!IsSameAccount())
+                throw new PairingUnavailableException("SignIn");
             var token = await _auth.GetAccessTokenAsync(_lifetime.Token);
-            if (!token.IsSuccess || !IsSameAccount() || _closed)
+            if (_closed) return;
+            if (!IsSameAccount() || token.Error?.Code is AuthErrorCodes.TokenInvalid or AuthErrorCodes.TokenExpired)
+                throw new PairingUnavailableException("SignIn");
+            if (!token.IsSuccess)
                 throw new PairingUnavailableException();
             _bearer = token.Value;
 
@@ -114,9 +123,7 @@ internal sealed class MobilePairingWindow : Window
             {
                 _qr.Visibility = Visibility.Collapsed;
                 _confirmation.Visibility = Visibility.Collapsed;
-                _status.Text = error is PairingUnavailableException
-                    ? Text("Unavailable", "手机组件下载不可用。请确认已登录，并且服务器支持配对、已配置签名 APK。")
-                    : Text("Failed", "无法连接配对服务，请关闭窗口后重试。");
+                _status.Text = FailureText(error);
             }
         }
         finally
@@ -181,7 +188,7 @@ internal sealed class MobilePairingWindow : Window
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or PairingUnavailableException)
         {
             if (!_closed && !_consumed)
-                _status.Text = Text("Failed", "无法连接配对服务，请关闭窗口后重试。");
+                _status.Text = FailureText(error);
         }
         finally
         {
@@ -211,18 +218,43 @@ internal sealed class MobilePairingWindow : Window
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_initial.Server!, "/v1/mobile/pairing/" + action));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         if (body is not null) request.Content = JsonContent.Create(body);
-        var response = await Http.SendAsync(request, ct);
+        var response = await _http.SendAsync(request, ct);
         if (response.IsSuccessStatusCode) return response;
-        var status = response.StatusCode;
-        response.Dispose();
-        if (status is HttpStatusCode.NotFound or HttpStatusCode.ServiceUnavailable or HttpStatusCode.Unauthorized or HttpStatusCode.MethodNotAllowed)
-            throw new PairingUnavailableException();
-        throw new HttpRequestException("手机组件配对请求失败。", null, status);
+        using (response)
+        {
+            var status = response.StatusCode;
+            if (status == HttpStatusCode.Unauthorized)
+                throw new PairingUnavailableException("SignIn");
+            if (action == "start" && status is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+                throw new PairingUnavailableException("RouteMissing");
+            if (status == HttpStatusCode.ServiceUnavailable && response.Content.Headers.ContentType?.MediaType == "application/json")
+            {
+                PairingError? error;
+                try { error = await response.Content.ReadFromJsonAsync<PairingError>(ct); }
+                catch (Exception exception) when (exception is System.Text.Json.JsonException or InvalidOperationException)
+                {
+                    error = null;
+                }
+                if (error?.Code == "mobile.unavailable")
+                    throw new PairingUnavailableException("ReleaseMissing");
+                if (error?.Code == "mobile.https_required")
+                    throw new PairingUnavailableException("HttpsRequired");
+            }
+
+            throw new HttpRequestException("手机组件配对请求失败。", null, status);
+        }
     }
 
     private void AuthChanged(object? sender, EventArgs e)
     {
-        if (!IsSameAccount()) Dispatcher.BeginInvoke(() => { if (!_closed) Close(); });
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_closed || IsSameAccount()) return;
+            // A rejected refresh signs out before GetAccessTokenAsync returns its error.
+            if (_bearer is null && _auth.State is { Status: AuthStatus.SignedOut } state && state.Server == _initial.Server)
+                return;
+            Close();
+        });
     }
 
     private bool IsSameAccount()
@@ -233,6 +265,20 @@ internal sealed class MobilePairingWindow : Window
 
     private static string Text(string key, string fallback) => AuthLocalization.Localize("Auth.Mobile." + key, fallback);
 
-    private sealed class PairingUnavailableException : Exception;
+    private static string FailureText(Exception error) => (error as PairingUnavailableException)?.Reason switch
+    {
+        "SignIn" => Text("SignIn", "登录已失效。请在「账户与备份」重新登录后再打开此窗口。"),
+        "RouteMissing" => Text("RouteMissing", "当前服务器还未上线手机组件配对。服务器更新后请再试。"),
+        "ReleaseMissing" => Text("ReleaseMissing", "服务器已支持配对，但手机组件安装包或发布清单尚未就绪。"),
+        "HttpsRequired" => Text("HttpsRequired", "手机组件配对需要 HTTPS。请检查服务器地址和反向代理的 HTTPS 配置。"),
+        _ => Text("Failed", "无法连接配对服务，请关闭窗口后重试。"),
+    };
+
+    private sealed class PairingUnavailableException(string? reason = null) : Exception
+    {
+        public string? Reason { get; } = reason;
+    }
+
+    private sealed record PairingError(string? Code);
     private sealed record PairingStatus(string State, string? DeviceLabel);
 }

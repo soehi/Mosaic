@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -75,8 +78,9 @@ public sealed class AccountViewModelTests
         public Task<OperationResult> CancelDeviceAuthorizationAsync() { CancelDeviceCalls++; return Task.FromResult(OperationResult.Success()); }
         public Task<OperationResult> LogoutAsync(CancellationToken cancellationToken = default)
         { LogoutCalls++; State = AuthState.SignedOut(State.Server); return Task.FromResult(OperationResult.Success()); }
+        public Func<OperationResult<string>> AccessToken { get; set; } = () => OperationResult<string>.Success("access");
         public Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(OperationResult<string>.Success("access"));
+            Task.FromResult(AccessToken());
         public Task<OperationResult<IReadOnlyList<AuthSessionInfoDto>>> ListSessionsAsync(CancellationToken cancellationToken = default)
         {
             ListSessionsCalls++;
@@ -544,6 +548,113 @@ public sealed class AccountViewModelTests
         Assert.Same(view.FindResource(MosaicTheme.DangerButtonKey), confirm.Style);
         Assert.Equal(0, fixture.Auth.DeleteAccountCalls);
     });
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, null, "重新登录")]
+    [InlineData(HttpStatusCode.NotFound, null, "还未上线")]
+    [InlineData(HttpStatusCode.MethodNotAllowed, null, "还未上线")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "mobile.unavailable", "发布清单尚未就绪")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "mobile.https_required", "反向代理")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, null, "无法连接配对服务")]
+    public Task Mobile_pairing_window_explains_the_server_response(HttpStatusCode status, string? code, string expected) => Run(async () =>
+    {
+        var auth = new FakeAuth { State = new(AuthStatus.SignedIn, Account, Server) };
+        using var client = new HttpClient(new PairingHandler(request =>
+        {
+            Assert.Equal("/v1/mobile/pairing/start", request.RequestUri!.AbsolutePath);
+            Assert.Equal("access", request.Headers.Authorization?.Parameter);
+            return new HttpResponseMessage(status) { Content = code is null ? null : JsonContent.Create(new { code }) };
+        }));
+        var window = new MobilePairingWindow(auth, client);
+        try
+        {
+            window.Show();
+            var controls = (StackPanel)window.Content;
+            await WaitForPairingWindowAsync(() => ((TextBlock)controls.Children[0]).Text.Contains(expected, StringComparison.Ordinal));
+            Assert.Equal(Visibility.Collapsed, ((Image)controls.Children[1]).Visibility);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public Task Mobile_pairing_window_stays_open_when_refresh_signs_out() => Run(async () =>
+    {
+        var auth = new FakeAuth { State = new(AuthStatus.SignedIn, Account, Server) };
+        auth.AccessToken = () =>
+        {
+            auth.State = AuthState.SignedOut(Server);
+            auth.RaiseStateChanged();
+            return OperationResult<string>.Failure(new(AuthErrorCodes.TokenExpired, "expired"));
+        };
+        using var client = new HttpClient(new PairingHandler(_ => throw new InvalidOperationException("Expired sessions must not start pairing.")));
+        var window = new MobilePairingWindow(auth, client);
+        try
+        {
+            window.Show();
+            await window.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            Assert.True(window.IsVisible);
+            Assert.Contains("重新登录", ((TextBlock)((StackPanel)window.Content).Children[0]).Text);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public Task Mobile_pairing_window_renders_the_qr_and_approves_the_phone() => Run(async () =>
+    {
+        var auth = new FakeAuth { State = new(AuthStatus.SignedIn, Account, Server) };
+        var reference = new string('A', 43);
+        var approved = false;
+        using var client = new HttpClient(new PairingHandler(request =>
+        {
+            return request.RequestUri!.Segments[^1] switch
+            {
+                "start" => new(HttpStatusCode.OK) { Content = JsonContent.Create(new { reference, url = new Uri(Server, "/device/mobile/connect#" + reference).AbsoluteUri }) },
+                "status" => new(HttpStatusCode.OK) { Content = JsonContent.Create(new { state = approved ? "consumed" : "pending", deviceLabel = "Android Test" }) },
+                "approve" => Approve(),
+                "cancel" => new(HttpStatusCode.NoContent),
+                _ => throw new InvalidOperationException("Unexpected pairing request."),
+            };
+
+            HttpResponseMessage Approve()
+            {
+                using var body = request.Content!.ReadFromJsonAsync<System.Text.Json.JsonDocument>().GetAwaiter().GetResult()!;
+                Assert.Equal("123456", body.RootElement.GetProperty("shortCode").GetString());
+                Assert.Equal(reference, body.RootElement.GetProperty("reference").GetString());
+                approved = true;
+                return new(HttpStatusCode.NoContent);
+            }
+        }));
+        var window = new MobilePairingWindow(auth, client);
+        try
+        {
+            window.Show();
+            var controls = (StackPanel)window.Content;
+            var qr = (Image)controls.Children[1];
+            await WaitForPairingWindowAsync(() => qr.Visibility == Visibility.Visible);
+            Assert.NotNull(qr.Source);
+            var confirmation = (StackPanel)controls.Children[2];
+            await WaitForPairingWindowAsync(() => confirmation.Visibility == Visibility.Visible);
+            var approve = (Button)confirmation.Children[1];
+            Assert.False(approve.IsEnabled);
+            ((TextBox)confirmation.Children[0]).Text = "123456";
+            Assert.True(approve.IsEnabled);
+            approve.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitForPairingWindowAsync(() => ((TextBlock)controls.Children[0]).Text.Contains("手机已连接", StringComparison.Ordinal));
+        }
+        finally { window.Close(); }
+    });
+
+    private static async Task WaitForPairingWindowAsync(Func<bool> ready)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        while (!ready()) await Task.Delay(25, timeout.Token);
+    }
+
+    private sealed class PairingHandler(Func<HttpRequestMessage, HttpResponseMessage> send) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(send(request));
+    }
 
     [Fact]
     public Task Session_rows_follow_the_ui_language_for_missing_device_and_platform() => Run(async () =>

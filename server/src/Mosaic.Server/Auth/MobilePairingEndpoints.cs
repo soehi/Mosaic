@@ -10,9 +10,13 @@ internal static class MobilePairingEndpoints
         var group = app.MapGroup("/v1/mobile/pairing");
         group.AddEndpointFilter(async (context, next) =>
         {
-            if (release is null || !context.HttpContext.Request.IsHttps)
+            if (release is null)
             {
-                throw new ApiException(503, "mobile.unavailable", "此服务器尚未配置手机组件的 HTTPS 下载与配对。");
+                throw new ApiException(503, "mobile.unavailable", "服务器的手机组件安装包或发布清单尚未就绪。");
+            }
+            if (!context.HttpContext.Request.IsHttps)
+            {
+                throw new ApiException(503, "mobile.https_required", "手机组件配对要求 HTTPS 请求。");
             }
 
             context.HttpContext.Response.Headers.CacheControl = "no-store";

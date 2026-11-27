@@ -6,7 +6,10 @@
     <sys:String x:Key="Auth.Mobile.Approve">Approve connection</sys:String>
     <sys:String x:Key="Auth.Mobile.Preparing">Requesting a pairing QR code…</sys:String>
     <sys:String x:Key="Auth.Mobile.Scan">Scan the QR code with your phone. After installing, scan it again to connect and approve here.</sys:String>
-    <sys:String x:Key="Auth.Mobile.Unavailable">Mobile widget download is unavailable. Sign in and check that your server supports pairing and has a signed APK configured.</sys:String>
+    <sys:String x:Key="Auth.Mobile.SignIn">Your session has expired. Sign in again under Account &amp; Backup and reopen this window.</sys:String>
+    <sys:String x:Key="Auth.Mobile.RouteMissing">This server does not yet offer mobile widget pairing. Try again after the server is updated.</sys:String>
+    <sys:String x:Key="Auth.Mobile.ReleaseMissing">This server supports pairing, but its mobile installer or release manifest is not ready.</sys:String>
+    <sys:String x:Key="Auth.Mobile.HttpsRequired">Mobile widget pairing requires HTTPS. Check the server address and the reverse proxy's HTTPS configuration.</sys:String>
     <sys:String x:Key="Auth.Mobile.Failed">Could not reach the pairing service. Close this window and try again.</sys:String>
     <sys:String x:Key="Auth.Mobile.Confirm">{0} wants to connect. Enter the six-digit code shown on your phone.</sys:String>
     <sys:String x:Key="Auth.Mobile.Connected">Your phone has connected and is syncing tasks. You can close this window.</sys:String>
