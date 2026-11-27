@@ -3,9 +3,10 @@ using System.Text.Json;
 namespace Mosaic.Mobile.Wire;
 
 /// <summary>
-/// Snapshot metadata. The shared document mentions <c>serverRevision</c> and
-/// <c>cursor</c> on the latest-backup response; the current server does not
-/// send them, so both are optional here.
+/// Latest-backup manifest. <see cref="Cursor"/> is the sync cursor at the time
+/// the snapshot was uploaded: the projection baseline starts there and the
+/// incremental pull continues from it. <see cref="ServerRevision"/> is source
+/// metadata only; it must never be stamped onto individual tasks.
 /// </summary>
 public sealed record BackupManifestDto
 {
@@ -21,14 +22,10 @@ public sealed record BackupManifestDto
 
     public int ItemCount { get; init; }
 
-    public List<BackupManifestItemDto> Items { get; init; } = [];
-
-    public long? ServerRevision { get; init; }
+    public long ServerRevision { get; init; }
 
     public string? Cursor { get; init; }
 }
-
-public sealed record BackupManifestItemDto(string? Kind, string? Key, long? Revision);
 
 public sealed record BackupSnapshotDto
 {
@@ -44,11 +41,11 @@ public sealed record BackupSnapshotDto
 
     public int ItemCount { get; init; }
 
-    public List<BackupItemDto> Items { get; init; } = [];
-
-    public long? ServerRevision { get; init; }
+    public long ServerRevision { get; init; }
 
     public string? Cursor { get; init; }
+
+    public List<BackupItemDto>? Items { get; init; }
 }
 
 public sealed record BackupItemDto
@@ -57,8 +54,8 @@ public sealed record BackupItemDto
 
     public string? Key { get; init; }
 
-    public long? Revision { get; init; }
+    public long Revision { get; init; }
 
-    /// <summary>Task shape or <c>{"value":...}</c> for settings; opaque to the wire layer.</summary>
+    /// <summary>Task shape, or <c>{"value":...}</c> for settings. Opaque here.</summary>
     public JsonElement? Payload { get; init; }
 }

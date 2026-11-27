@@ -1,18 +1,22 @@
 param(
     [ValidateSet('apk', 'aab')]
-    [string]$Format = 'aab',
+    [string]$Format = 'apk',
     [string]$Configuration = 'Release',
-    [string]$Runtime = 'android-arm64'
+    [string]$Runtime = 'android-arm64',
+    [string]$AndroidSdk = $env:ANDROID_HOME,
+    [string]$JavaSdk = $env:JAVA_HOME,
+    [switch]$RunTests
 )
 
 $ErrorActionPreference = 'Stop'
 
-$project = Join-Path $PSScriptRoot '..\src\Mosaic.Mobile.App\Mosaic.Mobile.App.csproj'
-if (-not (Test-Path $project)) {
-    throw "Mobile app project not found: $project"
-}
+$root = Split-Path -Parent $PSScriptRoot
+$project = Join-Path $root 'src\Mosaic.Mobile.App\Mosaic.Mobile.App.csproj'
+$tests = Join-Path $root 'tests\Mosaic.Mobile.Tests\Mosaic.Mobile.Tests.csproj'
 
-dotnet workload restore $project
+if ($RunTests) {
+    dotnet test $tests -c $Configuration --nologo
+}
 
 $publishArgs = @(
     $project,
@@ -22,31 +26,8 @@ $publishArgs = @(
     "-p:AndroidPackageFormat=$Format"
 )
 
-if ($env:ANDROID_HOME) {
-    $publishArgs += "-p:AndroidSdkDirectory=$env:ANDROID_HOME"
-}
-
-if ($env:JAVA_HOME) {
-    $publishArgs += "-p:JavaSdkDirectory=$env:JAVA_HOME"
-}
-
-if ($env:MOSAIC_ANDROID_KEYSTORE) {
-    if (-not $env:MOSAIC_ANDROID_KEYALIAS -or
-        -not $env:MOSAIC_ANDROID_KEYPASS -or
-        -not $env:MOSAIC_ANDROID_STOREPASS) {
-        throw 'Set MOSAIC_ANDROID_KEYALIAS, MOSAIC_ANDROID_KEYPASS and MOSAIC_ANDROID_STOREPASS together with MOSAIC_ANDROID_KEYSTORE.'
-    }
-
-    $publishArgs += @(
-        '-p:AndroidKeyStore=true',
-        "-p:AndroidSigningKeyStore=$env:MOSAIC_ANDROID_KEYSTORE",
-        "-p:AndroidSigningKeyAlias=$env:MOSAIC_ANDROID_KEYALIAS",
-        "-p:AndroidSigningKeyPass=$env:MOSAIC_ANDROID_KEYPASS",
-        "-p:AndroidSigningStorePass=$env:MOSAIC_ANDROID_STOREPASS"
-    )
-}
+if ($AndroidSdk) { $publishArgs += "-p:AndroidSdkDirectory=$AndroidSdk" }
+if ($JavaSdk) { $publishArgs += "-p:JavaSdkDirectory=$JavaSdk" }
 
 dotnet publish @publishArgs
-
-$publishDir = Join-Path (Split-Path $project) "bin\$Configuration\net10.0-android\$Runtime\publish"
-Write-Host "Publish output: $publishDir"
+Write-Host "Artifacts: $root\src\Mosaic.Mobile.App\bin\$Configuration\net10.0-android"

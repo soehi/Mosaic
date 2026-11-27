@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Mosaic</string>
+  <string name="widget_label">Mosaic 任务</string>
+  <string name="widget_description">显示 Mosaic 未归档任务，可直接标记完成或归档。</string>
+  <string name="action_complete">完成</string>
+  <string name="action_archive">归档</string>
+  <string name="action_refresh">刷新</string>
+  <string name="action_complete_compact">✓</string>
+  <string name="action_archive_compact">归</string>
+  <string name="widget_default_headline">正在同步</string>
+</resources>

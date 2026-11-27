@@ -1,47 +1,40 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFrameworks>net10.0-android;net10.0-ios</TargetFrameworks>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
     <OutputType>Exe</OutputType>
-    <UseMaui>true</UseMaui>
-    <SingleProject>true</SingleProject>
     <RootNamespace>Mosaic.Mobile.App</RootNamespace>
     <AssemblyName>Mosaic.Mobile.App</AssemblyName>
+    <Description>Headless Android host: desktop widget and receivers only, no Activity.</Description>
 
-    <ApplicationTitle>Mosaic</ApplicationTitle>
-    <!-- Store package name confirmed by the user; changing it after release is not possible. -->
+    <!-- Same store package as 0.2.x so an install upgrades in place; versionCode 4 was 0.2.1. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
-    <ApplicationDisplayVersion>0.1.1</ApplicationDisplayVersion>
-    <ApplicationVersion>2</ApplicationVersion>
+    <ApplicationDisplayVersion>0.3.1</ApplicationDisplayVersion>
+    <ApplicationVersion>6</ApplicationVersion>
 
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">26</SupportedOSPlatformVersion>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
-
-    <!-- The MAUI head is not part of the workload-free build; central versions
-         from the mobile tree would otherwise require a MAUI package pin. -->
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <MauiVersion>10.0.20</MauiVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Trimming stays on: with PublishTrimmed=false the assembly store's type
+         registration fails on this toolchain (JNI n_onCreate missing), and the
+         kernel's reflection-based JSON must be rooted explicitly. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
   </PropertyGroup>
-
+  <PropertyGroup Condition="'$(MosaicWidgetTestSeed)' == 'true'">
+    <DefineConstants>$(DefineConstants);MOSAIC_WIDGET_TEST_SEED</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
-    <MauiIcon Include="Resources\AppIcon\appicon.svg" Color="#4F46E5" />
-    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#121116" BaseSize="128,128" />
-    <MauiImage Include="Resources\Images\*" />
-    <MauiFont Include="Resources\Fonts\*" />
-    <MauiAsset Include="Resources\Raw\*" />
+    <!-- Keep the kernel assemblies intact: JSON DTOs are used reflectively. -->
+    <TrimmerRootAssembly Include="Mosaic.Mobile.App" RootMode="All" />
+    <TrimmerRootAssembly Include="Mosaic.Mobile.Core" RootMode="All" />
+    <TrimmerRootAssembly Include="Mosaic.Mobile.Wire" RootMode="All" />
   </ItemGroup>
-
   <ItemGroup>
-    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+    <RuntimeHostConfigurationOption Include="System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault" Value="true" Trim="false" />
   </ItemGroup>
-
   <ItemGroup>
-    <ProjectReference Include="..\Mosaic.Mobile.Auth\Mosaic.Mobile.Auth.csproj" />
-    <ProjectReference Include="..\Mosaic.Mobile.Sync\Mosaic.Mobile.Sync.csproj" />
-    <ProjectReference Include="..\Mosaic.Mobile.Storage\Mosaic.Mobile.Storage.csproj" />
-    <ProjectReference Include="..\Mosaic.Mobile.Presentation\Mosaic.Mobile.Presentation.csproj" />
+    <ProjectReference Include="..\Mosaic.Mobile.Core\Mosaic.Mobile.Core.csproj" />
+    <ProjectReference Include="..\Mosaic.Mobile.Wire\Mosaic.Mobile.Wire.csproj" />
   </ItemGroup>
-
 </Project>

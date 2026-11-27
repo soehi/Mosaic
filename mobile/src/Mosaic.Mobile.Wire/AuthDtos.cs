@@ -1,101 +1,91 @@
 namespace Mosaic.Mobile.Wire;
 
-/// <summary>Public server policy fetched at startup / when a server URL is chosen.</summary>
-public sealed record AuthPolicyDto
+public sealed record UserDto
 {
-    public string? ServerName { get; init; }
+    public string? Id { get; init; }
 
-    public bool RegistrationOpen { get; init; } = true;
+    public string? Email { get; init; }
 
-    public bool RequireEmailVerification { get; init; } = true;
+    public DateTimeOffset? CreatedAt { get; init; }
 
-    public bool EmailAvailable { get; init; }
-
-    public int CodeLength { get; init; } = 6;
-
-    public int CodeTtlSeconds { get; init; } = 600;
-
-    public int ResendAfterSeconds { get; init; } = 60;
-
-    public int PasswordMinLength { get; init; } = 10;
-
-    public int PasswordMaxLength { get; init; } = 256;
+    public DateTimeOffset? EmailVerifiedAt { get; init; }
 }
 
-public sealed record EmailCodeRequestDto(string? Email, string? Purpose);
+public sealed record AccountDto
+{
+    public string? UserId { get; init; }
 
-/// <summary>Unified 202 response; never reveals whether the address is registered.</summary>
-public sealed record EmailCodeAcceptedDto
+    public string? Email { get; init; }
+
+    public string? DisplayName { get; init; }
+}
+
+/// <summary>The token pair returned by login, refresh and the device flow.</summary>
+public sealed record SessionDto
+{
+    public string? AccessToken { get; init; }
+
+    public string? RefreshToken { get; init; }
+
+    public DateTimeOffset? AccessTokenExpiresAt { get; init; }
+
+    public DateTimeOffset? RefreshTokenExpiresAt { get; init; }
+
+    public long ExpiresIn { get; init; }
+
+    public UserDto? User { get; init; }
+
+    public AccountDto? Account { get; init; }
+}
+
+public sealed record RefreshRequestDto(string RefreshToken);
+
+public sealed record DeviceStartRequestDto
+{
+    public string? DeviceLabel { get; init; }
+
+    public string? Platform { get; init; }
+
+    public string? AppVersion { get; init; }
+}
+
+public sealed record DeviceStartDto
+{
+    public string? DeviceCode { get; init; }
+
+    public string? UserCode { get; init; }
+
+    public string? VerificationUri { get; init; }
+
+    public string? VerificationUriComplete { get; init; }
+
+    public long ExpiresIn { get; init; }
+
+    public long Interval { get; init; }
+}
+
+public sealed record DevicePollRequestDto(string DeviceCode);
+
+public sealed record DevicePollDto
 {
     public string? Status { get; init; }
 
-    public int? ResendAfterSeconds { get; init; }
+    public long Interval { get; init; }
+
+    public SessionDto? Session { get; init; }
 }
 
-public sealed record RegisterRequestDto
+public static class DevicePollStatus
 {
-    public string? Email { get; init; }
-
-    public string? Password { get; init; }
-
-    public string? Code { get; init; }
-
-    public string? DeviceLabel { get; init; }
+    public const string Pending = "pending";
+    public const string Approved = "approved";
+    public const string Denied = "denied";
+    public const string Expired = "expired";
 }
 
-public sealed record LoginRequestDto
+public static class AuthErrorCodes
 {
-    public string? Email { get; init; }
-
-    public string? Password { get; init; }
-
-    public string? DeviceLabel { get; init; }
-}
-
-public sealed record CodeLoginRequestDto
-{
-    public string? Email { get; init; }
-
-    public string? Code { get; init; }
-
-    public string? DeviceLabel { get; init; }
-}
-
-public sealed record RefreshRequestDto(string? RefreshToken);
-
-public sealed record LogoutRequestDto(string? RefreshToken, bool? AllDevices);
-
-public sealed record ForgotPasswordRequestDto(string? Email);
-
-public sealed record ResetPasswordRequestDto
-{
-    public string? Email { get; init; }
-
-    public string? Code { get; init; }
-
-    public string? NewPassword { get; init; }
-}
-
-public sealed record SimpleStatusDto(string? Status);
-
-/// <summary>Optional body for <c>sessions/revoke-all</c>; no body means every session.</summary>
-public sealed record RevokeAllSessionsRequestDto(bool KeepCurrent);
-
-/// <summary>Account-delete payload: exactly one of password / fresh email code.</summary>
-public sealed record DeleteAccountRequestDto
-{
-    public string? Password { get; init; }
-
-    public string? Code { get; init; }
-}
-
-public static class EmailCodePurpose
-{
-    public const string Register = "register";
-
-    public const string Login = "login";
-
-    public const string Reset = "reset";
-
-    public const string DeleteAccount = "delete-account";
+    public static bool IsSessionFailure(string? code) => code is not null && (
+        code.StartsWith("auth.", StringComparison.Ordinal)
+        || string.Equals(code, "auth.required", StringComparison.Ordinal));
 }

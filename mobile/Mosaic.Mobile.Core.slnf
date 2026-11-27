@@ -2,15 +2,9 @@
   "solution": {
     "path": "Mosaic.Mobile.sln",
     "projects": [
-      "src\\Mosaic.Mobile.Wire\\Mosaic.Mobile.Wire.csproj",
-      "src\\Mosaic.Mobile.Auth\\Mosaic.Mobile.Auth.csproj",
-      "src\\Mosaic.Mobile.Storage\\Mosaic.Mobile.Storage.csproj",
-      "src\\Mosaic.Mobile.Sync\\Mosaic.Mobile.Sync.csproj",
-      "src\\Mosaic.Mobile.Presentation\\Mosaic.Mobile.Presentation.csproj",
-      "tests\\Mosaic.Mobile.Wire.Tests\\Mosaic.Mobile.Wire.Tests.csproj",
-      "tests\\Mosaic.Mobile.Auth.Tests\\Mosaic.Mobile.Auth.Tests.csproj",
-      "tests\\Mosaic.Mobile.Sync.Tests\\Mosaic.Mobile.Sync.Tests.csproj",
-      "tests\\Mosaic.Mobile.Presentation.Tests\\Mosaic.Mobile.Presentation.Tests.csproj"
+      "src/Mosaic.Mobile.Wire/Mosaic.Mobile.Wire.csproj",
+      "src/Mosaic.Mobile.Core/Mosaic.Mobile.Core.csproj",
+      "tests/Mosaic.Mobile.Tests/Mosaic.Mobile.Tests.csproj"
     ]
   }
 }

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Mosaic.Mobile.Core</RootNamespace>
+    <AssemblyName>Mosaic.Mobile.Core</AssemblyName>
+    <Description>Headless mobile kernel: session restore, read-only task projection, single-task commands and card models.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Mosaic.Mobile.Wire\Mosaic.Mobile.Wire.csproj" />
+  </ItemGroup>
+</Project>

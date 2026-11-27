@@ -2,6 +2,6 @@
   <PropertyGroup>
     <RootNamespace>Mosaic.Mobile.Wire</RootNamespace>
     <AssemblyName>Mosaic.Mobile.Wire</AssemblyName>
-    <Description>Mosaic /v1 wire mirror: DTOs, error codes and JSON options. No platform or app references.</Description>
+    <Description>Wire contract for the Mosaic /v1 API consumed by the headless mobile client.</Description>
   </PropertyGroup>
 </Project>
