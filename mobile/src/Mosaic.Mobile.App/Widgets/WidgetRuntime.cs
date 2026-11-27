@@ -21,6 +21,12 @@ internal static class WidgetRuntime
 
     public static async Task<CardModel> RefreshAsync()
     {
+#if MOSAIC_WIDGET_TEST_SEED
+        if (TestSeedStore.IsSeeded)
+        {
+            return Remember(TestSeedStore.Model());
+        }
+#endif
         try
         {
             using var budget = new CancellationTokenSource(WorkBudget);
@@ -38,6 +44,14 @@ internal static class WidgetRuntime
 
     public static async Task<CardActionResult> ExecuteAsync(Guid taskId, CardAction action)
     {
+#if MOSAIC_WIDGET_TEST_SEED
+        if (TestSeedStore.IsSeeded)
+        {
+            var seeded = TestSeedStore.Apply(taskId, action);
+            Remember(seeded.Model);
+            return seeded;
+        }
+#endif
         try
         {
             using var budget = new CancellationTokenSource(WorkBudget);

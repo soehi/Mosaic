@@ -1,9 +1,9 @@
-# 手机端 0.3.0 实施记录
+# 手机端 0.3.1 实施记录
 
 日期：2026-11-26
 分支：`claude/mobile-rebuild-8c92e7`
 备份 tag：`backup/mobile-pre-refactor-20261126` → `8bc0acdee39fcb643e0461165ee0ba230c7e52a6`
-版本：`0.3.0` / Android `versionCode=5` / 包名 `app.mosaic.tasks`
+版本：`0.3.1` / Android `versionCode=6` / 包名 `app.mosaic.tasks`
 需求基线：`docs/mobile-refactor-plan.md`（未修改）
 
 ## 1. 根因位置
@@ -126,3 +126,74 @@ dotnet test mobile/tests/Mosaic.Mobile.Tests/Mosaic.Mobile.Tests.csproj -c Relea
 - 无 WebView、无密码输入面。
 - `network_security_config` 明文关闭（仅回环例外），`usesCleartextTraffic="false"`。
 - 不读取桌面 `mosaic.sqlite`，不引用桌面程序集；手机端只消费 `/v1`。
+## 8. 0.3.1 修复（用户实测反馈）
+
+用户实测 0.3.0 小组件显示“载入窗口小部件出现问题”，并要求改为 4×2 横向、提供可直接查看的测试任务条。本轮只修这几处，不重做手机端。
+
+### 8.1 根因位置
+
+| 编号 | 根因位置 | 触发条件与出错原因 |
+|---|---|---|
+| R8 | `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml:49`（0.3.0） | 分隔线用了原生 `<View>`。`RemoteViews` 只接受白名单类型（`LinearLayout`、`FrameLayout`、`TextView`、`ImageView`、`Button` 等），`android.view.View` 不在其中，launcher 在 apply 时抛 `InflateException`，界面显示“载入窗口小部件出现问题”。 |
+| R9 | `mobile/src/Mosaic.Mobile.App/Widgets/TaskWidgetProvider.cs`（0.3.0）`[BroadcastReceiver(Exported = false)]` | 系统 `AppWidgetService` 以不同 UID 发送 `ACTION_APPWIDGET_UPDATE`，`exported="false"` 使其无法投递，`onUpdate` 从不执行，小组件永远停在 `initialLayout`（“正在同步”）。预览与桌面渲染都走 `initialLayout`/`previewLayout`，所以“布局正常但内容不刷新”的表现与布局问题无关。 |
+| R10 | `mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj`（0.3.0）`<PublishTrimmed>false</PublishTrimmed>` | 该 SDK（Microsoft.Android.Sdk 36.1.69）在关闭 trimming 且引用 `System.Text.Json` 时，托管类型注册失败：进程启动即 `java.lang.UnsatisfiedLinkError: No implementation found for void ...MosaicApplication.n_onCreate()`。已用最小工程复现并确认与本仓库代码无关。 |
+| R11 | `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRenderer.cs`（0.3.0）`ResolveRowCount` | `AppWidgetOptions` 的 min/max 高度是**像素**，旧实现直接当 dp 比较，密度 2.0 的机器上 4×2（110dp≈220px）被算成 5 行，底部留白且行数不可控。 |
+| R12 | `mobile/src/Mosaic.Mobile.App/Resources/xml/widget_tasks_info.xml`（0.3.0） | 尺寸写成 2×4（`minWidth=110dp`、`minHeight=250dp`、`targetCell=2×4`），与用户要求的 4×2 横向相反。 |
+
+### 8.2 改动位置
+
+| 文件 | 改动 |
+|---|---|
+| `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml` | 分隔线 `<View>` → `TextView`（`layout_height="1dp"`、`background="@color/widget_divider"`，id `widget_divider`）；根 padding 12dp→8dp；行高 27dp→26dp、行距 2dp→1dp；按钮文字改用 `action_complete_compact`/`action_archive_compact`（窄宽时单字标签）；文件头注释写明 RemoteViews 白名单 |
+| `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks_safe.xml`（新增） | 只含 `LinearLayout`/`TextView` 的兜底布局：标题、说明、刷新 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRenderer.cs` | `Render` 外包 try/catch，失败时 `RenderSafe` 用兜底布局重绘；`ResolveRowCount` 按 `DisplayMetrics.Density` 把像素换算成 dp 后分档（≥220→5、≥170→4、≥140→3、≥100→2、>0→1）；`UseCompactLabels` 按宽度 <180dp 切单字按钮；新增 `BuildViews`/`RenderSafe` |
+| `mobile/src/Mosaic.Mobile.App/Widgets/TaskWidgetProvider.cs` | `Exported = true`（系统广播必需），`OnReceive` 只放行 `APPWIDGET_UPDATE/DELETED/OPTIONS_CHANGED/ENABLED/DISABLED/RESTORED`，其余直接丢弃 |
+| `mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj` | `PublishTrimmed=true` + `TrimMode=partial`；`TrimmerRootAssembly` 保留 App/Core/Wire（`RootMode="All"`）；`System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault=true`；新增 `MosaicWidgetTestSeed` 条件编译开关；版本 0.3.1 / versionCode 6 |
+| `mobile/src/Mosaic.Mobile.App/Resources/xml/widget_tasks_info.xml` | `minWidth=250dp`、`minHeight=110dp`、`minResizeWidth/Height=110dp`、`targetCellWidth=4`、`targetCellHeight=2`，`updatePeriodMillis=0` 不变 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/TestSeedStore.cs`（新增，`#if MOSAIC_WIDGET_TEST_SEED`） | 6 条中文假任务（4 未完成、1 已完成、1 已归档，其中一条长标题用于测省略）；状态存独立偏好 `mosaic.mobile.v3.testseed`，**不碰投影目录、不伪造登录态**；`Model()` 直接产出 `CardModel`，详情行前缀“测试数据 · ” |
+| `mobile/src/Mosaic.Mobile.App/Widgets/TestSeedReceiver.cs`（新增，同上条件编译） | 导出接收器，仅响应 `app.mosaic.mobile.action.SEED_TEST`，重置种子并重绘全部 widget |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRuntime.cs` | 种子启用时 `RefreshAsync`/`ExecuteAsync` 走 `TestSeedStore`，完成/归档在本地改状态并重渲染，toast 带“测试数据”；`RenderAll` 单实例渲染失败不再影响其他实例 |
+| `mobile/src/Mosaic.Mobile.App/MosaicApplication.cs` | 测试构建在 `OnCreate` 调 `TestSeedStore.EnsureSeeded`；正式构建不编译该调用 |
+| `mobile/Directory.Build.props` | `<Version>` 0.3.0 → 0.3.1 |
+
+### 8.3 测试种子边界
+
+- 只在 `-p:MosaicWidgetTestSeed=true` 时编译；正式 Release 包不包含 `TestSeedStore`、`TestSeedReceiver` 及 `SEED_TEST` 广播，可用 `aapt2 dump xmltree` 与 `dexdump`/字符串检索确认。
+- 种子数据写在独立偏好文件，与 `mosaic.mobile.v3.secure`、`projections-v3/`、`mosaic.mobile.v3.config` 都无关；不写令牌、不写账号目录。
+- 详情行固定显示“测试数据 · 共 N 项未归档”，完成/归档 toast 均以“测试数据”开头，避免与真实同步混淆。
+
+### 8.4 模拟器实测（MuMu 12，Android 15 / x86_64，720×1280，density 2.0）
+
+| 项 | 结果 |
+|---|---|
+| 布局 inflate | 通过：桌面不再出现“载入窗口小部件出现问题” |
+| 2×4 预览 | 通过：微件面板显示预览与标题/按钮，无截断 |
+| 4×2 配置 | 通过：`dumpsys appwidget` 显示 `min=(64001x28161)`，即 250dp×110dp |
+| 系统 `APPWIDGET_UPDATE` | 通过：`exported=true` 后进程被拉起（`Start proc ... for broadcast`） |
+| JNI 注册 | 通过：开启 trimming 后 `MosaicApplication.n_onCreate` 不再抛 `UnsatisfiedLinkError` |
+| 测试种子渲染 | 通过：显示 4 项待办 / 共 5 项未归档 / 3 条可见行 / 长标题省略 |
+| 完成按钮 | 通过：待办 4→3，首行变为 ✓，toast“测试数据：已标记完成” |
+| 归档按钮 | 通过（同一 PendingIntent 路径，`CardActionCodec.RequestCode` 区分） |
+| 行数分档 | 已按密度换算修复；4×2 应为 2 行，需在真机/新实例上复核 |
+| 4×2 桌面实例 | 未验证：MuMu 的 Lawnchair 复用旧 2×4 实例，需在真机上添加全新实例确认 |
+
+### 8.5 无头 adb 自动化验证（不依赖图形界面）
+
+MuMu 以 `MuMuManager control -v 0 launch` 命令行启动，只用 `adb` 完成安装、广播、手势、截图与日志采集；证据在 `artifacts/mobile-0.3.1/headless/`。
+
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| 启动/连接 | `MuMuManager.exe control -v 0 launch` → `adb connect 127.0.0.1:16384` | 成功，Android 15 / x86_64 |
+| 安装 x64 测试包 | `adb install -r ...test-x86_64.apk` | Success |
+| 生成种子 | `adb shell am broadcast -a app.mosaic.mobile.action.SEED_TEST -n app.mosaic.tasks/...TestSeedReceiver` | `dumpsys appwidget` 中 `id=8` 出现 `views=android.widget.RemoteViews@...`；截图 `01-seeded.png` 显示 4 项待办 / 测试数据 |
+| 完成按钮 | `adb shell input tap 272 771` | 待办 4→3，首行 ✓，截图 `02-after-complete.png`，logcat 有 `Trying to notify widget update for package app.mosaic.tasks with widget id: 8` |
+| 归档按钮 | `adb shell input tap 315 809` | 待办 3→2，截图 `03-after-archive.png`，同上广播记录 |
+| 系统尺寸配置 | `adb shell dumpsys appwidget` | `min=(64001x28161)` = 250dp × 110dp，即 4×2；`minResize=(28161x28161)` = 110dp × 110dp |
+| 4×2 实例外观 | `adb shell input draganddrop` 调整宽高 + `screencap` | 宽高已扩到 4 列宽，但 Lawnchair 仍按最小行高 110dp 布局并保留 3 行空白；实例缩放行为属于 launcher 实现，**4×2 新实例的底部裁切必须真机复核** |
+| 日志 | `adb logcat -d` 过滤保存 | `headless/logcat.txt`（13 行，无令牌/邮箱/备注） |
+
+自动化覆盖不到的只有：launcher 图形化微件面板选择“4×2 预览”的摆放过程、真机 arm64 设备、真实服务端联调。
+
+### 8.6 未验证项
+
+真机（arm64）安装与交互、4×2 新实例的实际行数与底部裁切、流体云（仍为阻塞）、真实服务端联调、覆盖安装与卸载重装。

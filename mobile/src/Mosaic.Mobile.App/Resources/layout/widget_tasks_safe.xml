@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Last-resort layout: only types the RemoteViews whitelist accepts. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <TextView
+        android:id="@+id/safe_headline"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:text="@string/widget_default_headline"
+        android:textColor="@color/widget_text_primary"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/safe_detail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="10sp" />
+
+    <TextView
+        android:id="@+id/safe_refresh"
+        android:layout_width="wrap_content"
+        android:layout_height="24dp"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/widget_action"
+        android:gravity="center"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:text="@string/action_refresh"
+        android:textColor="@color/widget_accent"
+        android:textSize="11sp" />
+</LinearLayout>

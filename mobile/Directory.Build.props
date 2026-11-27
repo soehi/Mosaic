@@ -15,7 +15,7 @@
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
     <Deterministic>true</Deterministic>
     <UseSharedCompilation>false</UseSharedCompilation>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <Authors>Mosaic</Authors>
     <Product>Mosaic Mobile</Product>
   </PropertyGroup>

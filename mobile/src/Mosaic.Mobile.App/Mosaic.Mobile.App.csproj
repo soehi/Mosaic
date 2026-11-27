@@ -9,15 +9,30 @@
 
     <!-- Same store package as 0.2.x so an install upgrades in place; versionCode 4 was 0.2.1. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
-    <ApplicationDisplayVersion>0.3.0</ApplicationDisplayVersion>
-    <ApplicationVersion>5</ApplicationVersion>
+    <ApplicationDisplayVersion>0.3.1</ApplicationDisplayVersion>
+    <ApplicationVersion>6</ApplicationVersion>
 
     <AndroidPackageFormat>apk</AndroidPackageFormat>
-    <!-- Reflection-based System.Text.Json plus SQLitePCLRaw are trimmed unsafely. -->
-    <PublishTrimmed>false</PublishTrimmed>
+    <!-- Trimming stays on: with PublishTrimmed=false the assembly store's type
+         registration fails on this toolchain (JNI n_onCreate missing), and the
+         kernel's reflection-based JSON must be rooted explicitly. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
     <RunAOTCompilation>false</RunAOTCompilation>
     <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(MosaicWidgetTestSeed)' == 'true'">
+    <DefineConstants>$(DefineConstants);MOSAIC_WIDGET_TEST_SEED</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Keep the kernel assemblies intact: JSON DTOs are used reflectively. -->
+    <TrimmerRootAssembly Include="Mosaic.Mobile.App" RootMode="All" />
+    <TrimmerRootAssembly Include="Mosaic.Mobile.Core" RootMode="All" />
+    <TrimmerRootAssembly Include="Mosaic.Mobile.Wire" RootMode="All" />
+  </ItemGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault" Value="true" Trim="false" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Mosaic.Mobile.Core\Mosaic.Mobile.Core.csproj" />
     <ProjectReference Include="..\Mosaic.Mobile.Wire\Mosaic.Mobile.Wire.csproj" />
