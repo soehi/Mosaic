@@ -173,9 +173,9 @@ dotnet test mobile/tests/Mosaic.Mobile.Tests/Mosaic.Mobile.Tests.csproj -c Relea
 | JNI 注册 | 通过：开启 trimming 后 `MosaicApplication.n_onCreate` 不再抛 `UnsatisfiedLinkError` |
 | 测试种子渲染 | 通过：显示 4 项待办 / 共 5 项未归档 / 3 条可见行 / 长标题省略 |
 | 完成按钮 | 通过：待办 4→3，首行变为 ✓，toast“测试数据：已标记完成” |
-| 归档按钮 | 通过（同一 PendingIntent 路径，`CardActionCodec.RequestCode` 区分） |
-| 行数分档 | 已按密度换算修复；4×2 应为 2 行，需在真机/新实例上复核 |
-| 4×2 桌面实例 | 未验证：MuMu 的 Lawnchair 复用旧 2×4 实例，需在真机上添加全新实例确认 |
+| 归档按钮 | 通过：共 5→4 项、待办 3→2，长标题那条消失，截图 `20-tap-archive.png` |
+| 行数分档 | 已改为按可用高度算术计算：`(heightDp - 53) / 27`，夹在 1..5。实测 Launcher 上报 `minW=539 maxW=994 minH=134 maxH=337 density=2`（即 168.5dp）→ 4 行，与截图一致 |
+| 4×2 桌面实例 | 通过（无头 adb 拖拽到 4 列宽）：4 行渲染、无底部裁切、完成/归档按钮可点，见 `headless/17-final-4x2.png`、`19-tap-complete.png`、`20-tap-archive.png` |
 
 ### 8.5 无头 adb 自动化验证（不依赖图形界面）
 
@@ -189,7 +189,7 @@ MuMu 以 `MuMuManager control -v 0 launch` 命令行启动，只用 `adb` 完成
 | 完成按钮 | `adb shell input tap 272 771` | 待办 4→3，首行 ✓，截图 `02-after-complete.png`，logcat 有 `Trying to notify widget update for package app.mosaic.tasks with widget id: 8` |
 | 归档按钮 | `adb shell input tap 315 809` | 待办 3→2，截图 `03-after-archive.png`，同上广播记录 |
 | 系统尺寸配置 | `adb shell dumpsys appwidget` | `min=(64001x28161)` = 250dp × 110dp，即 4×2；`minResize=(28161x28161)` = 110dp × 110dp |
-| 4×2 实例外观 | `adb shell input draganddrop` 调整宽高 + `screencap` | 宽高已扩到 4 列宽，但 Lawnchair 仍按最小行高 110dp 布局并保留 3 行空白；实例缩放行为属于 launcher 实现，**4×2 新实例的底部裁切必须真机复核** |
+| 4×2 实例外观 | `adb shell input draganddrop` 调整宽高 + `screencap` | 通过：拖到 4 列宽后实测上报 `minW=539 maxW=994 minH=134 maxH=337 density=2`（168.5dp），按算术规则渲染 4 行、无底部裁切、按钮同行，见 `headless/17-final-4x2.png`、`18-arithmetic.png`、`21-delivered-verify.png` |
 | 日志 | `adb logcat -d` 过滤保存 | `headless/logcat.txt`（13 行，无令牌/邮箱/备注） |
 
 自动化覆盖不到的只有：launcher 图形化微件面板选择“4×2 预览”的摆放过程、真机 arm64 设备、真实服务端联调。

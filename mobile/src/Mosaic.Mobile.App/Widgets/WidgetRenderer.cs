@@ -22,6 +22,12 @@ internal static class WidgetRenderer
     /// <summary>Rows below this width use one-character labels so both actions stay on the row.</summary>
     private const int CompactWidthDp = 180;
 
+    /// <summary>Padding, headline, detail and divider, in dp.</summary>
+    private const double ChromeHeightDp = 53;
+
+    /// <summary>One row plus its spacing, in dp.</summary>
+    private const double RowStepDp = 27;
+
     private static readonly int[] RowIds =
     [
         Resource.Id.row_1,
@@ -157,15 +163,17 @@ internal static class WidgetRenderer
     }
 
     /// <summary>
-    /// Rows that fit the current height. The maximum height is authoritative for
-    /// the size in use; the minimum is only a fallback for hosts that omit it.
-    /// A 4x2 cell (~110dp) shows two rows, a taller cell up to five.
+    /// Rows that fit the current height, computed from the space the chrome
+    /// actually uses instead of a fixed bucket table: 6dp padding top/bottom,
+    /// a 24dp headline row, the detail line and the 1dp divider take ~53dp,
+    /// and each row is 26dp plus 1dp spacing. A 4x2 cell (~110dp) yields two
+    /// rows; a taller cell fills up to five so no empty band is left behind.
     /// </summary>
     private static int ResolveRowCount(Bundle? options)
     {
-        // AppWidgetOptions sizes are pixels, not dp. Convert with the display
-        // density so a 4x2 cell (~110dp) always lands in the two-row bucket.
-        var density = Android.Content.Res.Resources.System?.DisplayMetrics?.Density ?? 1f;
+        // AppWidgetOptions sizes are pixels, not dp.
+        var metrics = Android.Content.Res.Resources.System?.DisplayMetrics;
+        var density = metrics?.Density ?? 1f;
         if (density <= 0f)
         {
             density = 1f;
@@ -177,16 +185,14 @@ internal static class WidgetRenderer
             heightPixels = ReadOption(options, AppWidgetManager.OptionAppwidgetMinHeight);
         }
 
-        var height = heightPixels / density;
-        return height switch
+        if (heightPixels <= 0)
         {
-            >= 220 => 5,
-            >= 170 => 4,
-            >= 140 => 3,
-            >= 100 => 2,
-            > 0 => 1,
-            _ => 2,
-        };
+            return 2;
+        }
+
+        var heightDp = heightPixels / density;
+        var rows = (int)((heightDp - ChromeHeightDp) / RowStepDp);
+        return Math.Clamp(rows, 1, RowIds.Length);
     }
 
     private static bool UseCompactLabels(Bundle? options)
