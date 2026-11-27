@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-"currentReleaseId": "mosaic-0.19.4",
+"currentReleaseId": "mosaic-0.19.5",
   "releases": [
     {
       "releaseId": "mosaic-0.1.0",
@@ -1068,6 +1068,22 @@
         "修复在任务速览内拖动任务条时的闪屏：拖拽提示层、浮窗预览窗与桌面驻留面板此前在每次鼠标移动或轮询时都无条件重写窗口几何与布局，分层窗口反复重建合成表面；现在只在几何真正变化时写入，并在显示器、DPI 或工作区变化时正确失效缓存。"
       ],
       "contentSha256": "53BCB2BAC1E60A9D36A79F8DA8D41495D70CC0E2604BC045BCA0AE379ECEB809"
+    },
+    {
+      "releaseId": "mosaic-0.19.5",
+      "version": "0.19.5",
+      "releasedOn": "2026-11-27",
+      "previousReleaseId": "mosaic-0.19.4",
+      "added": [
+        "「设置 → 账户与备份」新增「下载手机组件」。使用手机扫描二维码，在支持配对的服务器下载并安装 Android 组件；再次扫码后，将手机显示的六位码输入桌面端确认，手机组件即可用同一账号同步任务。"
+      ],
+      "improved": [
+        "Android 小组件按宿主可用高度显示任务，支持纵向滚动及长按切换任务组。"
+      ],
+      "fixed": [
+        "账户与备份在并发操作期间从同一服务地址和会话状态读取访问令牌，避免切换服务器时使用旧地址刷新会话。"
+      ],
+      "contentSha256": "F6306FD3B1D841A881D2B848B052E7E8BABD8B175284F917E2C71806DC79AB86"
     }
   ]
 }

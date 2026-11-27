@@ -181,4 +181,16 @@ internal static class Schema
             updated_at INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS ix_attachments_user ON attachments(user_id, task_id);
         """;
+
+    public const string Migration4 = """
+        CREATE TABLE mobile_pairings(
+            reference_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            family_id TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            device_id TEXT UNIQUE REFERENCES device_auth(id) ON DELETE CASCADE,
+            short_code TEXT,
+            cancelled_at INTEGER);
+        CREATE INDEX ix_mobile_pairings_expires ON mobile_pairings(expires_at);
+        """;
 }

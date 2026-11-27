@@ -1,75 +1,60 @@
-# Mosaic Mobile
+# Mosaic 手机端（0.3.0）
 
-Android/iOS 第一版：只消费 Mosaic 服务端 `/v1` wire 协议，查看同步到账号的任务与设置。
+无界面的 Android 客户端：只有桌面小组件与系统级实时呈现边界，没有 Activity、没有页面、没有设置页。
+任务数据来自服务端 `/v1` 备份与增量变更的只读投影；唯一写路径是单任务 `POST /v1/sync/changes`。
 
-## 目录
+需求基线：`docs/mobile-refactor-plan.md`（本目录不改写该文件）。
 
-| 项目 | 目标框架 | 作用 |
-| --- | --- | --- |
-| `src/Mosaic.Mobile.Wire` | net10.0 | `/v1` DTO、错误码、JSON 选项与样例解析；不引用桌面或服务端程序集 |
-| `src/Mosaic.Mobile.Auth` | net10.0 | 唯一 HTTP 客户端、登录/注册/验证码/忘记密码、令牌生命周期、Device Flow、密钥存储抽象 |
-| `src/Mosaic.Mobile.Storage` | net10.0 | 自有 SQLite 投影（任务、设置、tombstone、游标）与预留 outbox |
-| `src/Mosaic.Mobile.Sync` | net10.0 | 只读增量同步、设置白名单、`sync.cursor_invalid`/`sync.invalid` 快照恢复、单条写入客户端 |
-| `src/Mosaic.Mobile.Presentation` | net10.0 | 视图模型、中英文案、浅深主题状态 |
-| `src/Mosaic.Mobile.App` | net10.0-android / net10.0-ios | MAUI 壳、页面、Android Keystore / iOS Keychain |
-| `tests/*` | net10.0 | 契约、认证状态机、Device Flow、同步/存储、视图模型测试 |
+## 组成
 
-## 构建与测试
+| 工程 | 作用 |
+|---|---|
+| `src/Mosaic.Mobile.Wire` | `/v1` wire 契约：DTO、JSON 配置、错误信封与错误码 |
+| `src/Mosaic.Mobile.Core` | 无 UI 内核：配置边界、会话无 UI 恢复、只读投影、备份引导、增量拉取、单任务写入、卡片模型、流体云适配器接口 |
+| `src/Mosaic.Mobile.App` | `net10.0-android` 宿主：`Application`、`AppWidgetProvider`、广播接收器、RemoteViews、Keystore 安全存储 |
+| `tests/Mosaic.Mobile.Tests` | 窄写请求构造、409/401/离线语义、幂等重放、身份隔离、投影与卡片模型、备份哈希 |
 
-无 MAUI 工作负载的机器（CI、桌面）：
+## 数据与安全边界
+
+- 投影按 `sha256(规范化服务器地址 + NUL + userId)` 隔离，文件名为该哈希；打开前校验 owner 与 schema，不匹配则移入 `quarantine/` 并拒绝展示。
+- 投影目录为 `files/projections-v3/`，与 0.2.x 的 `files/projections/` 不同名；旧目录在首次启动时整体改名为 `retired-projections-v2-<时间戳>`，**不迁移、不读取**。
+- 令牌只写 Android Keystore AES/GCM 加密后的私有偏好（`mosaic.mobile.v3.secure`），`android:allowBackup="false"` 且排除云备份/设备迁移；旧 `mosaic_secure` 偏好与旧 Keystore 别名在首次启动时删除。
+- 只允许 HTTPS；仅回环地址允许 http 供本地开发。没有忽略证书错误的开关，客户端不内嵌 WebView。
+- 日志与崩溃信息不写令牌、验证码、设备码或邮箱；卡片布局只出现数量、标题与状态文案。
+
+## 三个动作
+
+| 动作 | 行为 |
+|---|---|
+| 标记完成 | payload 置 `isCompleted=true`、`completedAtUtc=now`、`restoredAtUtc=null`、`updatedAtUtc=now`、`revision=旧+1`，`archivedAtUtc` 不变，`deleted=false` |
+| 归档 | payload 置 `archivedAtUtc=now`、`updatedAtUtc=now`、`revision=旧+1`，保留完成状态，`deleted=false`（绝不写 tombstone） |
+| 刷新 | 会话恢复 → 备份引导（首次）→ 增量拉取 → 重绘 |
+
+写入请求带 `baseServerRevision` 与 `clientRevision=revision+1`，每次动作生成新的 `idempotencyKey`。409 时用 `details.current` 覆盖本地行并提示“任务已被其他设备修改”；401 清除令牌并显示会话失效；网络错误显示“离线，操作未提交”。没有 outbox、没有离线排队、没有本地乐观写入。
+
+## 配置与登录（后置）
+
+按计划，真实连接方式后置。当前实现：
+
+- 服务器地址由 `IServerConfigProvider` 注入；Android 实现读取私有偏好 `mosaic.mobile.v3.config` 的 `serverUrl` / `deviceLabel`。
+- 会话由 `SessionManager` 无 UI 恢复：读取加密记录 → 必要时刷新 → 用 `/v1/auth/me` 校验身份。没有 Activity 参与。
+- 未配置服务器时卡片显示“未配置服务器”；没有有效会话时显示“等待登录”。
+
+## 流体云
+
+阶段 0 结论：OPPO ColorOS 流体云在本轮不可接入（无 OPPO 开放平台凭证、文档受权限控制、无 ColorOS 15+ 真机）。`IFluidCloudAdapter` 边界保留，Android 绑定 `AndroidFluidCloudAdapter` 返回明确的 Blocked 状态，卡片底部显示“流体云不可用”；**不使用 AppWidget 冒充流体云**。
+
+## 构建
 
 ```powershell
-dotnet build mobile/Mosaic.Mobile.Core.slnf
+dotnet build mobile/Mosaic.Mobile.Core.slnf -c Release
+dotnet test mobile/tests/Mosaic.Mobile.Tests/Mosaic.Mobile.Tests.csproj -c Release
 ```
+
+Android 宿主需要 Android SDK 与 JDK 21：
 
 ```powershell
-dotnet test mobile/tests/Mosaic.Mobile.Wire.Tests/Mosaic.Mobile.Wire.Tests.csproj
+dotnet build mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj -c Release -p:AndroidSdkDirectory="D:\Android\Sdk" -p:JavaSdkDirectory="C:\Program Files\Microsoft\jdk-21.0.13.102-hotspot"
 ```
 
-```powershell
-dotnet test mobile/tests/Mosaic.Mobile.Auth.Tests/Mosaic.Mobile.Auth.Tests.csproj
-```
-
-```powershell
-dotnet test mobile/tests/Mosaic.Mobile.Sync.Tests/Mosaic.Mobile.Sync.Tests.csproj
-```
-
-```powershell
-dotnet test mobile/tests/Mosaic.Mobile.Presentation.Tests/Mosaic.Mobile.Presentation.Tests.csproj
-```
-
-构建 App 头需要 MAUI 工作负载与 Android SDK：
-
-```powershell
-dotnet workload install maui
-```
-
-```powershell
-dotnet build mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj -f net10.0-android
-```
-
-iOS 构建需要 macOS + Xcode 签名环境。
-
-## 边界与规则
-
-- 只调用 `/v1`。不读取桌面 `mosaic.sqlite`，不引用桌面 Shell/Tasks 程序集。
-- 网络只有一个所有者：`MosaicApiClient`（`Mosaic.Mobile.Auth`）。Sync 通过 `IMosaicApi` 使用它，自己不发请求。
-- 默认离线可用；未登录也能打开任务缓存。登录是可选的。
-- 只有 refresh token、deviceId、serverUrl、账号标识落盘，且只经 `ISecretStorage`（Android Keystore AES-GCM / iOS Keychain）。access token 只存在于内存。
-- 密码、邮箱验证码、授权码、令牌不写日志、不入普通文件、不进系统备份（Android 备份规则显式排除）。
-- 第一版只读同步：`SyncWriteClient` 已按服务端 0.1.1 单条写入实现，outbox 排空与冲突选择 UI 属于第二阶段。
-
-## 已知限制
-
-- Android Release 已在安装 `maui-android`/`maui-ios` 工作负载、JDK 21 与 Android SDK 36 的机器上编译通过；尚未在真机/模拟器启动，iOS 未构建。
-- 服务端 0.1.1 已提供会话列表/撤销、账号删除、`/v1/device/info` 与单条同步写入；手机端已按最终 wire 对齐，剩余确认项见 [协议对齐](docs/protocol-conflicts.md)。
-- 应用包名已确认：`app.mosaic.tasks`（Android `applicationId` / iOS bundle identifier）；上架后不可更改。上架渠道与合规材料仍待准备。
-- 主题与语言在本机即时生效并持久化；云端的可移植设置是只读同步，本地修改会在下一次同步时被服务器值覆盖。
-
-## 文档
-
-- [实施记录](docs/implementation-status.md)
-- [协议对齐与待确认项](docs/protocol-conflicts.md)
-- [Mosaic Mobile 0.1.1 发布说明](docs/releases/v0.1.1.md)
-- 共享协议：[docs/auth-sync-server-plan.md](../docs/auth-sync-server-plan.md)
-- 手机端规划：[docs/mobile-auth-sync-plan.md](../docs/mobile-auth-sync-plan.md)
+打包见 `build/package-android.ps1`（默认 `apk`，可 `-RunTests`）。

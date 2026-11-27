@@ -1,6 +1,18 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Auth.Mobile.Title">Download mobile widget</sys:String>
+    <sys:String x:Key="Auth.Mobile.Code">Six-digit code shown on your phone</sys:String>
+    <sys:String x:Key="Auth.Mobile.Approve">Approve connection</sys:String>
+    <sys:String x:Key="Auth.Mobile.Preparing">Requesting a pairing QR code…</sys:String>
+    <sys:String x:Key="Auth.Mobile.Scan">Scan the QR code with your phone. After installing, scan it again to connect and approve here.</sys:String>
+    <sys:String x:Key="Auth.Mobile.Unavailable">Mobile widget download is unavailable. Sign in and check that your server supports pairing and has a signed APK configured.</sys:String>
+    <sys:String x:Key="Auth.Mobile.Failed">Could not reach the pairing service. Close this window and try again.</sys:String>
+    <sys:String x:Key="Auth.Mobile.Confirm">{0} wants to connect. Enter the six-digit code shown on your phone.</sys:String>
+    <sys:String x:Key="Auth.Mobile.Connected">Your phone has connected and is syncing tasks. You can close this window.</sys:String>
+    <sys:String x:Key="Auth.Mobile.Expired">The QR code has expired. Close this window and open it again for a new code.</sys:String>
+    <sys:String x:Key="Auth.Mobile.InvalidCode">Pairing changed or the code did not match. Check the code on your phone.</sys:String>
+    <sys:String x:Key="Auth.Mobile.Approved">Approved. Keep this window open until your phone connects.</sys:String>
     <sys:String x:Key="Auth.Navigation">Account</sys:String>
     <sys:String x:Key="Auth.Title">Account and backups</sys:String>
     <sys:String x:Key="Auth.Subtitle">Sign in to back up tasks and portable settings to your server and restore them on other devices. Signing in is optional; Mosaic works fully offline and local data is unaffected.</sys:String>

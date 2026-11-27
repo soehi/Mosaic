@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
@@ -120,7 +121,8 @@ public sealed class TestServerHost : IAsyncDisposable
 
     public static async Task<TestServerHost> StartAsync(
         Action<ServerOptions>? configure = null,
-        string? dataDirectory = null)
+        string? dataDirectory = null,
+        bool https = false)
     {
         var host = new TestServerHost();
         host.DataDirectory = dataDirectory ?? Path.Combine(
@@ -151,16 +153,42 @@ public sealed class TestServerHost : IAsyncDisposable
         configure?.Invoke(options);
         host.Options = options;
 
-        host.App = await ServerApplication.CreateAsync(["--urls", "http://127.0.0.1:0"], options);
+        using var key = RSA.Create(2048);
+        using var certificate = https ? CreateLoopbackCertificate(key) : null;
+        var args = new List<string> { "--urls", https ? "https://127.0.0.1:0" : "http://127.0.0.1:0" };
+        if (certificate is not null)
+        {
+            var path = Path.Combine(host.DataDirectory, "test-tls.pfx");
+            var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+            await File.WriteAllBytesAsync(path, certificate.Export(X509ContentType.Pfx, password));
+            args.AddRange(["--Kestrel:Certificates:Default:Path", path, "--Kestrel:Certificates:Default:Password", password]);
+        }
+        host.App = await ServerApplication.CreateAsync(args.ToArray(), options);
         await host.App.StartAsync();
         var addresses = host.App.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!.Addresses;
-        host.Client = new HttpClient
+        var handler = new SocketsHttpHandler { AllowAutoRedirect = false };
+        if (certificate is not null)
+        {
+            var policy = new X509ChainPolicy { TrustMode = X509ChainTrustMode.CustomRootTrust };
+            policy.CustomTrustStore.Add(X509CertificateLoader.LoadCertificate(certificate.RawData));
+            handler.SslOptions.CertificateChainPolicy = policy;
+        }
+        host.Client = new HttpClient(handler)
         {
             BaseAddress = new Uri(addresses.First()),
             Timeout = TimeSpan.FromSeconds(60),
         };
         return host;
+    }
+
+    private static X509Certificate2 CreateLoopbackCertificate(RSA key)
+    {
+        var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var names = new SubjectAlternativeNameBuilder();
+        names.AddIpAddress(IPAddress.Loopback);
+        request.CertificateExtensions.Add(names.Build());
+        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
     }
 
     public async Task<HttpResponseMessage> SendAsync(

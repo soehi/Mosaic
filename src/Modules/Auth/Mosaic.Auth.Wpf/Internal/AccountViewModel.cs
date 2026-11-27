@@ -135,6 +135,7 @@ internal sealed class AccountViewModel : ObservableObject, IPageController
     public IAsyncRelayCommand LogoutCommand { get; }
     public IAsyncRelayCommand UploadCommand { get; }
     public IAsyncRelayCommand DownloadCommand { get; }
+    internal IAuthApi Auth => _auth;
     public IAsyncRelayCommand RefreshLatestCommand { get; }
     public IRelayCommand CopyDeviceCodeCommand { get; }
     public IRelayCommand OpenDeviceUriCommand { get; }

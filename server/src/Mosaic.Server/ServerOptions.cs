@@ -24,6 +24,8 @@ public sealed class ServerOptions
 
     public string ServerName { get; set; } = "Mosaic";
 
+    public string? MobileReleaseManifest { get; set; }
+
     public RegistrationMode RegistrationMode { get; set; } = RegistrationMode.Open;
 
     public byte[]? MasterKey { get; set; }
@@ -95,6 +97,7 @@ public sealed class ServerOptions
             DatabasePath = Text(configuration, "MOSAIC_DATABASE_PATH"),
             PublicUrl = Text(configuration, "MOSAIC_PUBLIC_URL") ?? "http://localhost:5080",
             ServerName = Text(configuration, "MOSAIC_SERVER_NAME") ?? "Mosaic",
+            MobileReleaseManifest = Text(configuration, "MOSAIC_MOBILE_RELEASE_MANIFEST"),
             AdminToken = Text(configuration, "MOSAIC_ADMIN_TOKEN"),
             BackupQuotaBytes = Number(configuration, "MOSAIC_BACKUP_QUOTA_BYTES", 50L * 1024 * 1024),
             BackupRetention = (int)Number(configuration, "MOSAIC_BACKUP_RETENTION", 20),

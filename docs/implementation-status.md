@@ -1,5 +1,88 @@
 # Mosaic：实施与验证记录
 
+## 桌面 0.19.5 候选与手机端 0.3.5 配对
+
+以 `2018b9e` 为候选基线，该提交包含已发布的 `v0.19.4`，再纳入 `a00ccdb` 的 Android 客户端、服务端配对和 WPF 账户入口。
+
+**根因位置**
+
+- `v0.19.4:src/Modules/Auth/Mosaic.Auth.Wpf/Views/AccountView.xaml` 的账户操作区没有手机下载与配对入口。新 Android 安装无法通过桌面账户取得服务器地址和授权会话。
+- `v0.19.4:src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthService.cs:352` 在获取 `_operations` 前读取服务器地址，在锁内读取当前刷新令牌。切换服务器发生在两次读取之间时，刷新请求会使用来自不同会话的状态。
+- 手机分支与 `v0.19.4` 在桌面版本 0.18.14 后分叉。直接以手机分支打包会遗漏桌面 0.19.4 的改动，也会漏掉 `v0.19.4:server/src/Mosaic.Server/Data/DatabaseMigrator.cs:12` 注册的附件迁移 3。Android 行高、列表和旧样本的根因见下文手机 0.3.5 节。
+
+**改动位置**
+
+- `Views/AccountView.xaml`、`Views/AccountView.xaml.cs`、`Views/MobilePairingWindow.cs`、`Internal/AccountViewModel.cs`、`Internal/PairingQrCode.cs`、`Localization/en.xaml`、`Localization/zh.xaml`（`src/Modules/Auth/Mosaic.Auth.Wpf`）实现配对入口、渲染二维码和配对状态。`AuthService.GetAccessTokenAsync` 将服务器地址、刷新令牌和有效访问令牌置于同一次加锁读取。
+- `Schema.Migration3` 和 `Schema.Migration4` 由 `DatabaseMigrator.ApplyAsync` 按序处理。`LoggingAndMigrationTests` 验证已有 v2、v3 的账户、会话和附件记录。配对路由、服务装配与 Android 文件详见下文手机 0.3.5 节。`docs/mobile-auth-sync-plan.md` 标记 0.2.x 手机端规划已作废，保留原文用于追溯。
+- `Directory.Build.props` 将桌面候选版本设为 `0.19.5`。`build/release-content.json`、`build/published-release-index.json` 追加 0.19.5 内容及指纹，`build/release-manifest.json` 和 `docs/releases/v0.19.5.md` 由现有校验脚本生成。
+
+**迁移与发布条件**
+
+- 桌面使用现有每用户 MSI 升级流程。服务端以已有 v2 或带附件的 v3 数据库为升级输入，迁移后均包含附件迁移 3 与配对迁移 4。回滚服务端时须停服并恢复升级前的一致性 SQLite 备份和对应主密钥配置。备份后的写入随回滚丢失。
+- 现有正式域名上，下载页、APK、`assetlinks.json` 和配对入口均返回 HTTP 404。两条 Android ADB 连接均为 `offline`。正式签名 APK、扫码安装、系统 App Link 关联、同账户首次同步和 launcher 行数仍待设备验收。桌面 0.19.5 目前仅作本地候选。
+- 候选服务端 97 项、Android 逻辑 74 项通过。下文所列手机 APK、二维码和 41 项服务端测试是原 `a00ccdb` 的单独验收记录。
+- 桌面以已生成的 Release 自包含布局执行 `build/test.ps1 -NoBuild`，16 个项目共 515 项通过，其中实际启动发布版的 smoke 为 55 项。`build/package.ps1` 通过版本清单、快捷方式、维护路由、对话框及 CAB 内 470 个文件的 SHA-256 核验。
+- MSI 覆盖安装验收应在无现有 Mosaic 安装的测试用户中运行 `build/test-install.ps1 -BaseVersion 0.19.4 -UpgradeVersion 0.19.5`，验证升级位置、快捷方式和用户数据保留。本机当前用户已有安装位置登记与桌面快捷方式，本轮保留现有安装。
+
+## 手机端 0.3.5：M3.5 小组件与桌面配对（2026-11-27）
+
+**根因位置**
+
+- `36d8267:mobile/src/Mosaic.Mobile.App/Widgets/TaskWidgetService.cs:59` 的 `OnDataSetChanged` 对整个分组应用 `.Take(_layout.Rows)`。同组第三条及之后的任务从适配器消失。`36d8267:mobile/src/Mosaic.Mobile.App/Resources/layout/widget_task_row.xml:5` 使用固定行高，程序算出的像素高度没有进入视图。
+- `36d8267:mobile/src/Mosaic.Mobile.App/Platform/AndroidServerConfigProvider.cs:29` 只读预置地址，安装包没有同一账户的配置和令牌领取入口。`36d8267:src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthService.cs:352` 在桌面重启后只恢复刷新令牌时，原令牌获取逻辑提前拒绝首次兑换。
+- `36d8267:mobile/src/Mosaic.Mobile.App/Widgets/TestSeedStore.cs:19`、`TestSeedReceiver` 和 `MosaicWidgetTestSeed` 是旧验收数据的运行时入口。关闭测试构建选项后，旧测试快照仍保存在 Android 私有偏好中。
+
+**改动位置**
+
+| 文件 | 实现 |
+|---|---|
+| `mobile/Directory.Build.props`、`mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj` | `0.3.5`、`versionCode=10`、`MosaicMobileAppLinkHost`，移除种子构建分支 |
+| `mobile/src/Mosaic.Mobile.App/AndroidManifest.xml`、`MosaicApplication.cs` | 声明 HTTPS App Link；启动迁移清理旧夹具 |
+| `mobile/src/Mosaic.Mobile.App/Platform/PairingActivity.cs`、`AndroidServerConfigProvider.cs` | `ConnectAsync` 核对 App Link 和当前签名；`SaveSessionAsync` 安装新会话；`Save` 写私有服务器地址 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRuntime.cs`、`WidgetSnapshot.cs` | `ApplyPairingAsync` 与刷新、写入互斥；`WidgetSnapshotStore.RemoveRetiredFixture` 限定旧数据清理条件 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/TestSeedReceiver.cs`、`TestSeedStore.cs` | 删除运行时夹具实现 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetViewport.cs`、`WidgetRenderer.cs`、`TaskWidgetService.cs` | `ForHost`、`BuildViews`、`LoadRows` 分别处理宿主尺寸、视口尺寸和完整分组数据 |
+| `mobile/src/Mosaic.Mobile.Core/Cards/WidgetRowGeometry.cs` | `ForHostSize` 用 dp 算视口行数，最后换算像素 |
+| `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml`、`widget_tasks_tall.xml`、`widget_task_row.xml`、`widget_task_empty.xml`、`widget_tasks_preview.xml` | 单行/双行视图、任务触区、空状态及静态预览 |
+| `mobile/src/Mosaic.Mobile.App/Resources/drawable/widget_background.xml`、`widget_background_tall.xml`、`widget_mosaic_mark.xml`、`values/colors.xml`、`values-night/colors.xml`、`values/strings.xml`、`xml/widget_tasks_info.xml` | M3.5 渐变、圆角、拼片标记、浅深配色、预览文字和尺寸说明 |
+| `server/src/Mosaic.Server/Auth/MobilePairingService.cs`、`MobilePairingEndpoints.cs`、`MobileRelease.cs` | 桌面会话族绑定、短时手机挑战、一次性兑换、HTTPS 下载与签名关联清单 |
+| `server/src/Mosaic.Server/Auth/DeviceFlowService.cs`、`Data/Schema.cs`、`Data/DatabaseMigrator.cs`、`ServerApplication.cs`、`ServerOptions.cs` | `PollAsync` 隔离旧协议和新配对；`Migration4`；装配及发布清单配置 |
+| `src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthService.cs` | `GetAccessTokenAsync` 在锁内按需兑换恢复的刷新令牌 |
+| `src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`、`Internal/PairingQrCode.cs`、`Views/AccountView.xaml`、`Views/AccountView.xaml.cs`、`Views/MobilePairingWindow.cs`、`Localization/zh.xaml`、`Localization/en.xaml` | 账户入口、二维码、原会话绑定、关闭窗口取消、配对进度和本地化 |
+| `server/tests/Mosaic.Server.Tests/MobilePairingTests.cs`、`LoggingAndMigrationTests.cs`、`TestInfrastructure.cs` | 隔离 HTTPS 配对、会话和备份增量验收；v2/v3 数据库升级；受信测试证书 |
+| `mobile/tests/Mosaic.Mobile.Tests/WidgetRowGeometryTests.cs`、`WidgetGroupTests.cs` | 单双行高度、像素舍入、无效尺寸和保留后续任务 |
+| `docs/releases/v0.3.4-mobile.md`、`docs/releases/v0.3.5-mobile.md`、`mobile/docs/implementation-status.md` | 纠正旧版验证结论，记录本次迁移、验收和回滚 |
+
+**迁移与验收**
+
+- SQLite v2 和已有附件迁移标记的 v3 测试库都顺利补充 `mobile_pairings`，账户和会话仍可用，v3 附件记录保留。低版本服务端回滚使用升级前的一致性备份和对应主密钥。停服恢复会回退备份后的服务端写入。
+- Android 保留现有数据库、服务地址、加密会话和分组偏好。旧夹具清理以专用偏好存在为条件，过滤历史六个夹具 ID。换号时先清空旧展示快照，投影继续按源地址与用户分区。Android 实际覆盖安装与旧夹具迁移仍需设备验收。
+- 隔离 HTTPS 接口验证桌面会话族、配对码、过期、取消、旧设备协议、重复批准与并发兑换。手机会话取得桌面账户的四条备份任务和一条后续增量。此项覆盖服务端协议；Android 应用的首次同步和 launcher 截图待设备连接恢复。
+- 使用独立 QR 解码器验证 WPF 渲染出的 85 和 271 字节 ASCII 链接，四种显示尺寸均成功解码，两组模块矩阵均与独立实现一致。二维码验收图使用占位域名与引用。
+- 定向测试通过：服务端 41 项，手机端 74 项，Auth Core 26 项，WPF 179 项。Android Release APK 使用本地验收证书，已通过 v2/v3 验签。包名 `app.mosaic.tasks`，版本 `0.3.5`（10），ABI 为 `arm64-v8a` 和 `x86_64`。最终 APK SHA-256 为 `02cab71ba014ea890ba5d28c6acd2f7f29ceaaf874f14d5e8f9ba5d82a3d6c09`。
+- 正式 App Link、APK 和下载清单的上线条件见 [0.3.5 发布说明](releases/v0.3.5-mobile.md)。两条 ADB 连接持续为 `offline`，设备扫码、首次同步、4×1/4×2 滚动、升级及浅深主题截图均待验收。
+
+## 手机端 0.3.0：无界面客户端重建（2026-11-26）
+
+`mobile/` 全量删除后按 `docs/mobile-refactor-plan.md` 重建：无 Activity 的 Android 客户端，只保留桌面小组件与流体云适配器边界；任务展示源为服务端备份 + 增量变更的只读投影，唯一写路径是单任务 `POST /v1/sync/changes`（`baseServerRevision`、`clientRevision`、`idempotencyKey`）。流体云判定为阻塞（无 OPPO 凭证与真机），保留 `IFluidCloudAdapter` 并显示“不可用”，未用 AppWidget 冒充。版本 0.3.0 / `versionCode=5`，不沿用 0.2.1 / 4。
+
+**根因位置**
+
+1. 需求术语未核对就把“组件（卡片）”等同于 AppWidget，并且以 App UI 为主路径：`docs/mobile-refactor-plan.md:41-43`（R1–R3）。
+2. 旧发布说明承诺 App UI 与 v2 投影继承：`docs/releases/v0.2.0-mobile.md`、`docs/releases/v0.2.1-mobile.md`（R5，现已标注“已作废”）。
+3. 旧 widget 数据访问依赖被删除的投影类型：旧 `WidgetTaskRepository.cs` 与 `ProjectionStoreFactory`（R6，已随 `mobile/` 删除）。
+4. 旧快照校验用响应字节哈希对比服务端“规范化条目”哈希，算法不一致：`server/src/Mosaic.Server/Backups/JsonCanonicalizer.cs` 对照旧 `SnapshotBootstrapService`（R7，新实现改为客户端复算规范化摘要）。
+
+**改动位置**
+
+- 删除：`mobile/` 125 个文件（`git rm -r mobile`）；旧文档加“已作废”说明。
+- 新增 `mobile/src/Mosaic.Mobile.Wire`（`WireJson`、`WireError`、DTO）、`Mosaic.Mobile.Core`（`MobileKernel`、`SessionManager`、`TaskProjection`、`SnapshotBootstrapService`、`IncrementalSyncService`、`TaskCommandService`、`CardModel`/`IFluidCloudAdapter`）、`Mosaic.Mobile.App`（`MosaicApplication`、`TaskWidgetProvider`、`WidgetActionReceiver`、`WidgetRenderer`、`AndroidSecretStorage`、`AndroidServerConfigProvider`、`LegacyInstallCleanup`、`AndroidFluidCloudAdapter`）、`mobile/tests/Mosaic.Mobile.Tests`（37 项）。
+- 迁移：首次启动把旧 `files/projections/` 改名为 `retired-projections-v2-<ts>`，删除旧偏好 `mosaic_secure` 与旧 Keystore 别名；**不迁移**旧投影/令牌，升级后从服务器备份重建。
+- 新增发布说明 `docs/releases/v0.3.0-mobile.md`；完整记录见 `mobile/docs/implementation-status.md` 与 `mobile/docs/platform-decision.md`。
+
+**验证**：`Mosaic.Mobile.Core`、`Mosaic.Mobile.App` 构建 0 警告 0 错误；`Mosaic.Mobile.Tests` 37 项通过。真机交互、覆盖安装、流体云与联调未验证。
+
+
 ## 0.19.4：修复任务速览拖动闪屏并降低拖拽期内存占用（2026-11-25）
 
 本轮解决用户报告的「拖动速览任务条时有闪屏」，同时按架构规范把拖拽热路径上的重复布局与重复分配去掉。闪屏不是单点问题：从任务速览的装饰层，到浮窗模块的幽灵预览窗，再到桌面驻留模块的宿主弹窗，三处都在鼠标移动或轮询时无条件重写窗口几何、无条件重做布局，而 `AllowsTransparency=true` 的分层窗口每次几何写入都会重建合成表面，视觉上即闪屏。本轮把三处的写入都改为「真正变化才写」，并把逐帧分配全部移出热路径。改动只发生在 WPF 渲染/宿主层，`Mosaic.Tasks.Wpf` 仍只经 `Mosaic.FloatingWindows.Contracts` 的 `BeginPlacementPreview/UpdatePlacementPreview/EndPlacementPreview` 与浮窗模块通信，`build/project-boundaries.json` 的依赖方向、`build/public-api.txt` 的公开契约均未变。本版本不改数据库 schema、不改设置键、不改模块装配，服务端保持 0.1.2 不动。
