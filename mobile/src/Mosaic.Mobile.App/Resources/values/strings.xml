@@ -8,5 +8,4 @@
   <string name="widget_config_title">选择此小组件显示的任务组</string>
   <string name="widget_default_headline">正在同步</string>
   <string name="widget_preview_title_1">整理本周项目周报</string>
-  <string name="widget_preview_title_2">更新部署脚本</string>
 </resources>

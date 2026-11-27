@@ -1,5 +1,43 @@
 ﻿# Mosaic：实施与验证记录
 
+## 手机端 0.3.5：M3.5 小组件与桌面配对（2026-11-27）
+
+**根因位置**
+
+- `36d8267:mobile/src/Mosaic.Mobile.App/Widgets/TaskWidgetService.cs:59` 的 `OnDataSetChanged` 对整个分组应用 `.Take(_layout.Rows)`。同组第三条及之后的任务从适配器消失。`36d8267:mobile/src/Mosaic.Mobile.App/Resources/layout/widget_task_row.xml:5` 使用固定行高，程序算出的像素高度没有进入视图。
+- `36d8267:mobile/src/Mosaic.Mobile.App/Platform/AndroidServerConfigProvider.cs:29` 只读预置地址，安装包没有同一账户的配置和令牌领取入口。`36d8267:src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthService.cs:352` 在桌面重启后只恢复刷新令牌时，原令牌获取逻辑提前拒绝首次兑换。
+- `36d8267:mobile/src/Mosaic.Mobile.App/Widgets/TestSeedStore.cs:19`、`TestSeedReceiver` 和 `MosaicWidgetTestSeed` 是旧验收数据的运行时入口。关闭测试构建选项后，旧测试快照仍保存在 Android 私有偏好中。
+
+**改动位置**
+
+| 文件 | 实现 |
+|---|---|
+| `mobile/Directory.Build.props`、`mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj` | `0.3.5`、`versionCode=10`、`MosaicMobileAppLinkHost`，移除种子构建分支 |
+| `mobile/src/Mosaic.Mobile.App/AndroidManifest.xml`、`MosaicApplication.cs` | 声明 HTTPS App Link；启动迁移清理旧夹具 |
+| `mobile/src/Mosaic.Mobile.App/Platform/PairingActivity.cs`、`AndroidServerConfigProvider.cs` | `ConnectAsync` 核对 App Link 和当前签名；`SaveSessionAsync` 安装新会话；`Save` 写私有服务器地址 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRuntime.cs`、`WidgetSnapshot.cs` | `ApplyPairingAsync` 与刷新、写入互斥；`WidgetSnapshotStore.RemoveRetiredFixture` 限定旧数据清理条件 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/TestSeedReceiver.cs`、`TestSeedStore.cs` | 删除运行时夹具实现 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetViewport.cs`、`WidgetRenderer.cs`、`TaskWidgetService.cs` | `ForHost`、`BuildViews`、`LoadRows` 分别处理宿主尺寸、视口尺寸和完整分组数据 |
+| `mobile/src/Mosaic.Mobile.Core/Cards/WidgetRowGeometry.cs` | `ForHostSize` 用 dp 算视口行数，最后换算像素 |
+| `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml`、`widget_tasks_tall.xml`、`widget_task_row.xml`、`widget_task_empty.xml`、`widget_tasks_preview.xml` | 单行/双行视图、任务触区、空状态及静态预览 |
+| `mobile/src/Mosaic.Mobile.App/Resources/drawable/widget_background.xml`、`widget_background_tall.xml`、`widget_mosaic_mark.xml`、`values/colors.xml`、`values-night/colors.xml`、`values/strings.xml`、`xml/widget_tasks_info.xml` | M3.5 渐变、圆角、拼片标记、浅深配色、预览文字和尺寸说明 |
+| `server/src/Mosaic.Server/Auth/MobilePairingService.cs`、`MobilePairingEndpoints.cs`、`MobileRelease.cs` | 桌面会话族绑定、短时手机挑战、一次性兑换、HTTPS 下载与签名关联清单 |
+| `server/src/Mosaic.Server/Auth/DeviceFlowService.cs`、`Data/Schema.cs`、`Data/DatabaseMigrator.cs`、`ServerApplication.cs`、`ServerOptions.cs` | `PollAsync` 隔离旧协议和新配对；`Migration4`；装配及发布清单配置 |
+| `src/Modules/Auth/Mosaic.Auth.Core/Internal/AuthService.cs` | `GetAccessTokenAsync` 在锁内按需兑换恢复的刷新令牌 |
+| `src/Modules/Auth/Mosaic.Auth.Wpf/Internal/AccountViewModel.cs`、`Internal/PairingQrCode.cs`、`Views/AccountView.xaml`、`Views/AccountView.xaml.cs`、`Views/MobilePairingWindow.cs`、`Localization/zh.xaml`、`Localization/en.xaml` | 账户入口、二维码、原会话绑定、关闭窗口取消、配对进度和本地化 |
+| `server/tests/Mosaic.Server.Tests/MobilePairingTests.cs`、`LoggingAndMigrationTests.cs`、`TestInfrastructure.cs` | 隔离 HTTPS 配对、会话和备份增量验收；v2/v3 数据库升级；受信测试证书 |
+| `mobile/tests/Mosaic.Mobile.Tests/WidgetRowGeometryTests.cs`、`WidgetGroupTests.cs` | 单双行高度、像素舍入、无效尺寸和保留后续任务 |
+| `docs/releases/v0.3.4-mobile.md`、`docs/releases/v0.3.5-mobile.md`、`mobile/docs/implementation-status.md` | 纠正旧版验证结论，记录本次迁移、验收和回滚 |
+
+**迁移与验收**
+
+- SQLite v2 和已有附件迁移标记的 v3 测试库都顺利补充 `mobile_pairings`，账户和会话仍可用，v3 附件记录保留。低版本服务端回滚使用升级前的一致性备份和对应主密钥。停服恢复会回退备份后的服务端写入。
+- Android 保留现有数据库、服务地址、加密会话和分组偏好。旧夹具清理以专用偏好存在为条件，过滤历史六个夹具 ID。换号时先清空旧展示快照，投影继续按源地址与用户分区。Android 实际覆盖安装与旧夹具迁移仍需设备验收。
+- 隔离 HTTPS 接口验证桌面会话族、配对码、过期、取消、旧设备协议、重复批准与并发兑换。手机会话取得桌面账户的四条备份任务和一条后续增量。此项覆盖服务端协议；Android 应用的首次同步和 launcher 截图待设备连接恢复。
+- 使用独立 QR 解码器验证 WPF 渲染出的 85 和 271 字节 ASCII 链接，四种显示尺寸均成功解码，两组模块矩阵均与独立实现一致。二维码验收图使用占位域名与引用。
+- 定向测试通过：服务端 41 项，手机端 74 项，Auth Core 26 项，WPF 179 项。Android Release APK 使用本地验收证书，已通过 v2/v3 验签。包名 `app.mosaic.tasks`，版本 `0.3.5`（10），ABI 为 `arm64-v8a` 和 `x86_64`。最终 APK SHA-256 为 `02cab71ba014ea890ba5d28c6acd2f7f29ceaaf874f14d5e8f9ba5d82a3d6c09`。
+- 正式 App Link、APK 和下载清单的上线条件见 [0.3.5 发布说明](releases/v0.3.5-mobile.md)。两条 ADB 连接持续为 `offline`，设备扫码、首次同步、4×1/4×2 滚动、升级及浅深主题截图均待验收。
+
 ## 手机端 0.3.0：无界面客户端重建（2026-11-26）
 
 `mobile/` 全量删除后按 `docs/mobile-refactor-plan.md` 重建：无 Activity 的 Android 客户端，只保留桌面小组件与流体云适配器边界；任务展示源为服务端备份 + 增量变更的只读投影，唯一写路径是单任务 `POST /v1/sync/changes`（`baseServerRevision`、`clientRevision`、`idempotencyKey`）。流体云判定为阻塞（无 OPPO 凭证与真机），保留 `IFluidCloudAdapter` 并显示“不可用”，未用 AppWidget 冒充。版本 0.3.0 / `versionCode=5`，不沿用 0.2.1 / 4。

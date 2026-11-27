@@ -325,28 +325,28 @@ AppWidget 的长按由 launcher 持有，`RemoteViews` 没有 long-click API，�
 
 真机 arm64、宽屏 4×1/4×2 实际格数、流体云（仍阻塞）、真实服务端联调下的分组切换。
 
-## 11. 0.3.4：可见行数修复（4×1 恰好 1 行、4×2 恰好 2 行）
+## 11. 0.3.4：可见行数修复尝试
 
-用户核验 0.3.3 后指出：实测组件实例高度约 127dp，`ListView` 里出现了第 3 行半截被裁，`shots/80-final-verify.png` 能看到第四行只露出上半截。这不是"两条"。
+MuMu 的 `shots/80-final-verify.png` 中，列表物理高度为 234px，显示三条 64px 整行及第四条的 39px。`AppWidgetOptions` 记录是 `minH=79 maxH=209`。这两个选项描述宿主提供的尺寸范围，列表物理高度来自实际边界。
 
 ### 11.1 根因位置
 
 | 编号 | 根因位置 | 触发条件与出错原因 |
 |---|---|---|
 | R22 | `Resources/layout/widget_task_row.xml`（0.3.2 起） | `layout_height="52dp"` 写死，而 `ListView` 是 `match_parent`，`RemoteViewsFactory` 不按可用高度限制行数，`ListView` 就按容器高度塞尽可能多的行，最后一行被裁 |
-| R23 | `Widgets/TaskWidgetService.cs`（0.3.2 起） | `Exported = false`。Launcher 是不同 UID，`bindService` 对非导出服务静默失败，`ListView` 永远拿不到 factory，卡片只剩 background。这是"重装后黑块"的真正根因，之前误记为 launcher 缓存 |
+| R23 | `Widgets/TaskWidgetService.cs`（0.3.2 起） | 非导出服务会影响 launcher 的跨进程绑定。重装黑块缺少同一设备的对照验证，根因仍未确定 |
 
 ### 11.2 改动位置
 
 | 文件 | 改动 |
 |---|---|
-| `Mosaic.Mobile.Core/Cards/WidgetRowGeometry.cs`（新增） | `ReportedHeightToPixels`：把 launcher 报告的 `OPTION_APPWIDGET_MIN_HEIGHT` 从 px 映射到声明范围（40–140dp）；`Compute`：`≥100dp → 2 行`，否则 1 行，上限 2 行；行高 = `(可用高度 - 分隔线) / 行数`（px），保证整行无半截 |
+| `Mosaic.Mobile.Core/Cards/WidgetRowGeometry.cs`（新增） | `ReportedHeightToPixels` 与 `Compute` 计算可见行数及像素高度。视图未应用算出的行高 |
 | `Mosaic.Mobile.App/Widgets/TaskWidgetService.cs` | `Exported = true`（R23）；`OnDataSetChanged` 先 `Measure` 再 `Take(_layout.Rows)` 截断；`WidgetDiagnostics.LogOptions` 输出 launcher 给的 options |
 | `Mosaic.Mobile.App/Widgets/WidgetDiagnostics.cs`（新增） | 统一 logcat tag `MosaicWidget`，输出 `minW/maxW/minH/maxH` |
 | `Mosaic.Mobile.App/Widgets/WidgetRenderer.cs` | `Render` 入口/出口/失败各打一条日志，便于无头诊断 |
 | `Resources/xml/widget_tasks_info.xml` | 注释说明 140dp 上限 = 两行 + 16dp 内边距 |
 | `Mosaic.Mobile.App.csproj`、`Directory.Build.props` | 版本 0.3.4 / `versionCode=9` |
-| `tests/Mosaic.Mobile.Tests/WidgetRowGeometryTests.cs`（新增） | 81 项测试覆盖：行数阈值、整行像素高度、上限保护、短卡片降级、报告值钳制、密度回退、实测值（209px → 2 行 × 103px） |
+| `tests/Mosaic.Mobile.Tests/WidgetRowGeometryTests.cs`（新增） | 测试计算规则。209 是宿主报告的 `maxH`，真实布局高度仍需设备测量 |
 
 ### 11.3 迁移
 
@@ -359,3 +359,9 @@ AppWidget 的长按由 launcher 持有，`RemoteViews` 没有 long-click API，�
 **当前阻塞**：MuMu 模拟器 adb 服务持续 offline，无法安装和截图。模拟器进程存在但 adb 守护进程未响应。已尝试 kill-server / start-server / disconnect / connect / restart，均无效。需要用户手动重启 MuMu 或检查模拟器设置。
 
 代码状态：0.3.4 编译通过，81 项单元测试通过，APK 已生成。端到端验证待模拟器恢复后补。
+
+## 12. 0.3.5：M3.5 小组件和同账户配对
+
+`TaskWidgetService.OnDataSetChanged` 在 0.3.4 用 `.Take(_layout.Rows)` 截短原生列表，计算的像素行高也未应用到固定行高的 XML。0.3.5 由 `WidgetViewport.ForHost` 选宿主尺寸，`WidgetRenderer.BuildViews` 应用一行或两行视口，`TaskWidgetService.LoadRows` 保留完整分组数据。`AndroidServerConfigProvider` 原先只读私有配置，现由 `PairingActivity.ConnectAsync` 校验关联并安装同服务器、同账户会话。`WidgetSnapshotStore.RemoveRetiredFixture` 清理带旧测试标记的六个夹具 ID，保留其他任务、分组和投影。
+
+手机端测试通过 74 项。APK `app.mosaic.tasks` / `0.3.5` / `10`，支持 `arm64-v8a` 与 `x86_64`，已通过 v2/v3 验签。SHA-256 为 `02cab71ba014ea890ba5d28c6acd2f7f29ceaaf874f14d5e8f9ba5d82a3d6c09`。测试 APK 与 0.3.4 测试包证书一致。ADB 仍为 `offline`，覆盖安装和夹具升级、首次同步、各尺寸滚动、完成/只读交互和浅深主题截图需设备验收。完整文件位置、服务器迁移与验证见 [实施记录](../../docs/implementation-status.md) 和 [发布说明](../../docs/releases/v0.3.5-mobile.md)。

@@ -2,6 +2,7 @@ using Android.App;
 using Android.Appwidget;
 using Android.Content;
 using Android.Util;
+using Android.Views;
 using Mosaic.Mobile.Core.Cards;
 
 namespace Mosaic.Mobile.App.Widgets;
@@ -26,18 +27,9 @@ internal static class WidgetRenderer
         try
         {
             Log.Info(WidgetDiagnostics.Tag, "Render start for id=" + appWidgetId);
-            var views = new RemoteViews(context.PackageName, Resource.Layout.widget_tasks);
-            var adapter = new Intent(context, typeof(TaskWidgetService));
-            adapter.PutExtra(AppWidgetManager.ExtraAppwidgetId, appWidgetId);
-            adapter.SetData(Android.Net.Uri.Parse("mosaic-widget://rows/" + appWidgetId));
-
-            // The list adapter overloads are marked obsolete from API 35, but the
-            // ListView + RemoteViewsService path is still the only supported way
-            // to scroll an app widget, and minSdk 26 needs these exact overloads.
+            var views = WidgetViewport.ForHost(context, manager, appWidgetId,
+                viewport => BuildViews(context, appWidgetId, viewport));
 #pragma warning disable CA1422
-            views.SetRemoteAdapter(Resource.Id.widget_list, adapter);
-            views.SetPendingIntentTemplate(Resource.Id.widget_list, TaskTemplate(context, appWidgetId));
-
             manager.UpdateAppWidget(appWidgetId, views);
             manager.NotifyAppWidgetViewDataChanged(appWidgetId, Resource.Id.widget_list);
 #pragma warning restore CA1422
@@ -48,6 +40,24 @@ internal static class WidgetRenderer
             Log.Warn(WidgetDiagnostics.Tag, "Render failed, falling back: " + exception.Message);
             RenderSafe(context, manager, appWidgetId, model);
         }
+    }
+
+    private static RemoteViews BuildViews(Context context, int appWidgetId, WidgetViewport viewport)
+    {
+        var views = new RemoteViews(context.PackageName, viewport.Rows == 2 ? Resource.Layout.widget_tasks_tall : Resource.Layout.widget_tasks);
+        views.SetViewVisibility(Resource.Id.widget_mark, viewport.ShowMark ? ViewStates.Visible : ViewStates.Gone);
+        if (OperatingSystem.IsAndroidVersionAtLeast(31))
+            views.SetViewLayoutHeight(Resource.Id.widget_list, viewport.Rows * viewport.RowHeightPx, (int)ComplexUnitType.Px);
+        var adapter = new Intent(context, typeof(TaskWidgetService));
+        adapter.PutExtra(AppWidgetManager.ExtraAppwidgetId, appWidgetId);
+        adapter.PutExtra(WidgetViewport.RowHeightExtra, viewport.RowHeightPx);
+        adapter.PutExtra(WidgetViewport.MarkExtra, viewport.ShowMark);
+        adapter.SetData(Android.Net.Uri.Parse($"mosaic-widget://rows/{appWidgetId}/{viewport.RowHeightPx}/{viewport.ShowMark}"));
+#pragma warning disable CA1422
+        views.SetRemoteAdapter(Resource.Id.widget_list, adapter);
+        views.SetPendingIntentTemplate(Resource.Id.widget_list, TaskTemplate(context, appWidgetId));
+#pragma warning restore CA1422
+        return views;
     }
 
     /// <summary>Asks every instance of this provider to rebuild its list rows.</summary>

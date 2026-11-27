@@ -15,32 +15,48 @@ namespace Mosaic.Mobile.App.Widgets;
 internal static class WidgetRuntime
 {
     private static readonly TimeSpan WorkBudget = TimeSpan.FromSeconds(8);
+    private static readonly SemaphoreSlim Operations = new(1, 1);
 
     private static CardModel? _lastModel;
+
+    public static async Task ApplyPairingAsync(Context context, Func<CancellationToken, Task> saveSession, CancellationToken ct)
+    {
+        await Operations.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await saveSession(ct).ConfigureAwait(false);
+            _lastModel = null;
+            WidgetRenderer.NotifyRowsChanged(context);
+        }
+        finally
+        {
+            Operations.Release();
+        }
+    }
 
     public static CardModel? LastModel => _lastModel;
 
     public static async Task<CardModel> RefreshAsync(Context context)
     {
         ArgumentNullException.ThrowIfNull(context);
-#if MOSAIC_WIDGET_TEST_SEED
-        if (TestSeedStore.IsSeeded)
-        {
-            var seeded = TestSeedStore.Model();
-            WidgetSnapshotStore.Save(context, TestSeedStore.Items());
-            return Remember(seeded);
-        }
-#endif
         try
         {
             using var budget = new CancellationTokenSource(WorkBudget);
-            var refresh = await MobileServices.Kernel.RefreshWidgetAsync(budget.Token).ConfigureAwait(false);
-            if (refresh.Items is { } items)
+            await Operations.WaitAsync(budget.Token).ConfigureAwait(false);
+            try
             {
-                WidgetSnapshotStore.Save(context, items);
-            }
+                var refresh = await MobileServices.Kernel.RefreshWidgetAsync(budget.Token).ConfigureAwait(false);
+                if (refresh.Items is { } items)
+                {
+                    WidgetSnapshotStore.Save(context, items);
+                }
 
-            return Remember(refresh.Model);
+                return Remember(refresh.Model);
+            }
+            finally
+            {
+                Operations.Release();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -55,28 +71,26 @@ internal static class WidgetRuntime
     public static async Task<CardActionResult> ExecuteAsync(Context context, Guid taskId, CardAction action)
     {
         ArgumentNullException.ThrowIfNull(context);
-#if MOSAIC_WIDGET_TEST_SEED
-        if (TestSeedStore.IsSeeded)
-        {
-            var seeded = TestSeedStore.Apply(taskId, action);
-            WidgetSnapshotStore.Save(context, TestSeedStore.Items());
-            Remember(seeded.Model);
-            WidgetRenderer.NotifyRowsChanged(context);
-            return seeded;
-        }
-#endif
         try
         {
             using var budget = new CancellationTokenSource(WorkBudget);
-            var result = await MobileServices.Kernel.ExecuteAsync(taskId, action, budget.Token).ConfigureAwait(false);
-            if (result.WidgetItems is { } items)
+            await Operations.WaitAsync(budget.Token).ConfigureAwait(false);
+            try
             {
-                WidgetSnapshotStore.Save(context, items);
-            }
+                var result = await MobileServices.Kernel.ExecuteAsync(taskId, action, budget.Token).ConfigureAwait(false);
+                if (result.WidgetItems is { } items)
+                {
+                    WidgetSnapshotStore.Save(context, items);
+                }
 
-            Remember(result.Model);
-            WidgetRenderer.NotifyRowsChanged(context);
-            return result;
+                Remember(result.Model);
+                WidgetRenderer.NotifyRowsChanged(context);
+                return result;
+            }
+            finally
+            {
+                Operations.Release();
+            }
         }
         catch (OperationCanceledException)
         {

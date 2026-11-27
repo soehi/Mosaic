@@ -36,7 +36,7 @@ public sealed class LoggingAndMigrationTests
     }
 
     [Fact]
-    public async Task Migrator_is_idempotent_and_records_one_version()
+    public async Task Migrator_is_idempotent_and_records_each_version_once()
     {
         var directory = Path.Combine(Path.GetTempPath(), "mosaic-server-migrations", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -51,7 +51,7 @@ public sealed class LoggingAndMigrationTests
             await connection.OpenAsync();
             await using var versions = connection.CreateCommand();
             versions.CommandText = "SELECT COUNT(*) FROM schema_migrations";
-            Assert.Equal(2L, Convert.ToInt64(await versions.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
+            Assert.Equal(3L, Convert.ToInt64(await versions.ExecuteScalarAsync(), CultureInfo.InvariantCulture));
 
             await using var floor = connection.CreateCommand();
             floor.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_floor'";
@@ -127,8 +127,10 @@ public sealed class LoggingAndMigrationTests
         }
     }
 
-    [Fact]
-    public async Task Data_and_sessions_survive_a_restart_with_the_same_master_key()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task Data_and_sessions_survive_mobile_pairing_schema_upgrade(int previousVersion)
     {
         var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
         var directory = Path.Combine(Path.GetTempPath(), "mosaic-server-restart", Guid.NewGuid().ToString("N"));
@@ -146,9 +148,37 @@ public sealed class LoggingAndMigrationTests
                 access = TestServerHost.AccessToken(session);
             }
 
+            var path = Path.Combine(directory, "mosaic-server.sqlite3");
+            await using var connection = new SqliteConnection("Data Source=" + path);
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE mobile_pairings; DELETE FROM schema_migrations WHERE version = 4;";
+            await command.ExecuteNonQueryAsync();
+            if (previousVersion == 3)
+            {
+                command.CommandText = """
+                    CREATE TABLE attachments(
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        task_id TEXT NOT NULL, file_name TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+                        sha256 TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+                    CREATE INDEX ix_attachments_user ON attachments(user_id, task_id);
+                    INSERT INTO attachments SELECT 'attachment', id, 'task', 'existing.txt', 4, 'hash', 0, 0 FROM users;
+                    INSERT INTO schema_migrations VALUES (3, 'attachments', 0);
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
             await using var second = await TestServerHost.StartAsync(
                 options => options.MasterKey = key,
                 directory);
+            command.CommandText = "SELECT name FROM schema_migrations WHERE version = 4";
+            Assert.Equal("mobile_pairing", await command.ExecuteScalarAsync());
+            if (previousVersion == 3)
+            {
+                command.CommandText = "SELECT file_name FROM attachments WHERE id = 'attachment'";
+                Assert.Equal("existing.txt", await command.ExecuteScalarAsync());
+            }
             var login = await second.PostAsync("/v1/auth/login", new
             {
                 email,

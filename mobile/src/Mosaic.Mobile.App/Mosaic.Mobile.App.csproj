@@ -9,9 +9,11 @@
 
     <!-- Same store package as 0.2.x so an install upgrades in place; versionCode 4 was 0.2.1. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
-    <ApplicationDisplayVersion>0.3.4</ApplicationDisplayVersion>
-    <ApplicationVersion>9</ApplicationVersion>
+    <ApplicationDisplayVersion>0.3.5</ApplicationDisplayVersion>
+    <ApplicationVersion>10</ApplicationVersion>
 
+    <MosaicMobileAppLinkHost Condition="'$(MosaicMobileAppLinkHost)' == ''">mosaic.bansonic.top</MosaicMobileAppLinkHost>
+    <AndroidManifestPlaceholders>mosaicAppLinkHost=$(MosaicMobileAppLinkHost)</AndroidManifestPlaceholders>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <!-- Trimming stays on: with PublishTrimmed=false the assembly store's type
          registration fails on this toolchain (JNI n_onCreate missing), and the
@@ -20,9 +22,6 @@
     <TrimMode>partial</TrimMode>
     <RunAOTCompilation>false</RunAOTCompilation>
     <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(MosaicWidgetTestSeed)' == 'true'">
-    <DefineConstants>$(DefineConstants);MOSAIC_WIDGET_TEST_SEED</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <!-- Keep the kernel assemblies intact: JSON DTOs are used reflectively. -->

@@ -125,6 +125,18 @@ public sealed class WidgetGroupTests
         Assert.Empty(WidgetTaskSelector.Select(Items, WidgetTaskGroup.Pending, limit: 0));
     }
 
+    [Fact]
+    public void A_group_preserves_rows_beyond_the_initial_widget_viewport()
+    {
+        var tasks = Enumerable.Range(1, 4)
+            .Select(index => Item($"65432100-0000-4000-8000-{index:D12}", $"Task {index}", false, -index))
+            .ToArray();
+
+        var rows = WidgetTaskSelector.Select(tasks, WidgetTaskGroup.Pending);
+
+        Assert.Equal(tasks.Select(task => task.Id), rows.Select(row => row.Id));
+    }
+
     private static WidgetTaskItem Item(
         string id,
         string title,

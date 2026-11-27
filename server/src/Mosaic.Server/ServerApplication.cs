@@ -84,6 +84,7 @@ public static class ServerApplication
         builder.Services.AddSingleton<SessionService>();
         builder.Services.AddSingleton<EmailCodeService>();
         builder.Services.AddSingleton<DeviceFlowService>();
+        builder.Services.AddSingleton<MobilePairingService>();
         builder.Services.AddSingleton<BackupService>();
         builder.Services.AddSingleton<SyncService>();
         builder.Services.AddSingleton<IEmailSender>(services => options.EmailSenderOverride
@@ -122,6 +123,7 @@ public static class ServerApplication
         app.UseMosaicPipeline();
         app.MapAuthEndpoints();
         app.MapDeviceEndpoints();
+        app.MapMobilePairing(MobileRelease.Load(options, app.Logger));
         app.MapBackupEndpoints();
         app.MapSyncEndpoints();
         app.MapAdminEndpoints();

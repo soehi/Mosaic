@@ -14,4 +14,12 @@ public partial class AccountView : UserControl
     }
 
     public Task InitializeAsync() => Model?.InitializeAsync() ?? Task.CompletedTask;
+
+    private void OpenMobilePairing(object sender, RoutedEventArgs e)
+    {
+        if (Model is { } model)
+        {
+            new MobilePairingWindow(model.Auth) { Owner = Window.GetWindow(this) }.ShowDialog();
+        }
+    }
 }

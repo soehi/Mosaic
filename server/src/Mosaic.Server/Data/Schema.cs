@@ -163,4 +163,17 @@ internal static class Schema
             floor_seq INTEGER NOT NULL,
             updated_at INTEGER NOT NULL);
         """;
+
+    // Version 3 is reserved for the attachment migration on the desktop branch.
+    public const string Migration4 = """
+        CREATE TABLE mobile_pairings(
+            reference_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            family_id TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            device_id TEXT UNIQUE REFERENCES device_auth(id) ON DELETE CASCADE,
+            short_code TEXT,
+            cancelled_at INTEGER);
+        CREATE INDEX ix_mobile_pairings_expires ON mobile_pairings(expires_at);
+        """;
 }

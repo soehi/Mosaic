@@ -29,15 +29,15 @@ internal static class WidgetSnapshotStore
 
     private static readonly object Gate = new();
 
-    public static void Save(Context context, IReadOnlyList<WidgetTaskItem> items)
+    public static bool Save(Context context, IReadOnlyList<WidgetTaskItem> items)
     {
         ArgumentNullException.ThrowIfNull(items);
         lock (Gate)
         {
-            Preferences(context)?.Edit()
+            return Preferences(context)?.Edit()
                 ?.PutInt(VersionKey, WidgetSnapshotCodec.CurrentVersion)
                 ?.PutString(RowsKey, WidgetSnapshotCodec.Serialize(items))
-                ?.Commit();
+                ?.Commit() == true;
         }
     }
 
@@ -54,6 +54,32 @@ internal static class WidgetSnapshotStore
             return WidgetSnapshotCodec.Deserialize(
                 preferences.GetString(RowsKey, null),
                 preferences.GetInt(VersionKey, 0));
+        }
+    }
+
+    // 只有旧种子偏好存在时，才清理该构建专用的六个固定 ID。
+    public static void RemoveRetiredFixture(Context context)
+    {
+        const string retiredPreference = "mosaic.mobile.v3.testseed";
+        if (context.GetSharedPreferences(retiredPreference, FileCreationMode.Private)?.All is not { Count: > 0 })
+        {
+            return;
+        }
+
+        lock (Gate)
+        {
+            var items = LoadItems(context);
+            var fixtureIds = Enumerable.Range(1, 6)
+                .Select(index => new Guid($"a1000000-0000-4000-8000-{index:D12}"))
+                .ToHashSet();
+            var kept = items.Where(item => !fixtureIds.Contains(item.Id)).ToArray();
+            if (kept.Length != items.Count && Preferences(context)?.Edit()
+                ?.PutInt(VersionKey, WidgetSnapshotCodec.CurrentVersion)
+                ?.PutString(RowsKey, WidgetSnapshotCodec.Serialize(kept))?.Commit() != true)
+            {
+                return;
+            }
+            context.DeleteSharedPreferences(retiredPreference);
         }
     }
 

@@ -351,16 +351,14 @@ internal sealed class AuthService(
 
     public async Task<OperationResult<string>> GetAccessTokenAsync(CancellationToken cancellationToken = default)
     {
-        var session = _session;
-        if (session is null || _stored is null || State.Server is not { } server)
-            return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
-        if (clock.GetUtcNow() < _accessExpiresAtUtc) return OperationResult<string>.Success(session.AccessToken);
         await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            session = _session;
-            if (session is null || _stored is null) return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
-            if (clock.GetUtcNow() < _accessExpiresAtUtc) return OperationResult<string>.Success(session.AccessToken);
+            if (_stored is null || State.Server is not { } server)
+                return Failure<string>(AuthErrorCodes.TokenInvalid, "尚未登录。");
+            // 启动只恢复本地登录态，首次联网时才兑换已存的刷新令牌。
+            if (_session is { } session && clock.GetUtcNow() < _accessExpiresAtUtc)
+                return OperationResult<string>.Success(session.AccessToken);
             var refreshed = await transport.RefreshAsync(server, _stored.RefreshToken, cancellationToken).ConfigureAwait(false);
             if (!refreshed.IsSuccess)
             {

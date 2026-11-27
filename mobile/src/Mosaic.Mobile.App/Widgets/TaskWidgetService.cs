@@ -25,7 +25,9 @@ public sealed class TaskWidgetService : RemoteViewsService
     {
         var appWidgetId = intent?.GetIntExtra(AppWidgetManager.ExtraAppwidgetId, AppWidgetManager.InvalidAppwidgetId)
             ?? AppWidgetManager.InvalidAppwidgetId;
-        return new TaskRowFactory(ApplicationContext ?? this, appWidgetId);
+        return new TaskRowFactory(ApplicationContext ?? this, appWidgetId,
+            intent?.GetIntExtra(WidgetViewport.RowHeightExtra, 0) ?? 0,
+            intent?.GetBooleanExtra(WidgetViewport.MarkExtra, false) ?? false);
     }
 }
 
@@ -38,12 +40,15 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
 
     private WidgetTaskGroup _group = WidgetTaskGroup.Pending;
 
-    private WidgetRowLayout _layout = new(1, 104);
+    private readonly int _rowHeightPx;
+    private readonly bool _showMark;
 
-    public TaskRowFactory(Context context, int appWidgetId)
+    public TaskRowFactory(Context context, int appWidgetId, int rowHeightPx, bool showMark)
     {
         _context = context;
         AppWidgetId = appWidgetId;
+        _rowHeightPx = rowHeightPx;
+        _showMark = showMark;
     }
 
     public int AppWidgetId { get; }
@@ -59,10 +64,7 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
     public void OnDataSetChanged()
     {
         _group = WidgetGroupStore.Get(_context, AppWidgetId);
-        _layout = Measure(_context, AppWidgetId);
-        _rows = LoadRows(_context, _group)
-            .Take(_layout.Rows)
-            .ToList();
+        _rows = LoadRows(_context, _group);
         WidgetDiagnostics.LogOptions(_context, AppWidgetId);
     }
 
@@ -76,6 +78,7 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
         {
             var empty = new RemoteViews(_context.PackageName, Resource.Layout.widget_task_empty);
             empty.SetTextViewText(Resource.Id.widget_empty_text, WidgetTaskGroups.EmptyText(_group));
+            ConfigureHeight(empty, Resource.Id.widget_empty_text);
             return empty;
         }
 
@@ -87,6 +90,15 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
         var row = _rows[position];
         var views = new RemoteViews(_context.PackageName, Resource.Layout.widget_task_row);
         views.SetTextViewText(Resource.Id.widget_row_title, row.Title);
+        ConfigureHeight(views, Resource.Id.widget_row_root);
+        if (_showMark)
+        {
+            var density = _context.Resources!.DisplayMetrics!.Density;
+            var start = (int)(4 * density);
+            var end = (int)(48 * density);
+            var rtl = _context.Resources.Configuration?.LayoutDirection == Android.Views.LayoutDirection.Rtl;
+            views.SetViewPadding(Resource.Id.widget_row_root, rtl ? end : start, 0, rtl ? start : end, 0);
+        }
         views.SetImageViewResource(
             Resource.Id.widget_row_circle,
             row.IsCompleted ? Resource.Drawable.widget_circle_checked : Resource.Drawable.widget_circle_outline);
@@ -114,30 +126,15 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
 
     public long GetItemId(int position) => position;
 
-    private static WidgetRowLayout Measure(Context context, int appWidgetId)
+    private void ConfigureHeight(RemoteViews views, int id)
     {
-        var densityDpi = context.Resources?.DisplayMetrics?.DensityDpi switch
-        {
-            null => 160,
-            var density => (int)density,
-        };
-        var manager = AppWidgetManager.GetInstance(context);
-        var options = manager?.GetAppWidgetOptions(appWidgetId);
-        var reported = options?.GetInt(AppWidgetManager.OptionAppwidgetMinHeight, -1) ?? -1;
-        var height = WidgetRowGeometry.ReportedHeightToPixels(reported, densityDpi);
-        var divider = Math.Max(1, densityDpi / 160);
-        return WidgetRowGeometry.Compute(height, densityDpi, divider);
+        if (_rowHeightPx > 0 && OperatingSystem.IsAndroidVersionAtLeast(31))
+            views.SetViewLayoutHeight(id, _rowHeightPx, (int)ComplexUnitType.Px);
     }
 
     private static IReadOnlyList<WidgetRow> LoadRows(Context context, WidgetTaskGroup group)
     {
         var source = WidgetSnapshotStore.LoadItems(context);
-#if MOSAIC_WIDGET_TEST_SEED
-        if (TestSeedStore.IsSeeded)
-        {
-            source = TestSeedStore.Items();
-        }
-#endif
         return WidgetTaskSelector
             .Select(source, group)
             .Select(WidgetRowFactory.ToRow)
