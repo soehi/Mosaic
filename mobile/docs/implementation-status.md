@@ -251,3 +251,76 @@ MuMu 以 `MuMuManager control -v 0 launch` 命令行启动，只用 `adb` 完成
 ### 9.4 未验证
 
 真机 arm64、宽屏设备上的 4×1/4×2 实际格数、流体云（仍阻塞）、真实服务端联调。
+
+## 10. 0.3.3：长按切换任务组（未完成 / 已完成 / 已归档 / 全部）
+
+追加需求与 M2.5 改版同一次交付，但 0.3.2 已提交，因此按规划会话的约定升版本：`0.3.3` / `versionCode=8`。
+
+### 10.1 硬限制与选定路径
+
+AppWidget 的长按由 launcher 持有，`RemoteViews` 没有 long-click API，应用无法拦截原始 long-press 事件。唯一受支持的等价路径是 `android:configure` + `android:widgetFeatures="reconfigurable|configuration_optional"`：用户长按卡片 → 系统菜单出现「编辑」铅笔 → 进入本应用的配置对话框。未使用透明遮罩、未伪造长按检测、未用 `setOnClickPendingIntent` 模拟长按。
+
+### 10.2 根因位置
+
+| 编号 | 根因位置 | 触发条件与出错原因 |
+|---|---|---|
+| R17 | `Resources/xml/widget_tasks_info.xml`（0.3.2） | 没有 `android:configure`，也没有 `widgetFeatures`，所以 launcher 的系统菜单里没有「编辑」，长按后无法进入任何配置入口。 |
+| R18 | `Widgets/TaskWidgetService.cs:95`（0.3.2 的 `LoadRows`） | 只读 `WidgetSnapshotStore.Load(context)` 并按 `!Completed` 过滤，快照里根本没有归档位，`archived` 分组无从判断。 |
+| R19 | `Widgets/WidgetSnapshot.cs`（0.3.2） | 行格式固定三字段（id / 标题 / 完成位），无版本号，无法承载完成位与归档位之外的排序时间。 |
+| R20 | `Widgets/TaskWidgetService.cs`（0.3.3 首版） | 只读行不写 fill-in intent。`RemoteViewsAdapter` 回收子视图时，被复用的行继承了上一行的 fill-in extras，点「已完成」行的圆圈会把**另一条仍待办的任务**标记完成（实测复现：完成组点第一行，未完成组里「检查夜间备份任务」消失）。 |
+| R21 | `Widgets/WidgetConfigActivity.cs`（0.3.3 首版） | `android:configure` 写的是 `app.mosaic.tasks.Widgets.WidgetConfigActivity`，而生成的 Java 包装类名是 `crc64…`，launcher 启动不到该 Activity。改为 `Activity(Name = "app.mosaic.tasks.WidgetConfigActivity")` 显式钉住 Java 名。 |
+
+### 10.3 改动位置
+
+| 文件 | 改动 |
+|---|---|
+| `Mosaic.Mobile.Core/Cards/WidgetTaskGroup.cs`（新增） | `WidgetTaskGroup` 四值枚举、`WidgetTaskGroups`（wire 名 `pending/completed/archived/all`、旧值 `open` 兼容、分组空态文案、`AllowsComplete`）、`WidgetTaskItem` 快照行、`WidgetTaskSelector.Select`（分组过滤 + 排序 + 上限 200 + id 兜底排序） |
+| `Mosaic.Mobile.Core/Cards/WidgetSnapshotCodec.cs`（新增） | 快照线格式与升级路径：`CurrentVersion=4`，六字段/行；`version==0`（0.3.2 无版本键的三字段）按待办行迁移；其它版本一律读空；标题里的分隔符被替换，无法伪造字段 |
+| `Mosaic.Mobile.Core/Projection/TaskProjection.cs` | 新增 `ListForWidgetAsync(limit, ct)`：读全部任务（含归档），`ORDER BY created_at_utc DESC, id ASC` 保证稳定；卡片自身的 `ListVisibleAsync` 不变 |
+| `Mosaic.Mobile.Core/MobileKernel.cs` | 新增 `WidgetRefreshResult(Model, Items)` 与 `RefreshWidgetAsync`；`BuildAsync` 同时产出卡片模型与快照行；`CardActionResult` 增加可选 `WidgetItems`。`Items` 为 null 表示解析失败，调用方保留旧快照而不是清空 |
+| `Mosaic.Mobile.App/Widgets/WidgetConfigActivity.cs`（新增） | 配置对话框：`android:configure` 入口、`Exported=true`、`ExcludeFromRecents`、无 ActionBar、无 launcher 图标、选完立即 `finish()`；四个选项按钮，当前组打勾；`RESULT_CANCELED` 不改动；`OwnsWidget` 校验 id 属于本 provider 才允许写入 |
+| `Mosaic.Mobile.App/Widgets/WidgetGroupStore.cs`（新增） | 分组存储：`SharedPreferences("widget_prefs")`、键 `filter_<appWidgetId>`、值四选一，默认 `pending`；`OnDeleted` 时删除 |
+| `Mosaic.Mobile.App/Widgets/TaskWidgetService.cs` | `OnDataSetChanged` 读分组并按组过滤；空态文案按组变化；**每行都写 fill-in intent**（三键齐全），只读行带 `ExtraReadOnly=true`，避免回收行串 id |
+| `Mosaic.Mobile.App/Widgets/WidgetActionReceiver.cs` | 新增 `ExtraReadOnly`；命中该标记直接返回，绝不发起写 |
+| `Mosaic.Mobile.App/Widgets/WidgetSnapshot.cs` | 行记录扩为 id/标题/完成/归档/更新时间；读写委托给 `WidgetSnapshotCodec`；新增 `WidgetRowFactory` |
+| `Mosaic.Mobile.App/Widgets/WidgetRuntime.cs` | `RefreshAsync`/`ExecuteAsync` 改用 `RefreshWidgetAsync` 与 `WidgetItems` 落快照；新增 `RenderOne(context, id)` 只重绘被改的实例 |
+| `Mosaic.Mobile.App/Widgets/TaskWidgetProvider.cs` | 新增 `OnDeleted`，删除该实例的分组偏好 |
+| `Mosaic.Mobile.App/Resources/xml/widget_tasks_info.xml` | 加 `android:configure="app.mosaic.tasks.WidgetConfigActivity"`、`android:widgetFeatures="reconfigurable|configuration_optional"` |
+| `Resources/layout/widget_config.xml`、`drawable/widget_config_option.xml`、`values/styles.xml`（新增） | 配置对话框布局（标题 + 四个选项容器）、选项圆角描边、`WidgetConfigTheme`（`Theme.Material.Dialog.Alert` 派生，无 Material Components 依赖） |
+| `Resources/values/colors.xml`、`values-night/colors.xml` | 新增 `widget_on_primary`（浅色 `#FFFFFF` / 深色 `#1F1F1F`）；`ic_check_small` 改用它，深色模式下勾仍可辨 |
+| `Resources/values/strings.xml` | 新增 `widget_config_label`、`widget_config_title`；`widget_description` 说明长按可配置 |
+| `Mosaic.Mobile.App.csproj`、`mobile/Directory.Build.props` | 版本 0.3.3 / `versionCode=8` |
+| `tests/Mosaic.Mobile.Tests/WidgetGroupTests.cs`、`WidgetSnapshotCodecTests.cs`（新增） | 四分组边界、互斥覆盖、`AllowsComplete`、wire 名往返、旧值 `open`、上限、空态文案；快照往返、0.3.2 迁移、未知版本读空、畸形行丢弃、标题内分隔符不能伪造字段 |
+
+### 10.4 迁移
+
+- 快照文件：0.3.2 的 `mosaic.mobile.v3.widget` 里 `rows` 无 `rows.version`。升级后首帧按 `version==0` 迁移为待办行（0.3.2 写快照时已过滤掉完成与归档），卡片不会空白；首次同步后重写为 v4 格式。
+- 分组偏好：新文件 `widget_prefs`，旧安装没有该键，默认 `pending`，与 0.3.2 行为一致。
+- 已有小组件实例：`appWidgetId` 不变，无需重新放置；`OnDeleted` 只清理被删除实例的键。
+- 回滚：`git revert` 本次提交；设备侧 `versionCode` 不能从 8 回退到 7，需卸载后装 0.3.2。快照 v4 文件被 0.3.2 读作"无版本"会走三字段解析失败而丢弃，属可接受的降级（不崩、显示空态）。
+
+### 10.5 无头 adb 实测（MuMu 12 / Android 15 / x86_64，720×1280，density 2.0）
+
+证据：`artifacts/mobile-0.3.3/shots/`
+
+| 项 | 结果 |
+|---|---|
+| 长按入口 | 通过：长按卡片后 launcher 菜单出现编辑铅笔与「点击即可更改微件设置」，点铅笔进入本应用配置对话框 |
+| 配置对话框 | 通过：四个选项、当前组打勾、无 ActionBar、选完立即关闭 |
+| 未完成组 | 通过：只列未完成未归档任务 |
+| 已完成组 | 通过：只列已完成任务，圆圈为实心主色带勾 |
+| 已归档组 | 通过：只列归档任务 |
+| 全部组 | 通过：未完成 + 已完成，不含归档 |
+| 只读行点击 | 通过（R20 修复后）：已完成组、全部组里点实心勾，列表无变化、logcat 无写入活动，未完成组任务不受影响 |
+| 未完成组点圆圈 | 通过：该行消失、列表重排；切到已完成组能看到它 |
+| 全部组点圆圈 | 通过：可写行变为实心勾并留在原位，只读行不受影响 |
+| 分组空态 | 通过：四个组各自文案（截图 `77-pending-empty.png` 为「暂无未完成任务」） |
+| 深色模式 | 通过：`cmd uimode night yes` 后深色表面、浅色文字、深色勾 |
+| 快照升级 | 单元测试覆盖（0.3.2 三字段 → 待办行、未知版本读空、标题分隔符不能伪造字段）；设备上为全新安装路径，未做真机覆盖升级 |
+| 重装后黑块 | 已定位：重装后 launcher 缓存 `app_not_installed`，重启 launcher 后恢复；不是布局缺陷 |
+| 4 列宽 | 仍未达成：模拟器 360dp 宽，launcher 封顶 2 列 |
+| 长按缩放 | 与 0.3.2 记录相反：实测长按能进入 launcher 的编辑菜单（`ListView` 未吞掉长按），但缩放把手仍不可用 |
+
+### 10.6 未验证
+
+真机 arm64、宽屏 4×1/4×2 实际格数、流体云（仍阻塞）、真实服务端联调下的分组切换。

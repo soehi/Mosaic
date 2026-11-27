@@ -9,7 +9,8 @@ namespace Mosaic.Mobile.App.Widgets;
 
 /// <summary>
 /// Shared widget pipeline: run the kernel with a hard time budget, persist the
-/// row snapshot the list factory reads, and redraw every widget instance.
+/// full snapshot the list factory cuts every group from, and redraw the widget
+/// instances.
 /// </summary>
 internal static class WidgetRuntime
 {
@@ -26,16 +27,20 @@ internal static class WidgetRuntime
         if (TestSeedStore.IsSeeded)
         {
             var seeded = TestSeedStore.Model();
-            WidgetSnapshotStore.Save(context, TestSeedStore.Rows());
+            WidgetSnapshotStore.Save(context, TestSeedStore.Items());
             return Remember(seeded);
         }
 #endif
         try
         {
             using var budget = new CancellationTokenSource(WorkBudget);
-            var model = await MobileServices.Kernel.RefreshAsync(budget.Token).ConfigureAwait(false);
-            WidgetSnapshotStore.Save(context, ToRows(model));
-            return Remember(model);
+            var refresh = await MobileServices.Kernel.RefreshWidgetAsync(budget.Token).ConfigureAwait(false);
+            if (refresh.Items is { } items)
+            {
+                WidgetSnapshotStore.Save(context, items);
+            }
+
+            return Remember(refresh.Model);
         }
         catch (OperationCanceledException)
         {
@@ -54,7 +59,7 @@ internal static class WidgetRuntime
         if (TestSeedStore.IsSeeded)
         {
             var seeded = TestSeedStore.Apply(taskId, action);
-            WidgetSnapshotStore.Save(context, TestSeedStore.Rows());
+            WidgetSnapshotStore.Save(context, TestSeedStore.Items());
             Remember(seeded.Model);
             WidgetRenderer.NotifyRowsChanged(context);
             return seeded;
@@ -64,7 +69,11 @@ internal static class WidgetRuntime
         {
             using var budget = new CancellationTokenSource(WorkBudget);
             var result = await MobileServices.Kernel.ExecuteAsync(taskId, action, budget.Token).ConfigureAwait(false);
-            WidgetSnapshotStore.Save(context, ToRows(result.Model));
+            if (result.WidgetItems is { } items)
+            {
+                WidgetSnapshotStore.Save(context, items);
+            }
+
             Remember(result.Model);
             WidgetRenderer.NotifyRowsChanged(context);
             return result;
@@ -92,17 +101,34 @@ internal static class WidgetRuntime
             return;
         }
 
-        var provider = new ComponentName(context, Java.Lang.Class.FromType(typeof(TaskWidgetProvider))!);
-        var ids = manager.GetAppWidgetIds(provider);
-        if (ids is null)
+        foreach (var id in InstanceIds(context, manager))
+        {
+            WidgetRenderer.Render(context, manager, id, model);
+        }
+    }
+
+    /// <summary>Redraws one instance after its group changed.</summary>
+    public static void RenderOne(Context context, int appWidgetId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var manager = AppWidgetManager.GetInstance(context);
+        if (manager is null)
         {
             return;
         }
 
-        foreach (var id in ids)
-        {
-            WidgetRenderer.Render(context, manager, id, model);
-        }
+        var model = _lastModel ?? MobileServices.Fallback(string.Empty);
+        WidgetRenderer.Render(context, manager, appWidgetId, model);
+    }
+
+    public static int[] InstanceIds(Context context, AppWidgetManager manager)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(manager);
+
+        var provider = new ComponentName(context, Java.Lang.Class.FromType(typeof(TaskWidgetProvider))!);
+        return manager.GetAppWidgetIds(provider) ?? [];
     }
 
     public static void ShowToast(Context context, string message)
@@ -116,13 +142,6 @@ internal static class WidgetRuntime
             // A missing toast never breaks the widget update.
         }
     }
-
-    /// <summary>Only unfinished tasks appear in the list.</summary>
-    private static IReadOnlyList<WidgetRow> ToRows(CardModel model) =>
-        model.Rows
-            .Where(row => !row.IsCompleted)
-            .Select(row => new WidgetRow(row.Id.ToString("D"), row.Title, row.IsCompleted))
-            .ToList();
 
     private static CardModel Remember(CardModel model)
     {

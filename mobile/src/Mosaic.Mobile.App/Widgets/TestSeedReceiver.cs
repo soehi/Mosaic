@@ -28,7 +28,7 @@ public sealed class TestSeedReceiver : BroadcastReceiver
         {
             try
             {
-                WidgetSnapshotStore.Save(context, TestSeedStore.Rows());
+                WidgetSnapshotStore.Save(context, TestSeedStore.Items());
                 WidgetRuntime.RenderAll(context, TestSeedStore.Model());
                 WidgetRenderer.NotifyRowsChanged(context);
                 WidgetRuntime.ShowToast(context, "测试数据已生成");

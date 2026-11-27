@@ -20,6 +20,14 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
 {
     public const string ActionTask = "app.mosaic.mobile.action.TASK";
 
+    /// <summary>
+    /// Marks a read-only row. Every list row must carry a fill-in intent, because
+    /// a recycled row otherwise inherits the previous row's task id and a tap
+    /// would complete the wrong task. A read-only row sends its own id plus this
+    /// flag, and the receiver returns before any write when the flag is set.
+    /// </summary>
+    public const string ExtraReadOnly = "readOnly";
+
     public const string ExtraTaskId = "taskId";
 
     public const string ExtraAction = "action";
@@ -38,6 +46,13 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
         {
             // Refresh and archive are not reachable from the card UI; the list
             // rebuilds on its own after every applied command.
+            return;
+        }
+
+        if (intent.GetBooleanExtra(ExtraReadOnly, false))
+        {
+            // A completed or archived row. It is a no-op rather than a write
+            // the kernel would refuse.
             return;
         }
 

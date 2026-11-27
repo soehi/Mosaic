@@ -44,6 +44,23 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         RunRefresh(context);
     }
 
+    public override void OnDeleted(Context? context, int[]? appWidgetIds)
+    {
+        if (context is null || appWidgetIds is null)
+        {
+            return;
+        }
+
+        // The host reuses nothing, but a stale group key would outlive its
+        // widget and could be read by a future instance with the same id.
+        foreach (var appWidgetId in appWidgetIds)
+        {
+            WidgetGroupStore.Delete(context, appWidgetId);
+        }
+
+        base.OnDeleted(context, appWidgetIds);
+    }
+
     public override void OnAppWidgetOptionsChanged(
         Context? context,
         AppWidgetManager? appWidgetManager,

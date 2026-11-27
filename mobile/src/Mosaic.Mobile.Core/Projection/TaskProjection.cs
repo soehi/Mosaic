@@ -234,6 +234,46 @@ public sealed class TaskProjection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Every task the widget may show, archived ones included. The card's own
+    /// <see cref="ListVisibleAsync"/> stays limited to unarchived rows; this read
+    /// exists only so a widget configured to the archived or completed group can
+    /// be filled. Rows are returned newest-created first and capped, because the
+    /// update time used for ordering lives in the payload, not in a column.
+    /// </summary>
+    public async Task<IReadOnlyList<SyncedTask>> ListForWidgetAsync(int limit, CancellationToken cancellationToken)
+    {
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = _connection.CreateCommand();
+            command.CommandText = """
+                SELECT id, title, payload_json, revision, server_revision, is_completed, archived_at_utc, created_at_utc
+                FROM tasks
+                ORDER BY created_at_utc DESC, id ASC
+                LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$limit", limit);
+            var result = new List<SyncedTask>(Math.Min(limit, 16));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                result.Add(Map(reader));
+            }
+
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<SyncedTask>> ListVisibleAsync(int limit, CancellationToken cancellationToken)
     {
         if (limit <= 0)

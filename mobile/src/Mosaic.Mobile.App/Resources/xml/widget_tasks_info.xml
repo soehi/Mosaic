@@ -17,6 +17,8 @@
     android:maxResizeHeight="140dp"
     android:updatePeriodMillis="0"
     android:resizeMode="vertical"
+    android:configure="app.mosaic.tasks.WidgetConfigActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional"
     android:widgetCategory="home_screen"
     android:initialLayout="@layout/widget_tasks"
     android:previewLayout="@layout/widget_tasks_preview"

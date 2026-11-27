@@ -1,78 +1,74 @@
-using System.Text;
+using System.Globalization;
 using Android.Content;
+using Mosaic.Mobile.Core.Cards;
 
 namespace Mosaic.Mobile.App.Widgets;
 
-/// <summary>One row the widget list renders: id, title, completed flag.</summary>
-internal sealed record WidgetRow(string Id, string Title, bool Completed);
+/// <summary>One row the list factory renders: id, title and the two state flags.</summary>
+internal sealed record WidgetRow(
+    string Id,
+    string Title,
+    bool IsCompleted,
+    bool IsArchived,
+    DateTimeOffset UpdatedAtUtc);
 
 /// <summary>
-/// The last rendered rows, persisted in a private preference so the
-/// <see cref="TaskWidgetService"/> factory can rebuild the list after the
-/// process was killed. Title and id are the only fields kept; no token, email
-/// or note is ever written here.
+/// The last rendered snapshot, persisted in a private preference so the
+/// <see cref="TaskWidgetService"/> factory can rebuild any of the four groups
+/// after the process was killed. Title and id are the only text kept; no token,
+/// email or note is ever written here. The wire format itself lives in
+/// <see cref="WidgetSnapshotCodec"/> so its upgrade path is unit-tested.
 /// </summary>
 internal static class WidgetSnapshotStore
 {
-    private const string PreferencesFile = "mosaic.mobile.v3.widget";
+    internal const string PreferencesFile = "mosaic.mobile.v3.widget";
 
     private const string RowsKey = "rows";
 
-    private const char FieldSeparator = '\u001F';
-
-    private const char RowSeparator = '\u001E';
+    private const string VersionKey = "rows.version";
 
     private static readonly object Gate = new();
 
-    public static void Save(Context context, IReadOnlyList<WidgetRow> rows)
+    public static void Save(Context context, IReadOnlyList<WidgetTaskItem> items)
     {
-        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(items);
         lock (Gate)
         {
-            var builder = new StringBuilder();
-            for (var index = 0; index < rows.Count; index++)
-            {
-                if (index > 0)
-                {
-                    builder.Append(RowSeparator);
-                }
-
-                var row = rows[index];
-                builder.Append(row.Id).Append(FieldSeparator)
-                    .Append(row.Title.Replace(FieldSeparator, ' ').Replace(RowSeparator, ' ')).Append(FieldSeparator)
-                    .Append(row.Completed ? '1' : '0');
-            }
-
-            Preferences(context)?.Edit()?.PutString(RowsKey, builder.ToString())?.Commit();
+            Preferences(context)?.Edit()
+                ?.PutInt(VersionKey, WidgetSnapshotCodec.CurrentVersion)
+                ?.PutString(RowsKey, WidgetSnapshotCodec.Serialize(items))
+                ?.Commit();
         }
     }
 
-    public static IReadOnlyList<WidgetRow> Load(Context context)
+    public static IReadOnlyList<WidgetTaskItem> LoadItems(Context context)
     {
         lock (Gate)
         {
-            var raw = Preferences(context)?.GetString(RowsKey, null);
-            if (string.IsNullOrEmpty(raw))
+            var preferences = Preferences(context);
+            if (preferences is null)
             {
                 return [];
             }
 
-            var rows = new List<WidgetRow>();
-            foreach (var chunk in raw.Split(RowSeparator, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var fields = chunk.Split(FieldSeparator);
-                if (fields.Length != 3 || fields[0].Length == 0)
-                {
-                    continue;
-                }
-
-                rows.Add(new WidgetRow(fields[0], fields[1], fields[2] == "1"));
-            }
-
-            return rows;
+            return WidgetSnapshotCodec.Deserialize(
+                preferences.GetString(RowsKey, null),
+                preferences.GetInt(VersionKey, 0));
         }
     }
 
     private static ISharedPreferences? Preferences(Context context) =>
         context.GetSharedPreferences(PreferencesFile, FileCreationMode.Private);
+}
+
+/// <summary>Formats a snapshot item for the list factory.</summary>
+internal static class WidgetRowFactory
+{
+    public static WidgetRow ToRow(WidgetTaskItem item) =>
+        new(
+            item.Id.ToString("D", CultureInfo.InvariantCulture),
+            item.Title,
+            item.IsCompleted,
+            item.ArchivedAtUtc is not null,
+            item.UpdatedAtUtc);
 }

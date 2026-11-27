@@ -23,12 +23,14 @@ public sealed class TaskWidgetService : RemoteViewsService
     }
 }
 
-/// <summary>Builds the rows the list shows. Only unfinished tasks are listed.</summary>
+/// <summary>Builds the rows for this widget's configured group.</summary>
 internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRemoteViewsFactory
 {
     private readonly Context _context;
 
     private IReadOnlyList<WidgetRow> _rows = [];
+
+    private WidgetTaskGroup _group = WidgetTaskGroup.Pending;
 
     public TaskRowFactory(Context context, int appWidgetId)
     {
@@ -48,7 +50,8 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
 
     public void OnDataSetChanged()
     {
-        _rows = LoadRows(_context);
+        _group = WidgetGroupStore.Get(_context, AppWidgetId);
+        _rows = LoadRows(_context, _group);
     }
 
     public void OnDestroy()
@@ -59,7 +62,9 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
     {
         if (_rows.Count == 0)
         {
-            return new RemoteViews(_context.PackageName, Resource.Layout.widget_task_empty);
+            var empty = new RemoteViews(_context.PackageName, Resource.Layout.widget_task_empty);
+            empty.SetTextViewText(Resource.Id.widget_empty_text, WidgetTaskGroups.EmptyText(_group));
+            return empty;
         }
 
         if (position < 0 || position >= _rows.Count)
@@ -72,17 +77,22 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
         views.SetTextViewText(Resource.Id.widget_row_title, row.Title);
         views.SetImageViewResource(
             Resource.Id.widget_row_circle,
-            row.Completed ? Resource.Drawable.widget_circle_checked : Resource.Drawable.widget_circle_outline);
+            row.IsCompleted ? Resource.Drawable.widget_circle_checked : Resource.Drawable.widget_circle_outline);
 
-        if (!row.Completed)
-        {
-            var fillIn = new Intent();
-            fillIn.SetAction(WidgetActionReceiver.ActionTask);
-            fillIn.PutExtra(WidgetActionReceiver.ExtraTaskId, row.Id);
-            fillIn.PutExtra(WidgetActionReceiver.ExtraAction, CardActionCodec.CompleteWire);
-            views.SetOnClickFillInIntent(Resource.Id.widget_row_circle, fillIn);
-        }
+        // Every row carries a fill-in intent with all three keys set, including
+        // the read-only ones. A row that simply omitted the click intent let a
+        // recycled row's intent through, and a tap on a completed row then
+        // completed a different, still-pending task. Read-only rows therefore
+        // send their own id plus an explicit flag the receiver drops, so neither
+        // a stale id nor a stale flag can reach a write.
+        var writable = !row.IsCompleted && !row.IsArchived && WidgetTaskGroups.AllowsComplete(_group);
+        var fillIn = new Intent();
+        fillIn.SetAction(WidgetActionReceiver.ActionTask);
+        fillIn.PutExtra(WidgetActionReceiver.ExtraTaskId, row.Id);
+        fillIn.PutExtra(WidgetActionReceiver.ExtraAction, CardActionCodec.CompleteWire);
+        fillIn.PutExtra(WidgetActionReceiver.ExtraReadOnly, !writable);
 
+        views.SetOnClickFillInIntent(Resource.Id.widget_row_circle, fillIn);
         return views;
     }
 
@@ -92,16 +102,18 @@ internal sealed class TaskRowFactory : Java.Lang.Object, RemoteViewsService.IRem
 
     public long GetItemId(int position) => position;
 
-    private static IReadOnlyList<WidgetRow> LoadRows(Context context)
+    private static IReadOnlyList<WidgetRow> LoadRows(Context context, WidgetTaskGroup group)
     {
+        var source = WidgetSnapshotStore.LoadItems(context);
 #if MOSAIC_WIDGET_TEST_SEED
         if (TestSeedStore.IsSeeded)
         {
-            return TestSeedStore.Rows();
+            source = TestSeedStore.Items();
         }
 #endif
-        return WidgetSnapshotStore.Load(context)
-            .Where(row => !row.Completed)
+        return WidgetTaskSelector
+            .Select(source, group)
+            .Select(WidgetRowFactory.ToRow)
             .ToList();
     }
 }

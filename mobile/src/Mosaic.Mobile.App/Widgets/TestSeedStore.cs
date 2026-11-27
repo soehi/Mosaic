@@ -91,24 +91,25 @@ internal static class TestSeedStore
     }
 
 
-    /// <summary>Only the unfinished, unarchived tasks, as widget rows.</summary>
-    public static IReadOnlyList<WidgetRow> Rows()
+    /// <summary>All six seed tasks as snapshot items, for either group.</summary>
+    public static IReadOnlyList<WidgetTaskItem> Items()
     {
         lock (Gate)
         {
             var states = _states ?? throw new InvalidOperationException("Test seed was not initialized.");
-            var rows = new List<WidgetRow>();
+            var items = new List<WidgetTaskItem>(Definitions.Length);
             for (var index = 0; index < Definitions.Length; index++)
             {
-                if (states[index] == SeedState.Archived || states[index] == SeedState.Completed)
-                {
-                    continue;
-                }
-
-                rows.Add(new WidgetRow(Definitions[index].Id.ToString("D"), Definitions[index].Title, false));
+                var updated = DateTimeOffset.UnixEpoch.AddMinutes(index + 1);
+                items.Add(new WidgetTaskItem(
+                    Definitions[index].Id,
+                    Definitions[index].Title,
+                    states[index] == SeedState.Completed,
+                    states[index] == SeedState.Archived ? updated : null,
+                    updated));
             }
 
-            return rows;
+            return items;
         }
     }
 

@@ -10,10 +10,22 @@ using Mosaic.Mobile.Wire;
 
 namespace Mosaic.Mobile.Core;
 
-public sealed record CardActionResult(CommandOutcome Outcome, string Message, CardModel Model)
+public sealed record CardActionResult(
+    CommandOutcome Outcome,
+    string Message,
+    CardModel Model,
+    IReadOnlyList<WidgetTaskItem>? WidgetItems = null)
 {
     public bool IsSuccess => Outcome is CommandOutcome.Applied or CommandOutcome.Replayed or CommandOutcome.AlreadyApplied;
 }
+
+/// <summary>
+/// One refresh for the widget: the card model plus the full snapshot every
+/// group is cut from. <see cref="Items"/> is null when the refresh failed
+/// before the projection opened, which tells the caller to keep the previous
+/// snapshot instead of replacing it with an empty list.
+/// </summary>
+public sealed record WidgetRefreshResult(CardModel Model, IReadOnlyList<WidgetTaskItem>? Items);
 
 /// <summary>
 /// The no-UI kernel the Android widget drives. Every entry point is safe to
@@ -57,7 +69,16 @@ public sealed class MobileKernel
         _commands = new TaskCommandService(session, clock);
     }
 
-    public async Task<CardModel> RefreshAsync(CancellationToken cancellationToken)
+    public async Task<CardModel> RefreshAsync(CancellationToken cancellationToken) =>
+        (await RefreshWidgetAsync(cancellationToken).ConfigureAwait(false)).Model;
+
+    /// <summary>
+    /// A refresh that also hands back the full snapshot. The widget needs every
+    /// task, not the card's five visible rows, because the configured group may
+    /// be completed or archived; a failed resolution returns null items so the
+    /// caller keeps the previous snapshot rather than blanking the card.
+    /// </summary>
+    public async Task<WidgetRefreshResult> RefreshWidgetAsync(CancellationToken cancellationToken)
     {
         Resolution resolution;
         try
@@ -72,15 +93,15 @@ public sealed class MobileKernel
         if (resolution.Failure is not null)
         {
             await PublishAsync(resolution.Failure, cancellationToken).ConfigureAwait(false);
-            return resolution.Failure;
+            return new WidgetRefreshResult(resolution.Failure, null);
         }
 
         try
         {
             var projection = resolution.Projection!;
-            var model = await BuildModelAsync(projection, resolution.Offline, cancellationToken).ConfigureAwait(false);
+            var (model, items) = await BuildAsync(projection, resolution.Offline, cancellationToken).ConfigureAwait(false);
             await PublishAsync(model, cancellationToken).ConfigureAwait(false);
-            return model;
+            return new WidgetRefreshResult(model, items);
         }
         finally
         {
@@ -138,9 +159,9 @@ public sealed class MobileKernel
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            var model = await BuildModelAsync(projection, resolution.Offline, cancellationToken).ConfigureAwait(false);
+            var (model, items) = await BuildAsync(projection, resolution.Offline, cancellationToken).ConfigureAwait(false);
             await PublishAsync(model, cancellationToken).ConfigureAwait(false);
-            return new CardActionResult(result.Outcome, result.Message, model);
+            return new CardActionResult(result.Outcome, result.Message, model, items);
         }
         finally
         {
@@ -279,7 +300,13 @@ public sealed class MobileKernel
         }
     }
 
-    private async Task<CardModel> BuildModelAsync(TaskProjection projection, bool offline, CancellationToken cancellationToken)
+    private async Task<CardModel> BuildModelAsync(TaskProjection projection, bool offline, CancellationToken cancellationToken) =>
+        (await BuildAsync(projection, offline, cancellationToken).ConfigureAwait(false)).Model;
+
+    private async Task<(CardModel Model, IReadOnlyList<WidgetTaskItem> Items)> BuildAsync(
+        TaskProjection projection,
+        bool offline,
+        CancellationToken cancellationToken)
     {
         var counts = await projection.CountAsync(cancellationToken).ConfigureAwait(false);
         var tasks = await projection.ListVisibleAsync(CardModelBuilder.RowLimit, cancellationToken).ConfigureAwait(false);
@@ -292,9 +319,16 @@ public sealed class MobileKernel
             ? CardModelBuilder.Empty(fluid)
             : CardModelBuilder.Ready(counts, rows, fluid);
 
-        return offline
+        // The card shows five rows; the widget may be configured to any group,
+        // so the snapshot is read separately and bounded by its own cap.
+        var snapshot = await projection
+            .ListForWidgetAsync(WidgetTaskSelector.MaxItems, cancellationToken)
+            .ConfigureAwait(false);
+        var items = WidgetSnapshotFactory.ToItems(snapshot);
+
+        return (offline
             ? model with { State = CardState.Offline, Detail = "离线 · " + model.Detail }
-            : model;
+            : model, items);
     }
 
     private async Task PublishAsync(CardModel model, CancellationToken cancellationToken)
