@@ -90,6 +90,28 @@ internal static class TestSeedStore
         }
     }
 
+
+    /// <summary>Only the unfinished, unarchived tasks, as widget rows.</summary>
+    public static IReadOnlyList<WidgetRow> Rows()
+    {
+        lock (Gate)
+        {
+            var states = _states ?? throw new InvalidOperationException("Test seed was not initialized.");
+            var rows = new List<WidgetRow>();
+            for (var index = 0; index < Definitions.Length; index++)
+            {
+                if (states[index] == SeedState.Archived || states[index] == SeedState.Completed)
+                {
+                    continue;
+                }
+
+                rows.Add(new WidgetRow(Definitions[index].Id.ToString("D"), Definitions[index].Title, false));
+            }
+
+            return rows;
+        }
+    }
+
     public static CardModel Model()
     {
         lock (Gate)

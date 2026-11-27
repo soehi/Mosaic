@@ -62,7 +62,7 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         {
             try
             {
-                var model = last ?? await WidgetRuntime.RefreshAsync().ConfigureAwait(false);
+                var model = last ?? await WidgetRuntime.RefreshAsync(appContext).ConfigureAwait(false);
                 WidgetRuntime.RenderAll(appContext, model);
             }
             finally
@@ -88,7 +88,7 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         {
             try
             {
-                var model = await WidgetRuntime.RefreshAsync().ConfigureAwait(false);
+                var model = await WidgetRuntime.RefreshAsync(appContext).ConfigureAwait(false);
                 WidgetRuntime.RenderAll(appContext, model);
             }
             finally

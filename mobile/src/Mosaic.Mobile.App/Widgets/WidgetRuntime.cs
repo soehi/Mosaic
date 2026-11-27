@@ -8,8 +8,8 @@ using Mosaic.Mobile.Core.Commands;
 namespace Mosaic.Mobile.App.Widgets;
 
 /// <summary>
-/// Shared widget pipeline: run the kernel with a hard time budget, remember the
-/// last card for cheap re-renders on resize, and redraw every widget instance.
+/// Shared widget pipeline: run the kernel with a hard time budget, persist the
+/// row snapshot the list factory reads, and redraw every widget instance.
 /// </summary>
 internal static class WidgetRuntime
 {
@@ -19,18 +19,23 @@ internal static class WidgetRuntime
 
     public static CardModel? LastModel => _lastModel;
 
-    public static async Task<CardModel> RefreshAsync()
+    public static async Task<CardModel> RefreshAsync(Context context)
     {
+        ArgumentNullException.ThrowIfNull(context);
 #if MOSAIC_WIDGET_TEST_SEED
         if (TestSeedStore.IsSeeded)
         {
-            return Remember(TestSeedStore.Model());
+            var seeded = TestSeedStore.Model();
+            WidgetSnapshotStore.Save(context, TestSeedStore.Rows());
+            return Remember(seeded);
         }
 #endif
         try
         {
             using var budget = new CancellationTokenSource(WorkBudget);
-            return Remember(await MobileServices.Kernel.RefreshAsync(budget.Token).ConfigureAwait(false));
+            var model = await MobileServices.Kernel.RefreshAsync(budget.Token).ConfigureAwait(false);
+            WidgetSnapshotStore.Save(context, ToRows(model));
+            return Remember(model);
         }
         catch (OperationCanceledException)
         {
@@ -42,13 +47,16 @@ internal static class WidgetRuntime
         }
     }
 
-    public static async Task<CardActionResult> ExecuteAsync(Guid taskId, CardAction action)
+    public static async Task<CardActionResult> ExecuteAsync(Context context, Guid taskId, CardAction action)
     {
+        ArgumentNullException.ThrowIfNull(context);
 #if MOSAIC_WIDGET_TEST_SEED
         if (TestSeedStore.IsSeeded)
         {
             var seeded = TestSeedStore.Apply(taskId, action);
+            WidgetSnapshotStore.Save(context, TestSeedStore.Rows());
             Remember(seeded.Model);
+            WidgetRenderer.NotifyRowsChanged(context);
             return seeded;
         }
 #endif
@@ -56,7 +64,9 @@ internal static class WidgetRuntime
         {
             using var budget = new CancellationTokenSource(WorkBudget);
             var result = await MobileServices.Kernel.ExecuteAsync(taskId, action, budget.Token).ConfigureAwait(false);
+            WidgetSnapshotStore.Save(context, ToRows(result.Model));
             Remember(result.Model);
+            WidgetRenderer.NotifyRowsChanged(context);
             return result;
         }
         catch (OperationCanceledException)
@@ -95,17 +105,6 @@ internal static class WidgetRuntime
         }
     }
 
-    public static void RenderOne(Context context, int appWidgetId)
-    {
-        var manager = AppWidgetManager.GetInstance(context);
-        if (manager is null)
-        {
-            return;
-        }
-
-        WidgetRenderer.Render(context, manager, appWidgetId, _lastModel ?? MobileServices.Fallback("正在同步"));
-    }
-
     public static void ShowToast(Context context, string message)
     {
         try
@@ -117,6 +116,13 @@ internal static class WidgetRuntime
             // A missing toast never breaks the widget update.
         }
     }
+
+    /// <summary>Only unfinished tasks appear in the list.</summary>
+    private static IReadOnlyList<WidgetRow> ToRows(CardModel model) =>
+        model.Rows
+            .Where(row => !row.IsCompleted)
+            .Select(row => new WidgetRow(row.Id.ToString("D"), row.Title, row.IsCompleted))
+            .ToList();
 
     private static CardModel Remember(CardModel model)
     {

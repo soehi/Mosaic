@@ -1,9 +1,9 @@
-# 手机端 0.3.1 实施记录
+# 手机端 0.3.2 实施记录
 
 日期：2026-11-26
 分支：`claude/mobile-rebuild-8c92e7`
 备份 tag：`backup/mobile-pre-refactor-20261126` → `8bc0acdee39fcb643e0461165ee0ba230c7e52a6`
-版本：`0.3.1` / Android `versionCode=6` / 包名 `app.mosaic.tasks`
+版本：`0.3.2` / Android `versionCode=7` / 包名 `app.mosaic.tasks`
 需求基线：`docs/mobile-refactor-plan.md`（未修改）
 
 ## 1. 根因位置
@@ -197,3 +197,57 @@ MuMu 以 `MuMuManager control -v 0 launch` 命令行启动，只用 `adb` 完成
 ### 8.6 未验证项
 
 真机（arm64）安装与交互、4×2 新实例的实际行数与底部裁切、流体云（仍为阻塞）、真实服务端联调、覆盖安装与卸载重装。
+
+## 9. 0.3.2：M2.5 小组件交互重做
+
+用户否定了 0.3.1 的视觉与交互，要求按 M2.5 重做：单行紧凑列表、只有一个完成圆圈、原生可滑动。
+
+### 9.1 根因位置
+
+| 编号 | 根因位置 | 触发条件与出错原因 |
+|---|---|---|
+| R13 | `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml`（0.3.1） | 一次性把 5 行静态布局塞进一个 4×2 卡片：每行都带“完成/归档”两个按钮和一个刷新按钮，高度 110dp 时第 3 行起被裁切；4×1 完全没有可用形态。 |
+| R14 | `WidgetRenderer.BuildViews`（0.3.1） | 用 `RemoteViews` 直接摆行，没有 `RemoteViewsService`，所以无法承载超过可视区的任务；用户要求“下滑切换任务”，静态布局做不到。 |
+| R15 | `WidgetRenderer.TaskIntent`（0.3.1） | `PendingIntent` 用 `FLAG_IMMUTABLE`。`setPendingIntentTemplate` + `setOnClickFillInIntent` 要求模板 **mutable**，否则 launcher 无法写入行 extras，点击静默失效。 |
+| R16 | `Resources/drawable/widget_action.xml` + `values/colors.xml`（0.3.1） | 视觉是自定义的方角按钮配 `#F2FFFFFF` 半透明底，不是 M2.5 的圆角表面 + 柔和描边 + 单一主色。 |
+
+### 9.2 改动位置
+
+| 文件 | 改动 |
+|---|---|
+| `Resources/values/colors.xml`、`values-night/colors.xml` | M2.5 token：surface `#FFFFFF`/`#1F1F1F`、on-surface `#1F1F1F`/`#E8EAED`、secondary `#5F6368`/`#9AA0A6`、outline `#DADCE0`/`#5F6368`、primary `#1A73E8`/`#8AB4F8`、primary-container `#E8F0FE`/`#1A2B45` |
+| `Resources/drawable/widget_background.xml` | 12dp 圆角 + 1dp `outline` 描边 |
+| `Resources/drawable/widget_circle_outline.xml`、`widget_circle_checked.xml`、`ic_check_small.xml` | 24dp 完成圆圈：1.5dp 主色空心圆 / 实心主色带白勾 |
+| `Resources/layout/widget_tasks.xml` | 整个卡片只剩一个 `ListView`（8dp 内边距、1dp 分隔线、无滚动条、透明选择器）；无标题栏、无刷新、无归档 |
+| `Resources/layout/widget_task_row.xml`（新增） | 52dp 行：左侧 24dp 圆圈 + 12dp 间距 + 单行省略标题（`sans-serif-medium` 14sp） |
+| `Resources/layout/widget_task_empty.xml`（新增） | 空列表“暂无任务”，无按钮 |
+| `Resources/layout/widget_tasks_preview.xml`（新增） | 微件面板静态预览：ListView 内容在预览里无法渲染，用同样的 token 画两行示例 |
+| `Resources/layout/widget_tasks_safe.xml` | 兜底布局改为纯 `TextView`，不再带刷新按钮 |
+| `Resources/xml/widget_tasks_info.xml` | `minWidth=250dp`、`minHeight=40dp`、`targetCell 4×1`、`minResize 250×40dp`、`maxResizeWidth=250dp`、`maxResizeHeight=140dp`、`resizeMode="vertical"`；`previewLayout` 指向静态预览 |
+| `Widgets/TaskWidgetService.cs`（新增） | `RemoteViewsService` + `IRemoteViewsFactory`：`OnDataSetChanged` 读快照，`GetViewAt` 绑定标题与圆圈，未完成行的圆圈带 `SetOnClickFillInIntent` |
+| `Widgets/WidgetSnapshot.cs`（新增） | 行快照（id / 标题 / 完成位）存私有偏好 `mosaic.mobile.v3.widget`，只用于列表工厂重建；不含令牌、邮箱、备注 |
+| `Widgets/WidgetRenderer.cs` | 改为 `SetRemoteAdapter` + `SetPendingIntentTemplate` + `NotifyAppWidgetViewDataChanged`；模板 PendingIntent 在 API 31+ 用 `FLAG_MUTABLE`（API 26–30 无该标志），显式组件 + 非导出接收器；渲染失败退回安全布局 |
+| `Widgets/WidgetRuntime.cs` | 每次刷新/命令后写行快照并通知列表重载；`RefreshAsync`/`ExecuteAsync` 接收 `Context` |
+| `Widgets/WidgetActionReceiver.cs` | 只接受 `ActionTask` + `complete`；移除 refresh 广播与归档入口（`TaskAction.Archive` 仍在内核里保留） |
+| `Widgets/TestSeedStore.cs`、`TestSeedReceiver.cs` | 新增 `Rows()` 供列表工厂使用；种子广播后同时写快照并通知列表刷新 |
+| `Mosaic.Mobile.App.csproj`、`mobile/Directory.Build.props` | 版本 0.3.2 / `versionCode=7` |
+| `Resources/values/strings.xml` | 移除“完成/归档/刷新”按钮文案，新增 `widget_empty` 与两条预览标题 |
+
+### 9.3 无头 adb 实测（MuMu 12 / Android 15 / x86_64，720×1280，density 2.0）
+
+证据：`artifacts/mobile-0.3.2/shots/`
+
+| 项 | 结果 |
+|---|---|
+| M2.5 视觉 | 通过：白色圆角卡片、1dp 描边、空心主色圆圈、单行标题、1dp 分隔线、无标题栏 |
+| 深色模式 | 通过：`cmd uimode night yes` 后深色表面 + 浅色文字 + `#8AB4F8` 圆圈 |
+| 原生滑动 | 通过：`input swipe` 上滑后列表整体位移，后续任务进入可视区 |
+| 完成圆圈 | 通过：点圆圈 → 该行立即移除、列表重排、待办数下降；`notify widget update ... id: 10` |
+| 空状态 | 通过：全部完成后显示“暂无任务”，无任何按钮 |
+| 微件面板预览 | 通过：静态预览显示两行示例（ListView 内容无法在预览渲染） |
+| 4 列宽 | **未达成**：模拟器屏宽 360dp，launcher 把 4 列封顶为 2 列；`targetCellWidth=4` 已是 API 31+ 的正确声明，真机宽屏才可能呈现 4 列 |
+| 长按缩放 | 不可用：`ListView` 消费了长按手势，launcher 无法进入缩放模式（ListView 型小组件的固有行为） |
+
+### 9.4 未验证
+
+真机 arm64、宽屏设备上的 4×1/4×2 实际格数、流体云（仍阻塞）、真实服务端联调。
