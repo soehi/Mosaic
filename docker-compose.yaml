@@ -1,8 +1,8 @@
 services:
   mosaic-server:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     image: mosaic-server:latest
     ports:
       - "8080"
@@ -16,7 +16,7 @@ services:
         required: false
     volumes:
       - mosaic-data:/data
-      - ./deploy:/opt/mosaic-mobile:ro
+      - /opt/mosaic-mobile:/opt/mosaic-mobile:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "dotnet", "Mosaic.Server.dll", "--healthcheck"]
