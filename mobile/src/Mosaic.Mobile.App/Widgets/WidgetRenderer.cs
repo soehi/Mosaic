@@ -57,6 +57,7 @@ internal static class WidgetRenderer
         views.SetRemoteAdapter(Resource.Id.widget_list, adapter);
         views.SetPendingIntentTemplate(Resource.Id.widget_list, TaskTemplate(context, appWidgetId));
 #pragma warning restore CA1422
+        views.SetOnClickPendingIntent(Resource.Id.widget_refresh, RefreshIntent(context, appWidgetId));
         return views;
     }
 
@@ -123,4 +124,25 @@ internal static class WidgetRenderer
     }
 
     private static int TaskTemplateRequestCode(int appWidgetId) => 0x4D4F3000 + (appWidgetId & 0x0FFF);
+
+    /// <summary>
+    /// A standalone, immutable refresh intent. It carries no task id and goes
+    /// through the same non-exported receiver, so a crafted click cannot write
+    /// a task or reuse a row's completion intent.
+    /// </summary>
+    internal static PendingIntent RefreshIntent(Context context, int appWidgetId)
+    {
+        var intent = new Intent(context, typeof(WidgetActionReceiver));
+        intent.SetAction(WidgetActionReceiver.ActionRefresh);
+        intent.SetData(Android.Net.Uri.Parse("mosaic-widget://refresh/" + appWidgetId));
+        intent.PutExtra(WidgetActionReceiver.ExtraAction, CardActionCodec.RefreshWire);
+        intent.PutExtra(WidgetActionReceiver.ExtraWidgetId, appWidgetId);
+        var flags = OperatingSystem.IsAndroidVersionAtLeast(31)
+            ? PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable
+            : PendingIntentFlags.UpdateCurrent;
+        return PendingIntent.GetBroadcast(context, RefreshRequestCode(appWidgetId), intent, flags)
+            ?? throw new InvalidOperationException("PendingIntent creation failed.");
+    }
+
+    internal static int RefreshRequestCode(int appWidgetId) => 0x4D4F4000 + (appWidgetId & 0x0FFF);
 }

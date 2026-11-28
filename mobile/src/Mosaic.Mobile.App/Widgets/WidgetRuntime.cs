@@ -36,6 +36,13 @@ internal static class WidgetRuntime
 
     public static CardModel? LastModel => _lastModel;
 
+    public static async Task<CardActionResult> RefreshFromWidgetAsync(Context context)
+    {
+        var model = await RefreshAsync(context).ConfigureAwait(false);
+        WidgetRenderer.NotifyRowsChanged(context);
+        return new CardActionResult(CommandOutcome.Applied, "已刷新", model);
+    }
+
     public static async Task<CardModel> RefreshAsync(Context context)
     {
         ArgumentNullException.ThrowIfNull(context);

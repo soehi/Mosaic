@@ -1,5 +1,33 @@
 ﻿# Mosaic：实施与验证记录
 
+## 手机端 0.3.6：小组件手动刷新（2026-11-28）
+
+**根因位置**
+
+- `a00ccdb:mobile/src/Mosaic.Mobile.App/Widgets/WidgetActionReceiver.cs` 只接受 `ActionTask`，注释明确写明刷新动作虽然有内核实现，但没有卡片入口。`WidgetRenderer` 只为列表行设置完成模板，布局顶层也没有刷新控件。用户只能等待系统更新周期或长按进入配置页，无法在小组件上主动拉取服务器最新任务。
+
+**改动位置**
+
+| 文件 | 改动 |
+|---|---|
+| `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml`、`widget_tasks_tall.xml` | 在顶层加入右上角刷新按钮；列表右侧留出按钮空间。 |
+| `mobile/src/Mosaic.Mobile.App/Resources/drawable/widget_refresh_icon.xml`、`Resources/values/strings.xml` | 新增刷新图标和无障碍描述，更新小组件说明。 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRenderer.cs` | 为刷新按钮绑定独立、不可变的 broadcast PendingIntent；只绑定该接收器和 refresh 动作，不携带任务 id。 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetActionReceiver.cs` | 新增 `ActionRefresh`；刷新分支不解析任务 id、不执行写入；任务分支仍拒绝刷新动作和只读行。 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRuntime.cs` | 新增 `RefreshFromWidgetAsync`，复用有 8 秒预算的同步刷新并通知列表重建。 |
+| `mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj` | 版本升为 `0.3.6`、`versionCode=11`，保证覆盖安装。 |
+| `mobile/tests/Mosaic.Mobile.Tests/CardTests.cs` | 增加 refresh wire 大小写解析断言。 |
+
+**验证**
+
+- `Mosaic.Mobile.Tests` 74/74 通过。
+- Android Release 编译 0 警告 0 错误。
+- 无可用 Android 设备，按钮视觉、点击、Toast 和真实同步结果尚未实机验收。
+
+**迁移与回滚**
+
+- 没有数据库、配置或服务端协议变化；版本从 `0.3.5`（10）升到 `0.3.6`（11），同签名可覆盖安装。源码用 `git revert` 回退；旧版本仍可读取原有投影、分组和会话。
+
 ## 手机端 0.3.5：M3.5 小组件与桌面配对（2026-11-27）
 
 **根因位置**

@@ -19,6 +19,7 @@ public sealed class CardTests
         Assert.False(CardActionCodec.TryParse("delete", out _));
         Assert.False(CardActionCodec.TryParse(null, out _));
         Assert.False(CardActionCodec.TryParseTaskAction(CardAction.Refresh, out _));
+        Assert.Equal(CardAction.Refresh, CardActionCodec.TryParse("REFRESH", out var upper) ? upper : default);
     }
 
     [Fact]

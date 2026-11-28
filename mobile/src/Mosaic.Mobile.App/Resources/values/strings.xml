@@ -2,8 +2,9 @@
 <resources>
   <string name="app_name">Mosaic</string>
   <string name="widget_label">Mosaic 任务</string>
-  <string name="widget_description">显示任务的 Mosaic 小组件，长按后可配置任务组，点圆圈标记完成。</string>
+  <string name="widget_description">显示任务的 Mosaic 小组件，长按后可配置任务组，点圆圈标记完成，点右上角刷新。</string>
   <string name="widget_empty">暂无任务</string>
+  <string name="widget_refresh">刷新任务</string>
   <string name="widget_config_label">选择任务组</string>
   <string name="widget_config_title">选择此小组件显示的任务组</string>
   <string name="widget_default_headline">正在同步</string>

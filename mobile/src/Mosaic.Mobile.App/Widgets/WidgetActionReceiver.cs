@@ -5,20 +5,23 @@ using Mosaic.Mobile.Core.Cards;
 namespace Mosaic.Mobile.App.Widgets;
 
 /// <summary>
-/// The widget's only broadcast surface. The visible UI exposes just the complete
-/// circle; archive and refresh remain reachable by name for the kernel and for
-/// tests but have no entry point on the card. The receiver is not exported, so
-/// no other app can invoke it.
+/// The widget's only broadcast surface. The visible UI exposes the complete
+/// circle and a dedicated refresh button. Archive remains reachable by name for
+/// the kernel and tests but has no card entry point. The receiver is not
+/// exported, so no other app can invoke it.
 ///
-/// A stale PendingIntent is harmless across account switches: the command looks
-/// the task id up inside the current account's projection, so an id from a
-/// previous account simply returns "任务不在本地投影中".
+/// A stale task PendingIntent is harmless across account switches: the command
+/// looks the task id up inside the current account's projection, so an id from a
+/// previous account simply returns "任务不在本地投影中". The refresh intent
+/// carries no task id and is bound to this receiver's own component.
 /// </summary>
 [BroadcastReceiver(Exported = false)]
-[IntentFilter([ActionTask])]
+[IntentFilter([ActionTask, ActionRefresh])]
 public sealed class WidgetActionReceiver : BroadcastReceiver
 {
     public const string ActionTask = "app.mosaic.mobile.action.TASK";
+
+    public const string ActionRefresh = "app.mosaic.mobile.action.REFRESH";
 
     /// <summary>
     /// Marks a read-only row. Every list row must carry a fill-in intent, because
@@ -42,14 +45,13 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
         }
 
         var actionName = intent.Action;
-        if (!string.Equals(actionName, ActionTask, StringComparison.Ordinal))
+        var refresh = string.Equals(actionName, ActionRefresh, StringComparison.Ordinal);
+        if (!refresh && !string.Equals(actionName, ActionTask, StringComparison.Ordinal))
         {
-            // Refresh and archive are not reachable from the card UI; the list
-            // rebuilds on its own after every applied command.
             return;
         }
 
-        if (intent.GetBooleanExtra(ExtraReadOnly, false))
+        if (!refresh && intent.GetBooleanExtra(ExtraReadOnly, false))
         {
             // A completed or archived row. It is a no-op rather than a write
             // the kernel would refuse.
@@ -62,8 +64,22 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
             return;
         }
 
-        if (!Guid.TryParse(intent.GetStringExtra(ExtraTaskId), out var taskId))
+        var taskId = Guid.Empty;
+        if (!refresh)
         {
+            if (!Guid.TryParse(intent.GetStringExtra(ExtraTaskId), out taskId))
+            {
+                return;
+            }
+            if (action == CardAction.Refresh)
+            {
+                WidgetRuntime.ShowToast(context, "不支持的操作");
+                return;
+            }
+        }
+        else if (action != CardAction.Refresh)
+        {
+            WidgetRuntime.ShowToast(context, "不支持的操作");
             return;
         }
 
@@ -73,7 +89,9 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
         {
             try
             {
-                var result = await WidgetRuntime.ExecuteAsync(appContext, taskId, action).ConfigureAwait(false);
+                var result = refresh
+                    ? await WidgetRuntime.RefreshFromWidgetAsync(appContext).ConfigureAwait(false)
+                    : await WidgetRuntime.ExecuteAsync(appContext, taskId, action).ConfigureAwait(false);
                 WidgetRuntime.ShowToast(appContext, result.Message);
                 WidgetRuntime.RenderAll(appContext, result.Model);
             }
