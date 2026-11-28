@@ -16,7 +16,7 @@ services:
         required: false
     volumes:
       - mosaic-data:/data
-      - /opt/mosaic-mobile:/opt/mosaic-mobile:ro
+      - ./deploy:/opt/mosaic-mobile:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "dotnet", "Mosaic.Server.dll", "--healthcheck"]
