@@ -1,5 +1,36 @@
 # Mosaic：实施与验证记录
 
+## 0.19.5 正式发布与手机组件上线（2026-11-28）
+
+**根因位置**
+
+- `bbf50e2:docker-compose.yaml` 曾把 `/opt/mosaic-mobile` 作为空目录只读挂载，遮蔽了镜像内打入的发布文件，服务端读取 `/opt/mosaic-mobile/release.json` 时得到 `FileNotFoundException`。
+- `91792f3:server/src/Mosaic.Server/ServerOptions.cs:197` 与 `91792f3:server/src/Mosaic.Server/ServerApplication.cs:95` 只接受单个 IP 作为可信代理；Coolify/Traefik 反代后的私有网关地址未被识别，`X-Forwarded-Proto: https` 被忽略，配对接口返回 `mobile.https_required`。
+- `4ff820c` 之前的部署提交没有手机配对路由；此前正式域名返回 404/503 包含路由、发布清单、反向代理三类不同原因。
+
+**改动位置**
+
+| 文件 | 改动 |
+|---|---|
+| `server/src/Mosaic.Server/ServerOptions.cs`、`server/src/Mosaic.Server/ServerApplication.cs` | `MOSAIC_TRUSTED_PROXIES` 同时支持 IP 与 CIDR，把可信网段写入 `ForwardedHeadersOptions.KnownIPNetworks`。 |
+| `docker-compose.yaml` | 服务端镜像构建上下文改为仓库根目录，`dockerfile` 指向 `server/Dockerfile`；移除会遮蔽镜像内发布文件的空挂载。 |
+| `server/Dockerfile` | 从仓库根目录复制 `deploy/mosaic-mobile-0.3.5-release.apk` 与 `deploy/release.json` 到镜像 `/opt/mosaic-mobile/`。 |
+| `deploy/mosaic-mobile-0.3.5-release.apk`、`deploy/release.json`、`deploy/assetlinks.json` | 新增正式签名 APK、发布清单和 Android App Link 关联文件。 |
+
+**部署与发布验证**
+
+- 部署源切换到内网 Gitea 的 `fix/peek-detach-0.18.8`，最终服务端部署提交为 `91792f3`；服务端 99/99 测试通过。
+- Coolify 环境变量：`MOSAIC_PUBLIC_URL=https://mosaic.bansonic.top`、`MOSAIC_MOBILE_RELEASE_MANIFEST=/opt/mosaic-mobile/release.json`、`MOSAIC_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`。
+- 正式站复测：`/health` 200；`POST /v1/mobile/pairing/start` 在未登录时返回 `auth.required`（表示 HTTPS 与发布清单已通过）；`/.well-known/assetlinks.json` 200；`/device/mobile.apk` 200。
+- 正式 APK 使用既有生产证书 `87a5986a8199c97ae94ff6a380707ef6690273d26c54c6904909a2e81f797add` 签名，v2/v3 验签通过；APK SHA-256 `9bb73eef4144880e5d3382f270c761c7a4528dbb7e68df50b319945725a3774b`。
+- Release：https://github.com/soehi/Mosaic/releases/tag/v0.19.5 ；MSI 直链：https://github.com/soehi/Mosaic/releases/download/v0.19.5/Mosaic-0.19.5-win-x64.msi 。资产大小 52,607,224 字节，SHA-256 `0f1afd8639cb23dad19fd17dfb3ac1a253c6a79d3c12b903667d0143cf1c87d2`；GitHub 资产 API 摘要一致，分段下载前 1024 字节成功。完整下载受本机网络超时影响未完成，未声称完成完整下载复算。
+- 未完成的验收：Android 真机/无头设备扫码安装、系统 App Link、配对码批准、同账号首次同步和 MSI 覆盖安装；当前 ADB 设备仍为 offline/不可用。
+
+**迁移与回滚**
+
+- 服务端数据库迁移 4 已在既有生产库执行；回滚到旧服务端需停服并恢复升级前的一致性 SQLite 备份及对应主密钥配置，备份后的写入会丢失。
+- 代码可用 `git revert` 逐项回退；回滚发布源需把 Coolify `git_repository` 指回原 GitHub 地址，并恢复 compose/env 配置。正式 Release 与 MSI 已发布，不能仅靠源码回退撤回。
+
 ## 桌面 0.19.5 候选的自动备份修复（2026-11-28）
 
 **根因位置**
