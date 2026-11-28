@@ -58,7 +58,58 @@ internal static class WidgetRenderer
         views.SetPendingIntentTemplate(Resource.Id.widget_list, TaskTemplate(context, appWidgetId));
 #pragma warning restore CA1422
         views.SetOnClickPendingIntent(Resource.Id.widget_refresh, RefreshIntent(context, appWidgetId));
+        ApplyRefreshProgress(views, RefreshInProgress(appWidgetId));
         return views;
+    }
+
+    private static readonly HashSet<int> Refreshing = [];
+    private static readonly object RefreshGate = new();
+
+    /// <summary>
+    /// RemoteViews cannot run an animator from a broadcast, so the visible
+    /// spinner uses an animated drawable and is toggled by visibility. The
+    /// refresh button stays clickable but the receiver ignores duplicate work.
+    /// </summary>
+    public static void SetRefreshing(Context context, int appWidgetId, bool refreshing)
+    {
+        lock (RefreshGate)
+        {
+            if (refreshing) Refreshing.Add(appWidgetId);
+            else Refreshing.Remove(appWidgetId);
+        }
+
+        var manager = AppWidgetManager.GetInstance(context);
+        if (manager is null) return;
+        var ids = manager.GetAppWidgetIds(new ComponentName(context, Java.Lang.Class.FromType(typeof(TaskWidgetProvider))!));
+        if (ids is null || Array.IndexOf(ids, appWidgetId) < 0) return;
+        var options = manager.GetAppWidgetOptions(appWidgetId);
+        var density = context.Resources!.DisplayMetrics!.Density;
+        var rows = WidgetRowGeometry.ForHostSize(
+            options?.GetInt(AppWidgetManager.OptionAppwidgetMinHeight, 0) ?? 110, density).Rows;
+        var views = new RemoteViews(context.PackageName,
+            rows == 2 ? Resource.Layout.widget_tasks_tall : Resource.Layout.widget_tasks);
+        ApplyRefreshProgress(views, refreshing);
+#pragma warning disable CA1422
+        manager.PartiallyUpdateAppWidget(appWidgetId, views);
+#pragma warning restore CA1422
+    }
+
+    public static void ClearRefreshing(int appWidgetId)
+    {
+        lock (RefreshGate) Refreshing.Remove(appWidgetId);
+    }
+
+    private static bool RefreshInProgress(int appWidgetId)
+    {
+        lock (RefreshGate) return Refreshing.Contains(appWidgetId);
+    }
+
+    private static void ApplyRefreshProgress(RemoteViews views, bool refreshing)
+    {
+        views.SetViewVisibility(Resource.Id.widget_refresh_animation,
+            refreshing ? ViewStates.Visible : ViewStates.Gone);
+        views.SetViewVisibility(Resource.Id.widget_refresh,
+            refreshing ? ViewStates.Gone : ViewStates.Visible);
     }
 
     /// <summary>Asks every instance of this provider to rebuild its list rows.</summary>
@@ -128,7 +179,8 @@ internal static class WidgetRenderer
     /// <summary>
     /// A standalone, immutable refresh intent. It carries no task id and goes
     /// through the same non-exported receiver, so a crafted click cannot write
-    /// a task or reuse a row's completion intent.
+    /// a task or reuse a row's completion intent. The button also shows a
+    /// spinner during the bounded refresh; no spinner state is stored on disk.
     /// </summary>
     internal static PendingIntent RefreshIntent(Context context, int appWidgetId)
     {

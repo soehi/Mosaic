@@ -83,8 +83,10 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
             return;
         }
 
+        var appContext = context.ApplicationContext ?? context;
+        var widgetId = intent.GetIntExtra(ExtraWidgetId, 0);
+        if (refresh) WidgetRenderer.SetRefreshing(appContext, widgetId, true);
         var pending = GoAsync();
-        var appContext = context;
         _ = Task.Run(async () =>
         {
             try
@@ -97,8 +99,10 @@ public sealed class WidgetActionReceiver : BroadcastReceiver
             }
             finally
             {
+                if (refresh) WidgetRenderer.SetRefreshing(appContext, widgetId, false);
                 pending?.Finish();
             }
         });
     }
+
 }

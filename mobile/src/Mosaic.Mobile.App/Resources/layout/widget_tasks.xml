@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/widget_background">
+  <ImageView android:id="@+id/widget_refresh_animation" android:layout_width="28dp" android:layout_height="28dp"
+      android:layout_gravity="end|top" android:layout_marginTop="2dp" android:layout_marginEnd="10dp"
+      android:contentDescription="@string/widget_refresh" android:importantForAccessibility="no"
+      android:src="@drawable/widget_refresh_spinner" android:visibility="gone" />
   <ImageButton android:id="@+id/widget_refresh" android:layout_width="28dp" android:layout_height="28dp"
       android:layout_gravity="end|top" android:layout_marginTop="2dp" android:layout_marginEnd="10dp"
       android:background="@android:color/transparent" android:contentDescription="@string/widget_refresh"

@@ -9,8 +9,8 @@
 
     <!-- Same store package as 0.2.x so an install upgrades in place; versionCode 4 was 0.2.1. -->
     <ApplicationId>app.mosaic.tasks</ApplicationId>
-    <ApplicationDisplayVersion>0.3.6</ApplicationDisplayVersion>
-    <ApplicationVersion>11</ApplicationVersion>
+    <ApplicationDisplayVersion>0.3.7</ApplicationDisplayVersion>
+    <ApplicationVersion>12</ApplicationVersion>
 
     <MosaicMobileAppLinkHost Condition="'$(MosaicMobileAppLinkHost)' == ''">mosaic.bansonic.top</MosaicMobileAppLinkHost>
     <AndroidManifestPlaceholders>mosaicAppLinkHost=$(MosaicMobileAppLinkHost)</AndroidManifestPlaceholders>

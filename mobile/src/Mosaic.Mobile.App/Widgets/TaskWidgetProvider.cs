@@ -26,10 +26,8 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
 {
     public override void OnReceive(Context? context, Intent? intent)
     {
-        if (context is null || intent is null || !IsSystemWidgetAction(intent.Action))
-        {
-            return;
-        }
+        if (context is null || intent is null) return;
+        if (!IsSystemWidgetAction(intent.Action)) return;
 
         base.OnReceive(context, intent);
     }
@@ -56,6 +54,7 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         foreach (var appWidgetId in appWidgetIds)
         {
             WidgetGroupStore.Delete(context, appWidgetId);
+            WidgetRenderer.ClearRefreshing(appWidgetId);
         }
 
         base.OnDeleted(context, appWidgetIds);

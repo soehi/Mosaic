@@ -25,12 +25,15 @@ public sealed class PairingActivity : Activity
         MaxResponseContentBufferSize = 128 * 1024,
     };
     private static readonly SemaphoreSlim PairingGate = new(1);
+    public const string ExtraMode = "app.mosaic.mobile.extra.MODE";
+    public const string ModeBind = "bind";
     private readonly CancellationTokenSource _lifetime = new();
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
-        _ = ConnectAsync(_lifetime.Token);
+        var mode = Intent?.GetStringExtra(ExtraMode);
+        _ = (mode == ModeBind ? ConnectWithCodeAsync(_lifetime.Token) : ConnectAsync(_lifetime.Token));
     }
 
     protected override void OnDestroy()
@@ -97,6 +100,101 @@ public sealed class PairingActivity : Activity
             if (!ct.IsCancellationRequested)
                 status.Text = "连接未完成。请确认桌面窗口仍打开，并重新扫描二维码。";
         }
+    }
+
+    /// <summary>
+    /// Manual entry path: the user types the 43-character reference shown on the
+    /// desktop QR page. It uses the same server and approval flow as the App Link.
+    /// </summary>
+    private async Task ConnectWithCodeAsync(CancellationToken ct)
+    {
+        var content = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        var inset = (int)(24 * Resources!.DisplayMetrics!.Density);
+        content.SetPadding(inset, inset, inset, inset);
+        content.AddView(new TextView(this) { Text = "绑定 Mosaic 手机组件", TextSize = 24 });
+        var input = new EditText(this) { Hint = "输入桌面二维码中的 43 位配对码" };
+        input.InputType = Android.Text.InputTypes.ClassText;
+        content.AddView(input);
+        var status = new TextView(this) { Text = "配对码只在桌面窗口显示，请勿分享。", TextSize = 14 };
+        content.AddView(status);
+        var submit = new Button(this) { Text = "开始绑定" };
+        var close = new Button(this) { Text = "关闭" };
+        close.Click += (_, _) => Finish();
+        var buttons = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        buttons.AddView(submit);
+        buttons.AddView(close);
+        content.AddView(buttons);
+        SetContentView(content);
+
+        var host = Resources?.GetString(Resource.String.pairing_host);
+        submit.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                status.Text = "应用未配置配对域名。";
+                return;
+            }
+            if (!PairingLinkParser.TryParse(input.Text, host!, out var link))
+            {
+                status.Text = "配对码无效。请输入桌面二维码页面显示的 43 位字符。";
+                return;
+            }
+            submit.Enabled = false;
+            input.Enabled = false;
+            _ = RunPairingAsync(link, status, ct);
+        };
+    }
+
+    private async Task RunPairingAsync(PairingLink link, TextView status, CancellationToken ct)
+    {
+        try
+        {
+            await PairingGate.WaitAsync(ct);
+            try
+            {
+                await VerifyAssociationAsync(link.Origin, ct);
+                await ClaimAndApproveAsync(link, status, ct);
+            }
+            finally
+            {
+                PairingGate.Release();
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException or InvalidDataException
+            or JsonException or Java.Lang.Exception or IOException or CryptographicException
+            or UnauthorizedAccessException or InvalidOperationException or SecretStorageException)
+        {
+            if (!ct.IsCancellationRequested)
+                status.Text = "绑定未完成。请确认桌面窗口仍打开，并重新输入配对码。";
+        }
+    }
+
+    private async Task ClaimAndApproveAsync(PairingLink link, TextView status, CancellationToken ct)
+    {
+        var configuration = Normalize(link.Origin);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        var claim = await PostAsync<Claim>(link.Origin, "claim", new
+        {
+            reference = link.Reference,
+            deviceLabel = string.Join(' ', Build.Manufacturer, Build.Model).Trim(),
+            appVersion = typeof(PairingActivity).Assembly.GetName().Version?.ToString(3),
+        }, deadline.Token);
+        if (claim.DeviceCode is not { Length: 43 } || claim.ShortCode is not { Length: 6 }
+            || claim.ExpiresIn is < 1 or > 300)
+            throw new InvalidDataException();
+        deadline.CancelAfter(TimeSpan.FromSeconds(claim.ExpiresIn));
+        status.Text = $"配对码 {claim.ShortCode}\n在桌面输入这 6 位数字并批准。";
+        var session = await WaitForApprovalAsync(link.Origin, claim, deadline.Token);
+        var app = ApplicationContext ?? this;
+        await WidgetRuntime.ApplyPairingAsync(app, token => SaveSessionAsync(configuration, session, token), ct);
+        status.Text = "已连接，正在读取服务器任务…";
+        var model = await WidgetRuntime.RefreshAsync(app);
+        WidgetRuntime.RenderAll(app, model);
+        status.Text = model.State is CardState.Ready or CardState.Empty
+            ? "已同步。请从桌面小组件列表添加 Mosaic。"
+            : "已连接。" + model.Detail;
     }
 
     private (Uri Origin, string Reference) ParseLink()

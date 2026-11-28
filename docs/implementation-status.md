@@ -1,5 +1,33 @@
 ﻿# Mosaic：实施与验证记录
 
+## 手机端 0.3.7：刷新动画与手动绑定（2026-11-28）
+
+**根因位置**
+
+- `44b99ff:mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml` 的刷新按钮只有静态图标；`WidgetActionReceiver` 在广播期间没有视觉反馈，用户无法判断刷新是否已开始或完成。
+- `44b99ff:mobile/src/Mosaic.Mobile.App/Platform/PairingActivity.cs` 的绑定页只从 App Link 的 fragment 取得 43 位引用。用户从桌面二维码页复制引用、或用无摄像头设备时没有输入入口。
+
+**改动位置**
+
+| 文件 | 改动 |
+|---|---|
+| `mobile/src/Mosaic.Mobile.App/Resources/layout/widget_tasks.xml`、`widget_tasks_tall.xml`、`Resources/anim/widget_refresh_spin.xml`、`Resources/drawable/widget_refresh_spinner.xml` | 新增刷新动画图层和旋转动画，刷新期间替换静态按钮。 |
+| `mobile/src/Mosaic.Mobile.App/Widgets/WidgetRenderer.cs`、`WidgetActionReceiver.cs`、`TaskWidgetProvider.cs` | 接收刷新广播时显示动画，完成后或删除小组件时清理；动画状态只在进程内，不写入磁盘。 |
+| `mobile/src/Mosaic.Mobile.Core/Configuration/PairingLinkParser.cs` | 校验裸 43 位引用和完整 HTTPS App Link，拒绝错误主机、HTTP、非默认端口、路径或查询串。 |
+| `mobile/src/Mosaic.Mobile.App/Platform/PairingActivity.cs` | 新增 `bind` 模式，提供 43 位配对码输入框；输入内容经同一解析器、HTTPS/App Links 校验、一次性领取和桌面批准流程。 |
+| `mobile/src/Mosaic.Mobile.App/Mosaic.Mobile.App.csproj` | 版本升为 `0.3.7`、`versionCode=12`。 |
+| `mobile/tests/Mosaic.Mobile.Tests/PairingLinkTests.cs` | 覆盖裸引用、完整链接以及错误协议、主机、端口、路径、查询串和非法字符。 |
+
+**验证**
+
+- `Mosaic.Mobile.Tests` 84/84 通过。
+- Android Release 编译 0 警告 0 错误。
+- 两条 ADB 连接仍不可用，动画观感、输入框和真实配对流程待设备验收。
+
+**迁移与回滚**
+
+- 无数据库、配置或服务端协议迁移；版本从 `0.3.6`（11）升到 `0.3.7`（12），同签名覆盖安装保留投影、会话和分组。源码用 `git revert` 回退。
+
 ## 手机端 0.3.6：小组件手动刷新（2026-11-28）
 
 **根因位置**
