@@ -7,7 +7,7 @@ namespace Mosaic.Auth.Http.Tests;
 public sealed class HttpSyncTransportTests
 {
     private const string SnapshotJson =
-        """{"snapshotId":"snap-1","createdAt":"2026-11-19T08:00:00Z","itemCount":2,"contentSha256":"sha-1","sizeBytes":2048}""";
+        """{"snapshotId":"snap-1","createdAt":"2026-11-19T08:00:00Z","itemCount":2,"contentSha256":"sha-1","sizeBytes":2048,"taskCount":1,"settingCount":1}""";
 
     private static HttpSyncTransport Transport(bool allowLoopback = true) =>
         new(new HttpClient(), clock: null, allowInsecureLoopback: allowLoopback);
@@ -92,6 +92,7 @@ public sealed class HttpSyncTransportTests
         Assert.Equal("snap-1", result.Value!.SnapshotId);
         Assert.Equal(2, result.Value.ItemCount);
         Assert.Equal(2048, result.Value.TotalBytes);
+        Assert.Equal(1, result.Value.TaskCount);
     }
 
     [Fact]

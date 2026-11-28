@@ -14,7 +14,8 @@ public sealed record SyncDependencies(
     ISettingsCore Settings,
     IModuleExecutionGate Gate,
     IDiagnosticSink Diagnostics,
-    TimeProvider? Clock = null);
+    TimeProvider? Clock = null,
+    ITaskChangeSource? TaskChanges = null);
 
 public sealed class SyncModule : IModuleActivation
 {
@@ -25,11 +26,13 @@ public sealed class SyncModule : IModuleActivation
     private readonly IModuleExecutionGate _gate;
     private readonly IDiagnosticSink _diagnostics;
     private readonly TimeProvider _clock;
+    private readonly ITaskChangeSource? _taskChanges;
     private readonly SyncOptions _options = new();
     // 等待期间的唤醒信号：登录、设置改间隔、停止都通过它打断 Task.Delay，避免轮询。
     private TaskCompletionSource<bool> _wakeSignal = NewSignal();
     private int _uploadDue;
     private IDisposable? _settingsRegistration;
+    private IDisposable? _taskChangeSubscription;
     private EventHandler? _authChanged;
     private CancellationTokenSource? _autoSync;
     private Task? _autoSyncLoop;
@@ -41,6 +44,7 @@ public sealed class SyncModule : IModuleActivation
         _gate = dependencies.Gate;
         _diagnostics = dependencies.Diagnostics;
         _clock = dependencies.Clock ?? TimeProvider.System;
+        _taskChanges = dependencies.TaskChanges;
         _service = new(dependencies.Auth, dependencies.Transport, dependencies.Tasks, dependencies.Settings, _options);
         _api = new GuardedSyncApi(_service, dependencies.Gate, dependencies.Diagnostics);
     }
@@ -67,6 +71,8 @@ public sealed class SyncModule : IModuleActivation
 
         _authChanged ??= (_, _) => OnAuthChanged();
         _auth.StateChanged += _authChanged;
+        // 一次保存只发布一条任务变更；它必须立即排队上传，不能等下一个 60 秒周期。
+        _taskChangeSubscription ??= _taskChanges?.Subscribe(OnTaskChanged);
         _gate.Activate();
 
         _autoSync = new CancellationTokenSource();
@@ -75,6 +81,8 @@ public sealed class SyncModule : IModuleActivation
 
     public async Task StopAsync()
     {
+        _taskChangeSubscription?.Dispose();
+        _taskChangeSubscription = null;
         if (_authChanged is not null) _auth.StateChanged -= _authChanged;
         // 后台循环必须在注销设置源与关闭执行门之前取消并等待，循环内部不再持有设置与网关租约。
         if (_autoSync is { } autoSync)
@@ -102,6 +110,12 @@ public sealed class SyncModule : IModuleActivation
     {
         _service.RaiseForAuthChange();
         // 登录成功后立即备份一次，之后按设置里的间隔继续；登出由状态变化驱动，循环下一轮会自行跳过。
+        if (_auth.State.Status == AuthStatus.SignedIn) ScheduleUpload();
+    }
+
+    private void OnTaskChanged(TaskChange _)
+    {
+        // 恢复整表也会走这里：上传只读快照，不会再次改动本地任务或触发第二轮回写。
         if (_auth.State.Status == AuthStatus.SignedIn) ScheduleUpload();
     }
 

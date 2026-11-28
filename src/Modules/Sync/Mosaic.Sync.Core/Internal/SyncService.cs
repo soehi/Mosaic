@@ -112,9 +112,10 @@ internal sealed class SyncService : ISyncApi
     /// 放在每分钟一次的循环里代价过高；附件仍由用户在账户页手动上传/下载。
     /// </summary>
     internal Task<OperationResult<BackupUploadResult>> UploadTasksAsync(CancellationToken cancellationToken = default) =>
-        UploadCoreAsync(includeSettings: true, includeAttachments: false, cancellationToken);
+        UploadCoreAsync(includeSettings: true, includeAttachments: false, cancellationToken, protectTaskBackup: true);
 
-    private Task<OperationResult<BackupUploadResult>> UploadCoreAsync(bool includeSettings, bool includeAttachments, CancellationToken cancellationToken) =>
+    private Task<OperationResult<BackupUploadResult>> UploadCoreAsync(
+        bool includeSettings, bool includeAttachments, CancellationToken cancellationToken, bool protectTaskBackup = false) =>
         Guarded(async () =>
         {
             if (!_options.Enabled) return Fail<BackupUploadResult>(SyncErrorCodes.Disabled, "账号备份已在设置中关闭。");
@@ -122,6 +123,28 @@ internal sealed class SyncService : ISyncApi
             if (!context.IsSuccess) return OperationResult<BackupUploadResult>.Failure(context.Error!);
             var exported = await _tasks.ExportAllAsync(cancellationToken).ConfigureAwait(false);
             if (!exported.IsSuccess) return OperationResult<BackupUploadResult>.Failure(exported.Error!);
+
+            // 新安装、换机或任务库尚未打开时，自动备份可能只看到设置。不能用这样的快照
+            // 覆盖服务器上仍有任务的备份；用户仍可手动上传以确认清空任务。
+            if (protectTaskBackup && exported.Value.Count == 0)
+            {
+                var latest = await _transport.GetLatestAsync(context.Value.Server, context.Value.Token, cancellationToken).ConfigureAwait(false);
+                if (!latest.IsSuccess)
+                    return Fail<BackupUploadResult>(latest.Error!.Code, latest.Error.Message);
+                if (latest.Value is { TaskCount: > 0 } protectedSnapshot)
+                {
+                    lock (_stateLock)
+                    {
+                        _latest = protectedSnapshot;
+                        _messageCode = null;
+                    }
+                    Raise();
+                    return OperationResult<BackupUploadResult>.Success(new(
+                        protectedSnapshot.SnapshotId, 0, 0, protectedSnapshot.TotalBytes,
+                        protectedSnapshot.ServerRevision, protectedSnapshot.Cursor));
+                }
+            }
+
             var items = new List<BackupItemDto>(exported.Value.Count + 32);
             foreach (var task in exported.Value)
                 items.Add(new(SyncItemKinds.Task, task.Id.ToString("D"), JsonSerializer.Serialize(task, JsonOptions), task.Revision));

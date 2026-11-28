@@ -132,8 +132,8 @@ internal sealed class FakeSyncTransport : ISyncTransport
         RemoteContents[attachmentId] = content;
     }
 
-    public static BackupSnapshotDto Snapshot(string id) =>
-        new(id, new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero), 3, "sha", 1024);
+    public static BackupSnapshotDto Snapshot(string id, int taskCount = 0) =>
+        new(id, new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero), 3, "sha", 1024, TaskCount: taskCount);
 
     public Task<OperationResult<BackupSnapshotDto>> UploadAsync(
         Uri server, string accessToken, Guid deviceId, IReadOnlyList<BackupItemDto> items, CancellationToken cancellationToken = default)
@@ -209,6 +209,29 @@ internal sealed class FakeSyncTransport : ISyncTransport
         RemoteAttachments.RemoveAll(item => item.Id == attachmentId);
         RemoteContents.Remove(attachmentId);
         return Task.FromResult(OperationResult.Success());
+    }
+}
+
+internal sealed class FakeTaskChangeSource : ITaskChangeSource
+{
+    private readonly List<Action<TaskChange>> _observers = [];
+
+    public int Subscribers => _observers.Count;
+
+    public IDisposable Subscribe(Action<TaskChange> observer)
+    {
+        _observers.Add(observer);
+        return new Subscription(this, observer);
+    }
+
+    public void Publish(TaskChange change)
+    {
+        foreach (var observer in _observers.ToArray()) observer(change);
+    }
+
+    private sealed class Subscription(FakeTaskChangeSource owner, Action<TaskChange> observer) : IDisposable
+    {
+        public void Dispose() => owner._observers.Remove(observer);
     }
 }
 

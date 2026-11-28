@@ -81,6 +81,8 @@ public static class BackupEndpoints
         contentSha256 = manifest.ContentSha256,
         sizeBytes = manifest.SizeBytes,
         itemCount = manifest.ItemCount,
+        taskCount = manifest.Items.Count(item => item.Kind == "task"),
+        settingCount = manifest.Items.Count(item => item.Kind == "setting"),
         serverRevision = manifest.ServerRevision,
         cursor = manifest.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture),
         items =manifest.Items.Select(item => new
@@ -102,6 +104,8 @@ public static class BackupEndpoints
             contentSha256 = manifest.ContentSha256,
             sizeBytes = manifest.SizeBytes,
             itemCount = manifest.ItemCount,
+            taskCount = manifest.Items.Count(item => item.Kind == "task"),
+            settingCount = manifest.Items.Count(item => item.Kind == "setting"),
             serverRevision = manifest.ServerRevision,
             cursor = manifest.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture),
             items = snapshot.Items.Select(item => new

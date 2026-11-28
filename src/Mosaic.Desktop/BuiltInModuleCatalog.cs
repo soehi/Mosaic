@@ -215,7 +215,8 @@ internal static class BuiltInModuleCatalog
                 context.Settings?.Api ?? throw new InvalidOperationException("Settings core was not assembled before backup core."),
                 new Mosaic.Kernel.ModuleExecutionGate(),
                 context.Diagnostics,
-                context.Clock));
+                context.Clock,
+                context.Tasks?.Changes));
             return context.Sync;
         }),
         [AuthUiModule.Definition.Id] = new(AuthUiModule.Definition, context =>

@@ -76,6 +76,20 @@ public sealed class SyncServiceTests
     }
 
     [Fact]
+    public async Task Manual_upload_can_still_replace_a_task_backup_with_an_empty_local_list()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.Tasks.Tasks.Clear();
+        fixture.Transport.LatestResult =
+            OperationResult<BackupSnapshotDto?>.Success(FakeSyncTransport.Snapshot("snap-with-tasks", taskCount: 2));
+
+        var result = await fixture.Api.UploadAsync(true);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(1, fixture.Transport.Uploads);
+    }
+
+    [Fact]
     public async Task Upload_sends_tasks_and_only_the_portable_settings_whitelist()
     {
         var fixture = await new Fixture().StartAsync(

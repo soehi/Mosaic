@@ -32,6 +32,8 @@ public sealed class BackupTests
         var latest = await TestServerHost.JsonAsync(await host.GetAsync("/v1/backups/latest", token));
         Assert.Equal(snapshotId, latest.GetProperty("snapshotId").GetString());
         Assert.Equal(2, latest.GetProperty("items").GetArrayLength());
+        Assert.Equal(1, latest.GetProperty("taskCount").GetInt32());
+        Assert.Equal(1, latest.GetProperty("settingCount").GetInt32());
         Assert.False(latest.GetProperty("items")[0].TryGetProperty("payload", out _));
 
         var download = await TestServerHost.JsonAsync(await host.GetAsync($"/v1/backups/{snapshotId}", token));

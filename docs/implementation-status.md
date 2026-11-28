@@ -1,10 +1,42 @@
 # Mosaic：实施与验证记录
 
+## 桌面 0.19.5 候选的自动备份修复（2026-11-28）
+
+**根因位置**
+
+- `769f181:src/Modules/Sync/Mosaic.Sync.Core/SyncModule.cs` 的自动备份只在 `OnAuthChanged` 和固定间隔循环触发，没有订阅任务变更。登录时先上传一次当前快照；用户随后保存任务时不会立即上传，下一次上传要等完整间隔（默认 60 秒）。若用户在这个窗口下载备份，服务器最新快照只有登录时的设置，任务仍只在本机。
+- `769f181:src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncService.cs` 的自动上传没有空任务保护。新安装、换机或任务库尚未加载时，登录触发的自动上传会用“0 个任务 + 设置”的快照覆盖服务器上已有任务的备份，导致之后恢复只剩设置。
+- 已核对不是根因的链路：`TaskTransferService.ExportAllAsync` 以 `TaskFilter.All` 和 `ArchiveScope.All` 导出全部任务，`TaskService` 在创建、修改、完成、归档、删除时发布 `TaskChange`，`SyncService.PrepareRestoreAsync` 与 `SqliteTaskTransferRepository.ReplaceAllAsync` 在同一事务恢复任务，账户页按恢复结果展示任务数。设置和任务共用 `AppConfiguration` 的同一个 `StorageConfiguration` 与 `mosaic.sqlite`，没有跨版本分库。
+
+**改动位置**
+
+| 文件 | 改动 |
+|---|---|
+| `src/Modules/Sync/Mosaic.Sync.Core/SyncModule.cs` | `SyncDependencies` 增加可选 `ITaskChangeSource`；激活时订阅、停止时释放；`OnTaskChanged` 在已登录时立即排队上传。登录和周期上传路径不变。 |
+| `src/Mosaic.Desktop/BuiltInModuleCatalog.cs` | 组装 `SyncModule` 时传入 `context.Tasks?.Changes`。 |
+| `src/Modules/Sync/Mosaic.Sync.Core/Internal/SyncService.cs` | 自动上传在导出任务数为 0 时先读取最新备份清单；若服务器 `taskCount > 0`，保留现有快照并只更新本地状态，不写入设置-only 快照。手动上传不启用该保护。 |
+| `src/Modules/Sync/Mosaic.Sync.Contracts/SyncContracts.cs`、`src/Modules/Sync/Mosaic.Sync.Http/HttpSyncTransport.cs` | `BackupSnapshotDto` 增加可选 `TaskCount`；旧服务器不返回时为 `-1`，跳过保护。解析 `taskCount`。 |
+| `server/src/Mosaic.Server/Backups/BackupEndpoints.cs` | 最新清单和完整快照响应增加 `taskCount`、`settingCount`，由清单条目计数。 |
+| `tests/Mosaic.Sync.Core.Tests/AutomaticSyncTests.cs`、`Fakes.cs`、`SyncServiceTests.cs` | 覆盖任务保存立即上传、失败后重试、登出和关闭自动备份时不上传、空任务不覆盖服务器任务、手动上传仍可清空。 |
+| `tests/Mosaic.Auth.Http.Tests/HttpSyncTransportTests.cs`、`server/tests/Mosaic.Server.Tests/BackupTests.cs` | 覆盖 `taskCount` 解析与服务端计数字段。 |
+
+**验证**
+
+- `Mosaic.Sync.Core.Tests` 35/35 通过，`Mosaic.Auth.Http.Tests` 36/36 通过，`Mosaic.Server.Tests` 99/99 通过，`Mosaic.Architecture.Tests` 4/4 通过，`Mosaic.Tasks.Core.Tests.TaskTransferTests` 5/5 通过。
+- `dotnet build src/Mosaic.Desktop/Mosaic.Desktop.csproj -c Release` 0 警告 0 错误。
+- 自动备份默认启用：`SyncOptions.AutoSyncEnabled = true`，`SyncSettingsSource` 在设置缺失时按 true 读取；默认间隔 60 秒，登录后立即上传，任务变更后立即排队上传。设置路径为「设置 → 账户与备份」，关闭自动备份或把间隔改大均保留“只上传、不下载”的语义。
+- 未完成的验收：真实账户、正式服务器和真实任务库上的恢复往返；正式站仍返回配对 404 或连接超时，见上一节。Android 设备和正式 APK 签名仍未验收。
+
+**迁移与回滚**
+
+- 本轮没有数据库迁移，只增加可选的响应字段和自动上传保护。旧桌面客户端忽略 `taskCount`；旧服务端不返回时客户端按 `-1` 处理，行为回退到“任务变更也上传、但没有空任务保护”。
+- 源码可用 `git revert` 回退本提交；回退后自动备份恢复为仅登录和周期触发。空任务保护只在自动上传路径生效，手动「立即备份」仍可显式上传空任务以清空服务器备份。
+
 ## 桌面 0.19.5 候选的配对诊断修复（2026-11-27）
 
 **根因位置**
 
-- 正式部署分支 `fix/peek-detach-0.18.8` 的已核对提交 `2018b9e` 在 `server/src/Mosaic.Server/ServerApplication.cs` 没有注册 `MapMobilePairing`。扫码下载和配对入口此前实测返回 404。最新复查 `/health` 和下载页均连接超时，运行中容器的镜像提交及挂载待核对。
+- 正式部署分支 `fix/peek-detach-0.18.8` 的已核对提交 `2018b9e` 在 `server/src/Mosaic.Server/ServerApplication.cs` 没有注册 `MapMobilePairing`。扫码下载和配对入口此前实测返回 404。2026-11-28 复查 `/health` 返回 200、版本 `0.1.2`；`/device/mobile/connect`、`/device/mobile.apk`、`/.well-known/assetlinks.json` 和配对开始接口仍返回 404。运行中容器的镜像提交及挂载待核对。
 - `769f181:src/Modules/Auth/Mosaic.Auth.Wpf/Views/MobilePairingWindow.cs` 的 `Start`、`SendAsync` 将令牌失效、配对入口缺失和服务不可用映射为同一提示。`AuthChanged` 在首次刷新将会话置为 `SignedOut` 时关窗，用户看不到重新登录提示。
 - `769f181:server/src/Mosaic.Server/Auth/MobilePairingEndpoints.cs:13` 将缺少有效发布清单与反代未使请求成为 HTTPS 都报告为 `mobile.unavailable`。两个仓库 Compose 文件只声明了 `/data` 卷，正式 APK 及清单需要单独的只读挂载。
 

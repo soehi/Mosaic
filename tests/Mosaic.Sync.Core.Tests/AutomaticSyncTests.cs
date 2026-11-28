@@ -1,6 +1,8 @@
 using Mosaic.Auth.Contracts;
+using Mosaic.Contracts;
 using Mosaic.Settings.Contracts;
 using Mosaic.Sync.Contracts;
+using Mosaic.Tasks.Contracts;
 
 namespace Mosaic.Sync.Core.Tests;
 
@@ -15,18 +17,19 @@ public sealed class AutomaticSyncTests
         public FakeAuthApi Auth { get; } = new();
         public FakeSyncTransport Transport { get; } = new();
         public FakeTaskTransferApi Tasks { get; } = new();
+        public FakeTaskChangeSource Changes { get; } = new();
         public FakeSettings Settings { get; } = new();
         public Diagnostics Diagnostics { get; } = new();
         public ManualTimeProvider Clock { get; } = new();
         public SyncModule? Module { get; private set; }
 
-        public async Task<Fixture> StartAsync(int? intervalSeconds = null, bool? autoSyncEnabled = null)
+        public async Task<Fixture> StartAsync(int? intervalSeconds = null, bool? autoSyncEnabled = null, bool addTask = true)
         {
             // 落盘值必须在激活前写入：激活时读取设置，后台循环按用户保存的间隔开始计时。
             if (intervalSeconds is { } seconds) Settings.Values["sync.autoIntervalSeconds"] = seconds;
             if (autoSyncEnabled is { } enabled) Settings.Values["sync.autoSyncEnabled"] = enabled;
-            AddTask();
-            Module = new SyncModule(new(Auth, Transport, Tasks, Settings, new Gate(), Diagnostics, Clock));
+            if (addTask) AddTask();
+            Module = new SyncModule(new(Auth, Transport, Tasks, Settings, new Gate(), Diagnostics, Clock, Changes));
             await Module.ActivateAsync();
             await Settings.ApplySourcesAsync();
             return this;
@@ -99,6 +102,91 @@ public sealed class AutomaticSyncTests
         Assert.Equal(0, fixture.Transport.ListAttachmentRequests);
         Assert.Empty(fixture.Transport.UploadedAttachments);
         Assert.All(fixture.Transport.LastUpload!, item => Assert.True(item.Kind is SyncItemKinds.Task or SyncItemKinds.Setting));
+    }
+
+    [Fact]
+    public async Task Automatic_backup_does_not_replace_a_task_backup_with_settings_only()
+    {
+        var fixture = await new Fixture().StartAsync(addTask: false);
+        fixture.Transport.LatestResult =
+            OperationResult<BackupSnapshotDto?>.Success(FakeSyncTransport.Snapshot("snap-with-tasks", taskCount: 2));
+
+        fixture.RaiseSignedIn();
+        await Task.Delay(150);
+
+        Assert.Equal(0, fixture.Transport.Uploads);
+        Assert.Equal("snap-with-tasks", fixture.Module!.Api.State.LatestSnapshot!.SnapshotId);
+        Assert.Empty(fixture.Diagnostics.Reported);
+    }
+
+    [Fact]
+    public async Task Saving_a_task_uploads_before_the_interval_elapses()
+    {
+        var fixture = await new Fixture().StartAsync();
+        await Task.Delay(50);
+        Assert.Equal(0, fixture.Transport.Uploads);
+
+        fixture.AddTask("刚保存的任务");
+        fixture.Changes.Publish(new(TaskId, 8, TaskChangeKind.Created));
+
+        await WaitUntilAsync(() => fixture.Transport.Uploads == 1, "任务保存后应立即上传，不能等下一个 60 秒周期");
+        AssertUploadedOnce(fixture);
+        var saved = fixture.Transport.LastUpload!.Single(item =>
+        {
+            if (item.Kind != SyncItemKinds.Task) return false;
+            using var document = System.Text.Json.JsonDocument.Parse(item.Payload);
+            return document.RootElement.GetProperty("title").GetString() == "刚保存的任务";
+        });
+        Assert.Equal(7, saved.Revision);
+    }
+
+    [Fact]
+    public async Task Saving_a_task_during_a_failed_upload_is_retried_on_the_next_change()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.Transport.UploadResult = OperationResult<BackupSnapshotDto>.Failure(
+            new(SyncErrorCodes.NetworkUnavailable, "连接中断"));
+        fixture.RaiseSignedIn();
+        await WaitUntilAsync(() => fixture.Transport.Uploads == 1, "首次上传失败也应完成一次请求");
+
+        fixture.Transport.UploadResult = OperationResult<BackupSnapshotDto>.Success(
+            FakeSyncTransport.Snapshot("snap-2"));
+        fixture.AddTask("失败后保存的任务");
+        fixture.Changes.Publish(new(TaskId, 8, TaskChangeKind.Created));
+
+        await WaitUntilAsync(() => fixture.Transport.Uploads == 2, "失败后的任务变更应重新排队上传");
+        Assert.Contains(fixture.Transport.LastUpload!, item =>
+        {
+            if (item.Kind != SyncItemKinds.Task) return false;
+            using var document = System.Text.Json.JsonDocument.Parse(item.Payload);
+            return document.RootElement.GetProperty("title").GetString() == "失败后保存的任务";
+        });
+    }
+
+    [Fact]
+    public async Task Task_changes_do_not_upload_while_signed_out()
+    {
+        var fixture = await new Fixture().StartAsync();
+        fixture.RaiseSignedOut();
+
+        fixture.Changes.Publish(new(TaskId, 8, TaskChangeKind.Updated));
+        await Task.Delay(150);
+
+        Assert.Equal(0, fixture.Transport.Uploads);
+        Assert.Empty(fixture.Diagnostics.Reported);
+    }
+
+    [Fact]
+    public async Task Task_changes_respect_the_automatic_backup_switch()
+    {
+        var fixture = await new Fixture().StartAsync(autoSyncEnabled: false);
+        await fixture.CommitAsync("sync.autoSyncEnabled", false);
+
+        fixture.Changes.Publish(new(TaskId, 8, TaskChangeKind.Updated));
+        await Task.Delay(150);
+
+        Assert.Equal(0, fixture.Transport.Uploads);
+        Assert.Empty(fixture.Diagnostics.Reported);
     }
 
     [Fact]

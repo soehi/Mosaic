@@ -30,7 +30,9 @@ public sealed record BackupSnapshotDto(
     string ContentSha256,
     long TotalBytes,
     long ServerRevision = 0,
-    string? Cursor = null);
+    string? Cursor = null,
+    // 服务器清单里 task 条目的数量；旧服务器不返回时为 -1，调用方应跳过空任务保护。
+    int TaskCount = -1);
 
 public sealed record BackupSnapshotContentDto(BackupSnapshotDto Snapshot, IReadOnlyList<BackupItemDto> Items);
 
