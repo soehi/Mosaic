@@ -170,6 +170,7 @@ public sealed class DeviceFlowService(
                     """
                     SELECT id, state, expires_at, secret_cipher, last_polled_at
                     FROM device_auth WHERE device_code_hash = $hash
+                        AND NOT EXISTS (SELECT 1 FROM mobile_pairings WHERE device_id = device_auth.id)
                     """,
                     reader => new DeviceRow(
                         reader.Str("id"),

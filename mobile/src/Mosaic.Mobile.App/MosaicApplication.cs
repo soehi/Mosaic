@@ -21,10 +21,8 @@ public sealed class MosaicApplication : Application
     public override void OnCreate()
     {
         base.OnCreate();
-        MobileServices.Initialize(this);
-#if MOSAIC_WIDGET_TEST_SEED
-        TestSeedStore.EnsureSeeded(this);
-#endif
         LegacyInstallCleanup.Run(this);
+        WidgetSnapshotStore.RemoveRetiredFixture(this);
+        MobileServices.Initialize(this);
     }
 }

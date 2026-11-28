@@ -264,6 +264,10 @@
                                     Padding="12,7" MinHeight="36" Margin="0,0,0,4"
                                     AutomationProperties.AutomationId="RefreshBackupButton"/>
                         </WrapPanel>
+                        <Button Content="{DynamicResource Auth.Mobile.Title}" Click="OpenMobilePairing"
+                                HorizontalAlignment="Left" Padding="12,7" MinHeight="36" Margin="0,8,0,0"
+                                Style="{DynamicResource {x:Static theme:MosaicTheme.QuietButtonKey}}"
+                                AutomationProperties.AutomationId="DownloadMobileWidgetButton"/>
                     </StackPanel>
                 </Border>
 

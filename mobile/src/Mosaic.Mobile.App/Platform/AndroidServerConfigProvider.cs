@@ -4,10 +4,8 @@ using Mosaic.Mobile.Core.Configuration;
 namespace Mosaic.Mobile.App.Platform;
 
 /// <summary>
-/// The provisioned connection target. Provisioning itself is deferred by the
-/// refactor plan; this implementation reads a private preference that an
-/// out-of-band channel (or a future pairing surface) writes. Nothing in the
-/// card renderer knows a server address.
+/// Stores the connection target in private preferences. The pairing activity
+/// writes it and the widget kernel reads it before restoring a session.
 /// </summary>
 public sealed class AndroidServerConfigProvider : IServerConfigProvider
 {
@@ -25,6 +23,11 @@ public sealed class AndroidServerConfigProvider : IServerConfigProvider
         _preferences = context.GetSharedPreferences(PreferenceFile, FileCreationMode.Private)
             ?? throw new InvalidOperationException("Configuration preferences are unavailable.");
     }
+
+    public bool Save(ServerConfiguration configuration) => _preferences.Edit()
+        ?.PutString(ServerUrlKey, configuration.NormalizedOrigin)
+        ?.PutString(DeviceLabelKey, configuration.DeviceLabel)
+        ?.Commit() == true;
 
     public Task<ServerConfiguration?> GetAsync(CancellationToken cancellationToken)
     {

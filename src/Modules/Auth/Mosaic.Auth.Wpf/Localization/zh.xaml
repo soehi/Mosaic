@@ -1,6 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:String x:Key="Auth.Mobile.Title">下载手机组件</sys:String>
     <sys:String x:Key="Auth.Navigation">账户</sys:String>
     <sys:String x:Key="Auth.Title">账户与备份</sys:String>
     <sys:String x:Key="Auth.Subtitle">登录后可把任务与可移植设置备份到服务器，并在其他设备上恢复。不登录也可以完全离线使用，本机数据不受影响。</sys:String>

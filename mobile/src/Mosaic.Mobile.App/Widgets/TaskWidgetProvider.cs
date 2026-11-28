@@ -26,10 +26,8 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
 {
     public override void OnReceive(Context? context, Intent? intent)
     {
-        if (context is null || intent is null || !IsSystemWidgetAction(intent.Action))
-        {
-            return;
-        }
+        if (context is null || intent is null) return;
+        if (!IsSystemWidgetAction(intent.Action)) return;
 
         base.OnReceive(context, intent);
     }
@@ -42,6 +40,24 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         }
 
         RunRefresh(context);
+    }
+
+    public override void OnDeleted(Context? context, int[]? appWidgetIds)
+    {
+        if (context is null || appWidgetIds is null)
+        {
+            return;
+        }
+
+        // The host reuses nothing, but a stale group key would outlive its
+        // widget and could be read by a future instance with the same id.
+        foreach (var appWidgetId in appWidgetIds)
+        {
+            WidgetGroupStore.Delete(context, appWidgetId);
+            WidgetRenderer.ClearRefreshing(appWidgetId);
+        }
+
+        base.OnDeleted(context, appWidgetIds);
     }
 
     public override void OnAppWidgetOptionsChanged(
@@ -62,7 +78,7 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         {
             try
             {
-                var model = last ?? await WidgetRuntime.RefreshAsync().ConfigureAwait(false);
+                var model = last ?? await WidgetRuntime.RefreshAsync(appContext).ConfigureAwait(false);
                 WidgetRuntime.RenderAll(appContext, model);
             }
             finally
@@ -88,7 +104,7 @@ public sealed class TaskWidgetProvider : AppWidgetProvider
         {
             try
             {
-                var model = await WidgetRuntime.RefreshAsync().ConfigureAwait(false);
+                var model = await WidgetRuntime.RefreshAsync(appContext).ConfigureAwait(false);
                 WidgetRuntime.RenderAll(appContext, model);
             }
             finally

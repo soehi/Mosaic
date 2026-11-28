@@ -1,15 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 4x2 cells: 250dp wide, 110dp tall keeps title + complete + archive on one line. -->
+<!--
+  4 columns x 1-2 rows. 250dp is the 4-cell minimum per the platform formula
+  (4 cells x 70dp - 30dp). targetCellWidth/Height are the API 31+ hints that
+  make a fresh placement land on 4x1; the launcher may still clamp the span to
+  the screen width, which is a device limit, not a config error.
+  The 140dp maximum is the requested vertical resize limit. The host's size
+  selects a one- or two-row viewport over the full scrollable list.
+  resizeMode is vertical only: the widget never gets narrower or wider.
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
-    android:minHeight="110dp"
-    android:minResizeWidth="110dp"
-    android:minResizeHeight="110dp"
+    android:minHeight="40dp"
     android:targetCellWidth="4"
-    android:targetCellHeight="2"
+    android:targetCellHeight="1"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="40dp"
+    android:maxResizeWidth="250dp"
+    android:maxResizeHeight="140dp"
     android:updatePeriodMillis="0"
-    android:resizeMode="horizontal|vertical"
+    android:resizeMode="vertical"
+    android:configure="app.mosaic.tasks.WidgetConfigActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional"
     android:widgetCategory="home_screen"
     android:initialLayout="@layout/widget_tasks"
-    android:previewLayout="@layout/widget_tasks"
+    android:previewLayout="@layout/widget_tasks_preview"
     android:description="@string/widget_description" />
