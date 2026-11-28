@@ -196,7 +196,7 @@ public sealed class ServerOptions
 
         foreach (var proxy in TrustedProxies)
         {
-            if (!IPAddress.TryParse(proxy, out _))
+            if (!IPAddress.TryParse(proxy, out _) && !System.Net.IPNetwork.TryParse(proxy, out _))
             {
                 throw new InvalidOperationException($"MOSAIC_TRUSTED_PROXIES 包含无效地址：{proxy}");
             }

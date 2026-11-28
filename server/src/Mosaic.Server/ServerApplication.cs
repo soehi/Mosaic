@@ -94,15 +94,21 @@ public static class ServerApplication
 
         if (options.TrustedProxies.Length > 0)
         {
-            var proxies = options.TrustedProxies.Select(IPAddress.Parse).ToArray();
             builder.Services.Configure<ForwardedHeadersOptions>(forwarded =>
             {
                 forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
                 forwarded.KnownProxies.Clear();
                 forwarded.KnownIPNetworks.Clear();
-                foreach (var proxy in proxies)
+                foreach (var proxy in options.TrustedProxies)
                 {
-                    forwarded.KnownProxies.Add(proxy);
+                    if (IPAddress.TryParse(proxy, out var address))
+                    {
+                        forwarded.KnownProxies.Add(address);
+                    }
+                    else if (System.Net.IPNetwork.TryParse(proxy, out var network))
+                    {
+                        forwarded.KnownIPNetworks.Add(network);
+                    }
                 }
             });
         }
