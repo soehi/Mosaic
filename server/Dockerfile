@@ -20,6 +20,8 @@ ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
 RUN mkdir -p /data && chown -R $APP_UID:$APP_UID /data
 
 COPY --from=build /app .
+COPY ../deploy/mosaic-mobile-0.3.5-release.apk /opt/mosaic-mobile/mosaic-mobile-0.3.5-release.apk
+COPY ../deploy/release.json /opt/mosaic-mobile/release.json
 USER $APP_UID
 
 EXPOSE 8080
