@@ -1,6 +1,6 @@
 {
   "package": "app.mosaic.tasks",
   "apk": "mosaic-mobile-0.3.5-release.apk",
-  "sha256": "9bb73eef4144880e5d3382f270c761c7a4528dbb7e68df50b319945725a3774b",
-  "certificateSha256": "87a5986a8199c97ae94ff6a380707ef6690273d26c54c6904909a2e81f797add"
+  "sha256": "87cd7d8ddb1966916d7b0a68e57ef0dfa6f255862778ec213ec33cdabb2ed3fc",
+  "certificateSha256": "dc422bdb365ce732ad10e08f1f1dbd739b53a28a9761889121b532830c1d0dbd"
 }

@@ -1,10 +1,14 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "app.mosaic.tasks",
-      "sha256_cert_fingerprints": ["87:A5:98:6A:81:99:C9:7A:E9:4F:F6:A3:80:70:7E:F6:69:02:73:D2:6C:54:C6:90:49:09:A2:E8:1F:79:7A:DD"]
+      "sha256_cert_fingerprints": [
+        "DC:42:2B:DB:36:5C:E7:32:AD:10:E0:8F:1F:1D:BD:73:9B:53:A2:8A:97:61:88:91:21:B5:32:83:0C:1D:0D:BD"
+      ]
     }
   }
 ]
